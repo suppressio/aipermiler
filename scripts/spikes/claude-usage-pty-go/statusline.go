@@ -73,8 +73,15 @@ func probeTranscript(file, workdir string) string {
 }
 
 func sameDir(a, b string) bool {
-	ra, err1 := filepath.EvalSymlinks(a)
-	rb, err2 := filepath.EvalSymlinks(b)
+	resolve := func(p string) (string, error) {
+		abs, err := filepath.Abs(p)
+		if err != nil {
+			return "", err
+		}
+		return filepath.EvalSymlinks(abs)
+	}
+	ra, err1 := resolve(a)
+	rb, err2 := resolve(b)
 	return err1 == nil && err2 == nil && ra == rb
 }
 
