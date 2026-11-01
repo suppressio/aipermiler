@@ -16,7 +16,7 @@ Un piccolo widget sempre in primo piano, per Windows, macOS e Linux, che ti dice
 - **Notifiche** quando una quota supera la tua soglia di allarme, o quando il consumo di oggi va molto oltre il budget di oggi.
 - Interfaccia in italiano e inglese.
 
-> Progetto personale in sviluppo attivo (`v0.x-beta`).
+> Progetto personale in sviluppo attivo (`v0.x-beta`). Cosa è previsto e cosa è in corso: [roadmap](https://github.com/users/suppressio/projects/5).
 
 ---
 
