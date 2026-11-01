@@ -2,6 +2,8 @@
 
 # AIpermiler
 
+**Go further on fewer tokens.** Hypermiling, for your AI quota.
+
 A small always-on-top widget for Windows, macOS and Linux that tells you how fast you are using your **Claude**, **GitHub Copilot** and **Codex** (ChatGPT subscription) quotas, and how much you can still use today so the quota lasts until it renews.
 
 > **Claude quotas are not available in this version.** Anthropic does not allow third-party apps to sign in to claude.ai or to store its session ([Claude Code legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)), which was the only way this app could read them. A Claude account now shows only the local insights from Claude Code. The quotas will return through an allowed source ([#139](https://github.com/suppressio/aipermiler/issues/139)).
