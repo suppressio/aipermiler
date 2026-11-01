@@ -3,6 +3,8 @@
 // When a fetch fails, the last known data is shown with its timestamp (never a blank
 // screen, see AGENTS.md).
 
+// First import, before the store: moves the store of the old app name (#200).
+import { userDataMigration } from './main/userDataBootstrap';
 import { app, dialog, BrowserWindow, Notification, shell, Menu, screen, session, utilityProcess } from 'electron';
 import store, { DEFAULTS } from './store/index';
 import { normalizeSettings } from './store/normalize';
@@ -77,6 +79,8 @@ let lastSnapshot: UsageSnapshot | null = null;
 // installed app has no visible console (diagnostics/logBuffer.ts).
 const logBuffer = new LogBuffer(50);
 captureConsole(logBuffer);
+for (const warning of userDataMigration.warnings) console.warn(`[main] ${warning}`);
+if (userDataMigration.migrated) console.log('[main] settings moved from the folder of the old app name');
 
 
 // Durations of the last refresh and of the last local insights scan, for the
@@ -194,7 +198,7 @@ function startLocalInsights(windowDays: number, refreshWhenDone: boolean): Promi
 function computeLocalInsightsInProcess(windowDays: number): Promise<ClaudeLocalInsights | null> {
   return new Promise((resolve, reject) => {
     const child = utilityProcess.fork(path.join(__dirname, 'services', 'claudeLocalSessions.worker.js'), [], {
-      serviceName: 'IA Hypermiler local insights',
+      serviceName: 'AIpermiler local insights',
     });
     let settled = false;
     const settle = (action: () => void): void => {
@@ -296,7 +300,7 @@ function maybeReportFormatDrift(provider: ProviderId, err: unknown): void {
 
   if (Notification.isSupported()) {
     new Notification({
-      title: 'IA Hypermiler',
+      title: 'AIpermiler',
       body: t('notify.formatDrift', { provider: providers.providerDisplayName(provider) }),
     }).show();
   }
@@ -439,7 +443,7 @@ function maybeNotifyThreshold(snapshot: UsageSnapshot): void {
 
     if (Notification.isSupported()) {
       new Notification({
-        title: 'IA Hypermiler',
+        title: 'AIpermiler',
         body: t('notify.threshold', { account: account.label, threshold }),
       }).show();
     }
@@ -468,7 +472,7 @@ function maybeNotifyPace(snapshot: UsageSnapshot): void {
 
     if (Notification.isSupported()) {
       new Notification({
-        title: 'IA Hypermiler',
+        title: 'AIpermiler',
         body: t('notify.pace', { account: account.label, used: formatNumber(over.usedToday), budget: formatNumber(over.budget) }),
       }).show();
     }
@@ -736,7 +740,7 @@ async function checkForUpdates(source: 'auto' | 'manual'): Promise<UpdateSetting
 
   if (next.available && next.available.version !== next.notifiedVersion && Notification.isSupported()) {
     const notification = new Notification({
-      title: 'IA Hypermiler',
+      title: 'AIpermiler',
       body: t('notify.updateAvailable', { version: next.available.version }),
     });
     notification.on('click', openSettingsWindow);
@@ -966,7 +970,7 @@ function registerIpcHandlers(): void {
       defaultId: 0,
       cancelId: 1,
       noLink: true,
-      title: 'IA Hypermiler',
+      title: 'AIpermiler',
       message: t('report.confirmTitle'),
       detail: t('report.confirmDetail', { accounts: connected.length }),
     };
@@ -1020,7 +1024,7 @@ function registerIpcHandlers(): void {
       accounts,
       log: logBuffer.list(),
     });
-    const fileName = `ia-hypermiler-report-${budget.localDateKey(now)}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}.txt`;
+    const fileName = `aipermiler-report-${budget.localDateKey(now)}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}.txt`;
     const filePath = path.join(app.getPath('downloads'), fileName);
     await writeFile(filePath, text, 'utf8');
     shell.showItemInFolder(filePath);
