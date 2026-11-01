@@ -61,6 +61,7 @@ aipermiler/
 │   ├── build-core.js            ← builds the Go core CLI into core-bin/ (gitignored; electron-builder extraResources → <resources>/core/), --target to cross-compile, --dev honours AIPERMILER_CORE_BIN
 │   └── generate-icons.js        ← one-off "gauge" icon generator (build/icon.png, build/icons/*, renderer/assets/*.png)
 ├── build/                       ← electron-builder resources (icons) — TRACKED, not an output (packages go to release/)
+├── entry.ts                     ← Electron entry point (package.json main): userData migration (#200), then loads main.ts
 ├── main.ts                      ← Electron main process: wiring only (lifecycle, windows, tray, IPC, timers, notifications, update checks)
 ├── preload.ts                   ← contextBridge renderer ↔ main
 ├── gocore/                      ← Go core module (#145), strict lint + depguard; CI job `go-checks`
@@ -72,7 +73,7 @@ aipermiler/
 │       ├── codex/               ← native binary discovery, one-shot app-server probe and quota mapping
 │       ├── copilot/             ← Copilot usage (port of services/copilot.ts), token set/delete, OAuth PKCE login, raw response
 │       ├── github/              ← allowed GitHub hosts (github.com, <tenant>.ghe.com) and JSON client with a 10 s timeout
-│       ├── secrets/             ← OS keyring (go-keyring): the Copilot token, never in argv or documents; moves entries of the pre-rename service `hypermiler` (#200)
+│       ├── secrets/             ← OS keyring (go-keyring): the Copilot token, never in argv or documents; reads the pre-rename service `hypermiler` as a fallback, moves it on the next set (#200)
 │       ├── config/              ← OS config directory and development override
 │       ├── logging/             ← stderr text logger and level selection
 │       ├── pacing/              ← pure pacing model
@@ -92,7 +93,7 @@ aipermiler/
 │   ├── providers.ts             ← provider-specific part of the account registry (connection, fetch, disconnect, secret redaction)
 │   ├── refreshPolicy.ts         ← adaptive refresh pace, per-account backoff, manual-refresh cache (+ test)
 │   ├── userDataMigration.ts     ← moves the store from the pre-rename userData folder `ia-hypermiler` (#200, + test)
-│   ├── userDataBootstrap.ts     ← runs that migration at import: the FIRST import of main.ts, before the store exists
+│   ├── userDataBootstrap.ts     ← runs that migration once at import (entry.ts first, before the store exists)
 │   └── i18n/                    ← main-process strings (tray, notifications, dialogs, OAuth page): en.ts, it.ts, index.ts (+ test)
 ├── renderer/
 │   ├── index.html, style.css, app.ts           ← widget
