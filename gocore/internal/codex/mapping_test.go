@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/codex"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/usage"
+	"github.com/suppressio/aipermiler/gocore/internal/codex"
+	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
 
 func ptr[T any](value T) *T { return &value }

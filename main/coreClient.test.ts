@@ -98,7 +98,7 @@ test('error-usage: exit 2 is a bug in our arguments, reported with the core mess
 });
 
 test('version.json: name, version, os, arch', () => {
-  assert.deepEqual(parseVersionRun(runOf('version', 0)), { name: 'hypermiler', version: 'dev', os: 'linux', arch: 'amd64' });
+  assert.deepEqual(parseVersionRun(runOf('version', 0)), { name: 'aipermiler', version: 'dev', os: 'linux', arch: 'amd64' });
   assert.throws(() => parseVersionRun({ exitCode: 2, stdout: fixture('error-usage') }), CoreOutputError);
 });
 
@@ -149,11 +149,11 @@ function recordingRunner(result: CoreRun): { runner: CoreRunner; calls: { binary
 test('usage(): --json, the core deadline and the provider flags; a secret only on stdin', async () => {
   const ok = { exitCode: 0, stdout: fixture('usage-ok') };
   const plain = recordingRunner(ok);
-  await createCoreClient({ binary: () => '/opt/core/hypermiler', run: plain.runner }).usage({ provider: 'fake', flags: ['--host', 'github.com'] });
-  assert.deepEqual(plain.calls, [{ binary: '/opt/core/hypermiler', args: ['usage', 'fake', '--json', '--timeout', '25s', '--host', 'github.com'], stdin: null, timeoutMs: 30000 }]);
+  await createCoreClient({ binary: () => '/opt/core/aipermiler', run: plain.runner }).usage({ provider: 'fake', flags: ['--host', 'github.com'] });
+  assert.deepEqual(plain.calls, [{ binary: '/opt/core/aipermiler', args: ['usage', 'fake', '--json', '--timeout', '25s', '--host', 'github.com'], stdin: null, timeoutMs: 30000 }]);
 
   const withSecret = recordingRunner(ok);
-  await createCoreClient({ binary: () => '/opt/core/hypermiler', run: withSecret.runner }).usage({ provider: 'fake', flags: [], secret: 'synthetic-token-value' });
+  await createCoreClient({ binary: () => '/opt/core/aipermiler', run: withSecret.runner }).usage({ provider: 'fake', flags: [], secret: 'synthetic-token-value' });
   const call = withSecret.calls[0];
   assert.ok(call);
   assert.equal(call.stdin, 'synthetic-token-value');
@@ -169,18 +169,18 @@ test('version(): `version --json` with a short timeout', async () => {
 });
 
 test('a binary that cannot be resolved fails that call, not the client', async () => {
-  const client = createCoreClient({ binary: () => { throw new CoreBinaryError('HYPERMILER_CORE_BIN must be an absolute path'); } });
+  const client = createCoreClient({ binary: () => { throw new CoreBinaryError('AIPERMILER_CORE_BIN must be an absolute path'); } });
   await assert.rejects(client.version(), CoreBinaryError);
 });
 
 test('resolveCoreBinary: override, packaged resources, development core-bin', () => {
   const base = { env: {}, isPackaged: false, resourcesPath: path.join(path.sep, 'app', 'resources'), appPath: path.join(path.sep, 'repo'), platform: 'linux' as const };
-  assert.equal(resolveCoreBinary(base), path.join(path.sep, 'repo', 'core-bin', 'hypermiler'));
-  assert.equal(resolveCoreBinary({ ...base, isPackaged: true }), path.join(path.sep, 'app', 'resources', 'core', 'hypermiler'));
-  assert.equal(resolveCoreBinary({ ...base, isPackaged: true, platform: 'win32' }), path.join(path.sep, 'app', 'resources', 'core', 'hypermiler.exe'));
-  const override = path.resolve('custom', 'hypermiler');
-  assert.equal(resolveCoreBinary({ ...base, isPackaged: true, env: { HYPERMILER_CORE_BIN: override } }), override);
-  assert.throws(() => resolveCoreBinary({ ...base, env: { HYPERMILER_CORE_BIN: 'relative/hypermiler' } }), CoreBinaryError);
+  assert.equal(resolveCoreBinary(base), path.join(path.sep, 'repo', 'core-bin', 'aipermiler'));
+  assert.equal(resolveCoreBinary({ ...base, isPackaged: true }), path.join(path.sep, 'app', 'resources', 'core', 'aipermiler'));
+  assert.equal(resolveCoreBinary({ ...base, isPackaged: true, platform: 'win32' }), path.join(path.sep, 'app', 'resources', 'core', 'aipermiler.exe'));
+  const override = path.resolve('custom', 'aipermiler');
+  assert.equal(resolveCoreBinary({ ...base, isPackaged: true, env: { AIPERMILER_CORE_BIN: override } }), override);
+  assert.throws(() => resolveCoreBinary({ ...base, env: { AIPERMILER_CORE_BIN: 'relative/aipermiler' } }), CoreBinaryError);
 });
 
 // The real runner, with Node itself as the "binary" (cross-platform, no shell).

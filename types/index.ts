@@ -358,7 +358,7 @@ export interface CopilotAccountSettings extends AccountConfigBase {
   // renderer/settings.ts (applyAccountDetailState) and main.ts (accounts:connectCopilot*).
   authMethod: 'pat' | 'oauth';
   // Personal plan or company (organization) seat: chooses which endpoints are read
-  // (`hypermiler usage copilot --scope`, gocore/internal/copilot).
+  // (`aipermiler usage copilot --scope`, gocore/internal/copilot).
   accountScope: AccountScope;
   // "github.com" or a GitHub Enterprise Cloud tenant with data residency
   // ("<tenant>.ghe.com"), where company seats live — see services/githubHost.ts.

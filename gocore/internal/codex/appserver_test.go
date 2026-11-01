@@ -17,15 +17,15 @@ import (
 	"testing"
 	"time"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/buildinfo"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/cli"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/codex"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/provider"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/usage"
+	"github.com/suppressio/aipermiler/gocore/internal/buildinfo"
+	"github.com/suppressio/aipermiler/gocore/internal/cli"
+	"github.com/suppressio/aipermiler/gocore/internal/codex"
+	"github.com/suppressio/aipermiler/gocore/internal/provider"
+	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
 
 func TestMain(m *testing.M) {
-	if scenario := os.Getenv("HYPERMILER_FAKE_CODEX"); scenario != "" {
+	if scenario := os.Getenv("AIPERMILER_FAKE_CODEX"); scenario != "" {
 		os.Exit(fakeAppServer(scenario))
 	}
 	os.Exit(m.Run())
@@ -36,7 +36,7 @@ func fakeAppServer(scenario string) int {
 	if len(os.Args) != 2 || os.Args[1] != "app-server" {
 		return 90
 	}
-	if err := os.WriteFile(os.Getenv("HYPERMILER_FAKE_MARKER"), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
+	if err := os.WriteFile(os.Getenv("AIPERMILER_FAKE_MARKER"), []byte(strconv.Itoa(os.Getpid())), 0o600); err != nil {
 		return 92
 	}
 	if scenario == "exit" {
@@ -65,7 +65,7 @@ func fakeAppServer(scenario string) int {
 		}
 		switch method {
 		case "initialize":
-			want := fmt.Sprintf(`{"clientInfo":{"name":"hypermiler","title":null,"version":%q}}`, buildinfo.Version)
+			want := fmt.Sprintf(`{"clientInfo":{"name":"aipermiler","title":null,"version":%q}}`, buildinfo.Version)
 			var gotParams, wantParams any
 			if json.Unmarshal(req["params"], &gotParams) != nil || json.Unmarshal([]byte(want), &wantParams) != nil || !reflect.DeepEqual(gotParams, wantParams) || string(req["id"]) != "1" {
 				return 97
@@ -174,7 +174,7 @@ func assertProcessGone(t *testing.T, marker string) {
 }
 
 func TestProbe(t *testing.T) {
-	t.Setenv("HYPERMILER_FAKE_CODEX", "ok")
+	t.Setenv("AIPERMILER_FAKE_CODEX", "ok")
 	t.Setenv("GORACE", "atexit_sleep_ms=0")
 	tests := []struct {
 		scenario string
@@ -191,9 +191,9 @@ func TestProbe(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.scenario, func(t *testing.T) {
-			t.Setenv("HYPERMILER_FAKE_CODEX", tt.scenario)
+			t.Setenv("AIPERMILER_FAKE_CODEX", tt.scenario)
 			marker := filepath.Join(t.TempDir(), "address")
-			t.Setenv("HYPERMILER_FAKE_MARKER", marker)
+			t.Setenv("AIPERMILER_FAKE_MARKER", marker)
 			p := fakeProvider(t, time.Second, 100*time.Millisecond)
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -228,7 +228,7 @@ func TestProbe(t *testing.T) {
 }
 
 func TestCLI(t *testing.T) {
-	t.Setenv("HYPERMILER_FAKE_CODEX", "ok")
+	t.Setenv("AIPERMILER_FAKE_CODEX", "ok")
 	t.Setenv("GORACE", "atexit_sleep_ms=0")
 	binary, err := os.Executable()
 	if err != nil {
@@ -237,7 +237,7 @@ func TestCLI(t *testing.T) {
 	for _, jsonMode := range []bool{true, false} {
 		t.Run(fmt.Sprint(jsonMode), func(t *testing.T) {
 			marker := filepath.Join(t.TempDir(), "address")
-			t.Setenv("HYPERMILER_FAKE_MARKER", marker)
+			t.Setenv("AIPERMILER_FAKE_MARKER", marker)
 			var out, stderr bytes.Buffer
 			env := cli.Env{Providers: provider.Default(), Stdin: strings.NewReader(""), Stdout: &out, Stderr: &stderr, Now: func() time.Time { return time.Date(2026, 10, 31, 21, 10, 0, 0, time.UTC) }, Location: time.UTC}
 			args := []string{"usage", "codex", "--codex-bin", binary}

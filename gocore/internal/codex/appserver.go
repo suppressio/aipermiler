@@ -10,8 +10,8 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/buildinfo"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/usage"
+	"github.com/suppressio/aipermiler/gocore/internal/buildinfo"
+	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
 
 type rpcError struct {
@@ -76,7 +76,7 @@ func (p *Provider) probe(ctx context.Context, binary string) (data json.RawMessa
 			err = timeoutError()
 		}
 	}()
-	_, err = server.call(ctx, 1, "initialize", map[string]any{"clientInfo": map[string]any{"name": "hypermiler", "title": nil, "version": buildinfo.Version}}, false)
+	_, err = server.call(ctx, 1, "initialize", map[string]any{"clientInfo": map[string]any{"name": "aipermiler", "title": nil, "version": buildinfo.Version}}, false)
 	if err != nil {
 		return nil, classifyRPC(err)
 	}

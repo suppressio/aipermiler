@@ -73,7 +73,7 @@ jobs:
             # A newer semver than the release it starts from (0.4.11-beta.dev.5 >
             # 0.4.11-beta) and older than the next one: no spurious update prompt.
             version="$(node -p "require('./package.json').version").dev.${{ github.run_number }}"
-            HYPERMILER_CORE_VERSION="$version" npm run build:core
+            AIPERMILER_CORE_VERSION="$version" npm run build:core
             npx electron-builder ${{ matrix.flag }} --publish=never -c.extraMetadata.version="$version"
           fi
         env:
@@ -88,7 +88,7 @@ jobs:
       - name: Upload package as artifact
         uses: actions/upload-artifact@v7
         with:
-          name: ia-hypermiler-${{ matrix.artifact }}${{ github.ref_type != 'tag' && '-test' || '' }}
+          name: aipermiler-${{ matrix.artifact }}${{ github.ref_type != 'tag' && '-test' || '' }}
           path: |
             release/*.dmg
             release/*.exe

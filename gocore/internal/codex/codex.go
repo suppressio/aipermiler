@@ -6,7 +6,7 @@ import (
 	"flag"
 	"time"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/usage"
+	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
 
 const callTimeout = 10 * time.Second

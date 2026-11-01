@@ -5,10 +5,10 @@ import (
 	"context"
 	"flag"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/codex"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/copilot"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/secrets"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/usage"
+	"github.com/suppressio/aipermiler/gocore/internal/codex"
+	"github.com/suppressio/aipermiler/gocore/internal/copilot"
+	"github.com/suppressio/aipermiler/gocore/internal/secrets"
+	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
 
 // Provider binds account flags and fetches usage without putting secrets in argv.

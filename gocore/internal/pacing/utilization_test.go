@@ -3,7 +3,7 @@ package pacing_test
 import (
 	"testing"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/pacing"
+	"github.com/suppressio/aipermiler/gocore/internal/pacing"
 )
 
 func TestNormalizedUtilization(t *testing.T) {

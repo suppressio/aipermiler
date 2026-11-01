@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/codex"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/usage"
+	"github.com/suppressio/aipermiler/gocore/internal/codex"
+	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
 
 type tree struct {

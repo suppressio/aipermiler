@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/usage"
+	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
 
 const endpoint = "codex app-server account/rateLimits/read"

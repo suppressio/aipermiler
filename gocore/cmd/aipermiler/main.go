@@ -1,10 +1,10 @@
-// Command hypermiler runs the Go core CLI.
+// Command aipermiler runs the Go core CLI.
 package main
 
 import (
 	"os"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/cli"
+	"github.com/suppressio/aipermiler/gocore/internal/cli"
 )
 
 func main() {

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/logging"
+	"github.com/suppressio/aipermiler/gocore/internal/logging"
 )
 
 func TestNew(t *testing.T) {
@@ -27,7 +27,7 @@ func TestNew(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("HYPERMILER_LOG_LEVEL", tt.value)
+			t.Setenv("AIPERMILER_LOG_LEVEL", tt.value)
 			var output bytes.Buffer
 			logger := logging.New(&output)
 			for _, level := range []slog.Level{slog.LevelDebug, slog.LevelInfo, slog.LevelWarn, slog.LevelError} {
@@ -36,7 +36,7 @@ func TestNew(t *testing.T) {
 				}
 			}
 			if tt.warning {
-				if strings.Count(output.String(), "level=WARN") != 1 || !strings.Contains(output.String(), "Invalid HYPERMILER_LOG_LEVEL; using warn") {
+				if strings.Count(output.String(), "level=WARN") != 1 || !strings.Contains(output.String(), "Invalid AIPERMILER_LOG_LEVEL; using warn") {
 					t.Errorf("expected one fallback warning; got %q", output.String())
 				}
 			} else if output.Len() != 0 {

@@ -4,7 +4,7 @@
 // Channel names and payload types come from the shared contract (types/ipc.ts).
 
 import { contextBridge, ipcRenderer } from 'electron';
-import type { HypermilerBridge, IpcEventChannels, IpcInvokeChannels, IpcSendChannels } from './types/ipc';
+import type { AipermilerBridge, IpcEventChannels, IpcInvokeChannels, IpcSendChannels } from './types/ipc';
 
 function invoke<C extends keyof IpcInvokeChannels>(channel: C, ...args: IpcInvokeChannels[C]['args']): Promise<IpcInvokeChannels[C]['result']> {
   return ipcRenderer.invoke(channel, ...args) as Promise<IpcInvokeChannels[C]['result']>;
@@ -20,7 +20,7 @@ function subscribe<C extends keyof IpcEventChannels>(channel: C, callback: (...a
   return () => ipcRenderer.removeListener(channel, listener);
 }
 
-const bridge: HypermilerBridge = {
+const bridge: AipermilerBridge = {
   getView: () => invoke('view:get'),
   onViewUpdate: (callback) => subscribe('view:update', callback),
   getSettings: () => invoke('settings:get'),
@@ -65,4 +65,4 @@ const bridge: HypermilerBridge = {
   openGuide: () => invoke('app:openGuide'),
 };
 
-contextBridge.exposeInMainWorld('hypermiler', bridge);
+contextBridge.exposeInMainWorld('aipermiler', bridge);

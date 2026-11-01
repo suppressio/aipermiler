@@ -43,7 +43,7 @@ export function createTray({ getMainWindow, openSettings, refreshNow, store, get
 
   const baseIcon = icon;
   const tray = new Tray(icon);
-  tray.setToolTip('IA Hypermiler');
+  tray.setToolTip('AIpermiler');
 
   let latestSnapshot: UsageSnapshot | null = null;
   let shownBadge = '';

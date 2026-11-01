@@ -2,7 +2,7 @@
 // Every visible string goes through t() or data-i18n attributes (renderer/i18n).
 
 import type { AccountConfig, AccountId, AppSettings, ProviderId, UpdateSettings, TrayViewState } from '../types/index';
-import type { HypermilerBridge } from '../types/ipc';
+import type { AipermilerBridge } from '../types/ipc';
 import { byId } from './dom.js';
 import { applyTranslations, formatDate, formatDateTime, formatTime, resolveLocale, setLocale, t, type MessageKey } from './i18n/index.js';
 import { summarizeWorkSchedule } from './schedule.js';
@@ -11,7 +11,7 @@ import { renewalFromProvider } from './renewal.js';
 
 declare global {
   interface Window {
-    hypermiler: HypermilerBridge;
+    aipermiler: AipermilerBridge;
   }
 }
 
@@ -382,7 +382,7 @@ function enforceSingleCodexDraft(keepIndex: number): void {
 // changes on OTHER accounts and sections must not be lost (the form used to be
 // reloaded from scratch, discarding them).
 async function reloadAfterAccountAction(actedOn: AccountId | null): Promise<void> {
-  const fresh = await window.hypermiler.getSettings();
+  const fresh = await window.aipermiler.getSettings();
   const draft = settings;
   savedSettings = structuredClone(fresh);
   if (draft) {
@@ -426,7 +426,7 @@ async function runAccountAction(action: string, id: AccountId, button: HTMLButto
         return;
       }
       setDetailStatus(id, t('settings.accounts.checkingToken'));
-      const result = await window.hypermiler.connectCopilot(id, token, githubHostInput(id));
+      const result = await window.aipermiler.connectCopilot(id, token, githubHostInput(id));
       await reloadAfterAccountAction(id);
       showSaveStatus(t('settings.accounts.connectedAs', { name, user: result.username }));
     } else if (action === 'connect-copilot-oauth') {
@@ -438,16 +438,16 @@ async function runAccountAction(action: string, id: AccountId, button: HTMLButto
         return;
       }
       setDetailStatus(id, t('settings.accounts.oauthAuthorize'));
-      const result = await window.hypermiler.connectCopilotOAuth(id, clientId, clientSecret, githubHostInput(id));
+      const result = await window.aipermiler.connectCopilotOAuth(id, clientId, clientSecret, githubHostInput(id));
       await reloadAfterAccountAction(id);
       showSaveStatus(t('settings.accounts.connectedOauthAs', { name, user: result.username }));
     } else if (action === 'disconnect') {
-      await window.hypermiler.disconnectAccount(id);
+      await window.aipermiler.disconnectAccount(id);
       await reloadAfterAccountAction(id);
       showSaveStatus(t('settings.accounts.disconnected', { name }));
     } else if (action === 'remove') {
       if (!window.confirm(t('settings.accounts.removeConfirm', { name }))) return;
-      await window.hypermiler.removeAccount(id);
+      await window.aipermiler.removeAccount(id);
       if (expandedAccountId === id) expandedAccountId = null;
       await reloadAfterAccountAction(id);
       showSaveStatus(t('settings.accounts.removed', { name }));
@@ -493,7 +493,7 @@ function renderUpdatesCard(updates: UpdateSettings | undefined): void {
     notes.addEventListener('click', (event) => {
       event.preventDefault();
       // Goes through the main process, which only opens URLs of the project repository.
-      runGuarded(window.hypermiler.openReleaseNotes());
+      runGuarded(window.aipermiler.openReleaseNotes());
     });
     status.append(notes);
   } else if (updates?.lastError) {
@@ -544,7 +544,7 @@ function guarded(handler: () => Promise<void>): () => void {
 }
 
 async function persist(key: string): Promise<AppSettings> {
-  return window.hypermiler.setSettings({ [key]: (settings as unknown as PlainRecord)[key] });
+  return window.aipermiler.setSettings({ [key]: (settings as unknown as PlainRecord)[key] });
 }
 
 // --- Events ----------------------------------------------------------------------------
@@ -580,7 +580,7 @@ function bindEvents(): void {
   byId('btn-add-account').addEventListener('click', guarded(async () => {
     const provider = byId('add-account-provider', HTMLSelectElement).value as ProviderId;
     captureDraftFromForm();
-    const id = await window.hypermiler.addAccount(provider);
+    const id = await window.aipermiler.addAccount(provider);
     expandedAccountId = id;
     newAccountId = id;
     await reloadAfterAccountAction(id);
@@ -607,7 +607,7 @@ function bindEvents(): void {
     button.disabled = true;
     status.textContent = '';
     try {
-      const result = await window.hypermiler.createDiagnosticReport();
+      const result = await window.aipermiler.createDiagnosticReport();
       status.textContent = result.created && result.fileName
         ? t('settings.diagnostics.reportCreated', { file: result.fileName })
         : '';
@@ -639,10 +639,10 @@ function bindEvents(): void {
     const newAlwaysOnTop = getPath(settings, 'ui.alwaysOnTop') as boolean;
     const newLanguage = getPath(settings, 'ui.language') as AppSettings['ui']['language'];
     if (newStyle !== savedSettings?.ui.windowStyle) {
-      await window.hypermiler.setWindowStyle(newStyle);
+      await window.aipermiler.setWindowStyle(newStyle);
     }
     if (newAlwaysOnTop !== savedSettings?.ui.alwaysOnTop) {
-      await window.hypermiler.setAlwaysOnTop(newAlwaysOnTop);
+      await window.aipermiler.setAlwaysOnTop(newAlwaysOnTop);
     }
     if (newLanguage !== savedSettings?.ui.language) {
       // This window too switches language at once; the draft is kept.
@@ -654,7 +654,7 @@ function bindEvents(): void {
     // A field affecting the budget computation (plan, renewal day, manual quota,
     // work schedule…) must not wait for the next automatic refresh (up to 30 min).
     if (touchedKeys.has('accounts')) {
-      window.hypermiler.requestUsageRefresh();
+      window.aipermiler.requestUsageRefresh();
     }
 
     savedSettings = structuredClone(settings);
@@ -668,7 +668,7 @@ function bindEvents(): void {
     btn.disabled = true;
     status.textContent = t('settings.updates.checking');
     try {
-      renderUpdatesCard(await window.hypermiler.checkForUpdates());
+      renderUpdatesCard(await window.aipermiler.checkForUpdates());
     } catch (err) {
       status.textContent = t('settings.updates.failed', { error: errorMessage(err) });
     } finally {
@@ -677,12 +677,12 @@ function bindEvents(): void {
   }));
 
   byId('btn-open-guide').addEventListener('click', guarded(async () => {
-    await window.hypermiler.openGuide();
+    await window.aipermiler.openGuide();
   }));
 
   byId('btn-download-update').addEventListener('click', guarded(async () => {
     try {
-      await window.hypermiler.downloadUpdate();
+      await window.aipermiler.downloadUpdate();
     } catch (err) {
       showSaveStatus(t('settings.updates.downloadFailed', { error: errorMessage(err) }));
     }
@@ -690,7 +690,7 @@ function bindEvents(): void {
 
   byId('btn-cancel').addEventListener('click', guarded(async () => {
     // Discards unsaved changes: reloads the persisted state and repopulates the form.
-    settings = await window.hypermiler.getSettings();
+    settings = await window.aipermiler.getSettings();
     savedSettings = structuredClone(settings);
     populateForm();
     showSaveStatus(t('settings.cancelled'));
@@ -701,9 +701,9 @@ async function init(): Promise<void> {
   // The loading placeholders (settings.html) in the system language right away: the
   // saved language is known only once the main process answers.
   applyLanguage('auto');
-  settings = await window.hypermiler.getSettings();
+  settings = await window.aipermiler.getSettings();
   savedSettings = structuredClone(settings);
-  window.hypermiler.onViewUpdate((updated) => {
+  window.aipermiler.onViewUpdate((updated) => {
     const clean = JSON.stringify(settings?.ui.trayBadge) === JSON.stringify(savedSettings?.ui.trayBadge);
     trayView = updated;
     if (clean && settings && savedSettings) {
@@ -713,15 +713,15 @@ async function init(): Promise<void> {
     }
     renderTrayBadgeOptions();
   });
-  trayView = await window.hypermiler.getView();
+  trayView = await window.aipermiler.getView();
   settings.ui.trayBadge = structuredClone(trayView.selection);
   savedSettings.ui.trayBadge = structuredClone(trayView.selection);
   applyLanguage(settings.ui.language);
   populateForm();
   bindEvents();
-  byId('app-version', HTMLElement).textContent = await window.hypermiler.getAppVersion();
+  byId('app-version', HTMLElement).textContent = await window.aipermiler.getAppVersion();
   // Not awaited: running the core takes a moment and must not delay the form.
-  runGuarded(window.hypermiler.getCoreStatus().then((status) => {
+  runGuarded(window.aipermiler.getCoreStatus().then((status) => {
     byId('core-status', HTMLElement).textContent = status.ok ? status.version : t('settings.diagnostics.coreUnavailable', { error: status.error });
   }));
   renderUpdatesCard(settings.updates);
@@ -729,7 +729,7 @@ async function init(): Promise<void> {
   for (const id of ['btn-add-account', 'btn-cancel', 'btn-save', 'btn-report-responses']) byId(id, HTMLButtonElement).disabled = false;
   // Only the updates state (owned by the main process): the rest of the form stays
   // a draft, a full repopulation would discard unsaved changes.
-  window.hypermiler.onSettingsUpdate((updated) => {
+  window.aipermiler.onSettingsUpdate((updated) => {
     if (settings) {
       settings.updates = { ...updated.updates, autoCheck: settings.updates.autoCheck };
     }

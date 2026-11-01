@@ -1,4 +1,4 @@
-module github.com/suppressio/ia-hypermiler/gocore
+module github.com/suppressio/aipermiler/gocore
 
 go 1.24
 

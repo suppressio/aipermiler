@@ -15,8 +15,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/secrets"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/usage"
+	"github.com/suppressio/aipermiler/gocore/internal/secrets"
+	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
 
 // OAuth App login, Authorization Code + PKCE over a loopback (port of
@@ -56,8 +56,8 @@ func AuthorizationURL(oauthBase, clientID, redirectURI, state, challenge string)
 type pageText struct{ success, successMessage, failed, invalid, closeTab string }
 
 var pages = map[string]pageText{
-	"en": {"Copilot connected", "You can go back to IA Hypermiler.", "Copilot sign-in failed", "Invalid callback: start the sign-in again from the app.", "You can close this tab."},
-	"it": {"Copilot collegato", "Puoi tornare a IA Hypermiler.", "Accesso a Copilot non riuscito", "Callback non valida: ripeti l'accesso dall'app.", "Puoi chiudere questa scheda."},
+	"en": {"Copilot connected", "You can go back to AIpermiler.", "Copilot sign-in failed", "Invalid callback: start the sign-in again from the app.", "You can close this tab."},
+	"it": {"Copilot collegato", "Puoi tornare a AIpermiler.", "Accesso a Copilot non riuscito", "Callback non valida: ripeti l'accesso dall'app.", "Puoi chiudere questa scheda."},
 }
 
 func page(lang, title, message string) string {

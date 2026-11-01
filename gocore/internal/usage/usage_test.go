@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/usage"
+	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
 
 func TestUsageNullableFieldsAndUTC(t *testing.T) {

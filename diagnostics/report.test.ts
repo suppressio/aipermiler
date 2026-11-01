@@ -42,7 +42,7 @@ test('buildDiagnosticReport: values kept, ids/strings redacted, errors shortened
     ],
     log: log.list(),
   });
-  assert.match(text, /^# IA Hypermiler diagnostic report/);
+  assert.match(text, /^# AIpermiler diagnostic report/);
   const json: unknown = JSON.parse(text.slice(text.indexOf('\n') + 1));
   const doc = json as { system: unknown; accounts: { name: string; enabled: boolean; response?: unknown; readError?: string }[]; log: { message: string }[] };
   assert.deepEqual(doc.system, { timeZone: 'Europe/Paris', cpuCores: 8 });

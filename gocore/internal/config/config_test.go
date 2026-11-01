@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/buildinfo"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/config"
+	"github.com/suppressio/aipermiler/gocore/internal/buildinfo"
+	"github.com/suppressio/aipermiler/gocore/internal/config"
 )
 
 func TestDir(t *testing.T) {
@@ -30,12 +30,12 @@ func TestDir(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("HYPERMILER_CONFIG_DIR", tt.override)
+			t.Setenv("AIPERMILER_CONFIG_DIR", tt.override)
 			got, err := config.Dir()
 			if (err != nil) != tt.wantErr || got != tt.want {
 				t.Fatalf("Dir() = %q, %v; want %q, error %v", got, err, tt.want, tt.wantErr)
 			}
-			if tt.wantErr && !strings.Contains(err.Error(), "HYPERMILER_CONFIG_DIR must be an absolute path") {
+			if tt.wantErr && !strings.Contains(err.Error(), "AIPERMILER_CONFIG_DIR must be an absolute path") {
 				t.Errorf("unexpected error: %v", err)
 			}
 		})
@@ -45,7 +45,7 @@ func TestDir(t *testing.T) {
 //nolint:paralleltest // uses t.Setenv
 func TestEnsure(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "nested", "config")
-	t.Setenv("HYPERMILER_CONFIG_DIR", dir)
+	t.Setenv("AIPERMILER_CONFIG_DIR", dir)
 	for _, name := range []string{"create", "already exists"} {
 		t.Run(name, func(t *testing.T) {
 			got, err := config.Ensure()
@@ -86,7 +86,7 @@ func TestEnsureErrors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv("HYPERMILER_CONFIG_DIR", tt.override)
+			t.Setenv("AIPERMILER_CONFIG_DIR", tt.override)
 			got, err := config.Ensure()
 			if err == nil || got != "" {
 				t.Fatalf("Ensure() = %q, %v; want empty path and error", got, err)

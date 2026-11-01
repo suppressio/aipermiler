@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/buildinfo"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/cli"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/provider"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/usage"
+	"github.com/suppressio/aipermiler/gocore/internal/buildinfo"
+	"github.com/suppressio/aipermiler/gocore/internal/cli"
+	"github.com/suppressio/aipermiler/gocore/internal/provider"
+	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
 
 type fakeProvider struct {

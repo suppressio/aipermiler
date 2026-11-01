@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/usage"
+	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
 
 func TestExtractShape(t *testing.T) {

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/provider"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/usage"
+	"github.com/suppressio/aipermiler/gocore/internal/provider"
+	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
 
 // providerCommand is a parsed `<command> <provider> [flags]` invocation.

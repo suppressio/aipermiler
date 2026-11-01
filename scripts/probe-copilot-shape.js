@@ -5,12 +5,12 @@
 //
 //   node --env-file=.env.test scripts/probe-copilot-shape.js [--quota-values]
 //
-// Uses HYPERMILER_TEST_COPILOT_TOKEN, and HYPERMILER_TEST_COPILOT_HOST for a GitHub
+// Uses AIPERMILER_TEST_COPILOT_TOKEN, and AIPERMILER_TEST_COPILOT_HOST for a GitHub
 // Enterprise Cloud tenant (e.g. acme.ghe.com; default github.com — same rule as
 // services/githubHost.ts). Output is safe to share: same rule as services/_shape.ts
 // (no numbers, strings or dates), plus the HTTP status.
 
-const HOST = (process.env.HYPERMILER_TEST_COPILOT_HOST || 'github.com').trim().toLowerCase();
+const HOST = (process.env.AIPERMILER_TEST_COPILOT_HOST || 'github.com').trim().toLowerCase();
 const VALID_HOST = /^(github\.com|[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.ghe\.com)$/;
 const TIMEOUT_MS = 10_000;
 const MAX_DEPTH = 8;
@@ -38,14 +38,14 @@ function hintedPaths(shape, prefix = '') {
 }
 
 async function main() {
-  const token = process.env.HYPERMILER_TEST_COPILOT_TOKEN;
+  const token = process.env.AIPERMILER_TEST_COPILOT_TOKEN;
   if (!token) {
-    console.error('Missing HYPERMILER_TEST_COPILOT_TOKEN — fill .env.test and run with --env-file=.env.test');
+    console.error('Missing AIPERMILER_TEST_COPILOT_TOKEN — fill .env.test and run with --env-file=.env.test');
     process.exitCode = 1;
     return;
   }
   if (!VALID_HOST.test(HOST)) {
-    console.error('HYPERMILER_TEST_COPILOT_HOST must be github.com or <tenant>.ghe.com');
+    console.error('AIPERMILER_TEST_COPILOT_HOST must be github.com or <tenant>.ghe.com');
     process.exitCode = 1;
     return;
   }

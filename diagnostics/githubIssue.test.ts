@@ -10,7 +10,7 @@ import { extractShape } from '../services/_shape';
 
 test('buildFormatDriftIssueUrl points to the right repo with new issue', () => {
   const url = buildFormatDriftIssueUrl({ provider: 'claude', endpointLabel: 'x', shape: {} });
-  assert.match(url, /^https:\/\/github\.com\/suppressio\/ia-hypermiler\/issues\/new\?/);
+  assert.match(url, /^https:\/\/github\.com\/suppressio\/aipermiler\/issues\/new\?/);
 });
 
 test('buildFormatDriftIssueUrl includes a title with the readable service name', () => {
@@ -113,11 +113,11 @@ test('shortError drops the response body appended after " — "', () => {
 });
 
 test('buildReportIssueUrl: short draft naming the file to attach and the neutral accounts', () => {
-  const url = buildReportIssueUrl({ appVersion: '0.4.11-beta', fileName: 'ia-hypermiler-report-x.txt', accounts: ['Claude #1', 'GitHub Copilot #1'] });
-  assert.match(url, /^https:\/\/github\.com\/suppressio\/ia-hypermiler\/issues\/new\?/);
+  const url = buildReportIssueUrl({ appVersion: '0.4.11-beta', fileName: 'aipermiler-report-x.txt', accounts: ['Claude #1', 'GitHub Copilot #1'] });
+  assert.match(url, /^https:\/\/github\.com\/suppressio\/aipermiler\/issues\/new\?/);
   const params = new URL(url).searchParams;
   const body = params.get('body') ?? '';
-  assert.ok(body.includes('ia-hypermiler-report-x.txt'));
+  assert.ok(body.includes('aipermiler-report-x.txt'));
   assert.ok(body.includes('Claude #1, GitHub Copilot #1'));
   assert.match(body, /real usage values/);
   assert.equal(params.get('labels'), 'response-report');

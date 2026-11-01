@@ -7,9 +7,9 @@ import (
 	"os"
 )
 
-// New uses HYPERMILER_LOG_LEVEL, defaulting to warn for unset or invalid values.
+// New uses AIPERMILER_LOG_LEVEL, defaulting to warn for unset or invalid values.
 func New(w io.Writer) *slog.Logger {
-	value := os.Getenv("HYPERMILER_LOG_LEVEL")
+	value := os.Getenv("AIPERMILER_LOG_LEVEL")
 	level := slog.LevelWarn
 	valid := true
 	switch value {
@@ -25,7 +25,7 @@ func New(w io.Writer) *slog.Logger {
 	}
 	logger := slog.New(slog.NewTextHandler(w, &slog.HandlerOptions{Level: level}))
 	if !valid {
-		logger.Warn("Invalid HYPERMILER_LOG_LEVEL; using warn")
+		logger.Warn("Invalid AIPERMILER_LOG_LEVEL; using warn")
 	}
 	return logger
 }
