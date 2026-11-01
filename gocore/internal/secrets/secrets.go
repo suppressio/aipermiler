@@ -84,7 +84,7 @@ func within(ctx context.Context, call func() error) error {
 }
 
 // LegacyService is the keyring service of the core before the AIpermiler rename
-// (#200); Migrating moves its entries to the current service on first read.
+// (#200); Migrating still reads its entries and moves them on the next write.
 const LegacyService = "hypermiler"
 
 // OSKeyring is the real store, under the service name of the binary, migrating
@@ -133,33 +133,32 @@ func (s serviceKeyring) Delete(key string) error {
 	return nil
 }
 
-// Migrating reads and writes Current. A secret found only in Legacy is copied to
-// Current and then removed from Legacy, both best-effort: the value is returned even
-// when the copy fails (it stays in Legacy and the next read tries again). Delete
-// removes the secret from both, so disconnecting leaves no copy behind.
+// Migrating reads Current, falling back to Legacy, and never writes on a read: a read
+// running while the same secret is deleted (refresh or diagnostics against disconnect)
+// could otherwise write it back. A secret left in Legacy moves when it is next set
+// (reconnect: Set writes Current and clears Legacy) and goes when it is deleted.
 type Migrating struct {
 	Current Store
 	Legacy  Store
 }
 
-// Get reads Current, then Legacy (moving the secret when found there).
+// Get reads Current, then Legacy.
 func (m Migrating) Get(key string) (string, error) {
 	value, err := m.Current.Get(key)
 	if !errors.Is(err, ErrNotFound) {
 		return value, err
 	}
-	value, err = m.Legacy.Get(key)
-	if err != nil {
-		return "", err
-	}
-	if m.Current.Set(key, value) == nil {
-		_ = m.Legacy.Delete(key) // best-effort: a leftover is read from Current from now on
-	}
-	return value, nil
+	return m.Legacy.Get(key)
 }
 
-// Set writes Current only.
-func (m Migrating) Set(key, value string) error { return m.Current.Set(key, value) }
+// Set writes Current, then removes any Legacy copy (best-effort: Current wins on read).
+func (m Migrating) Set(key, value string) error {
+	if err := m.Current.Set(key, value); err != nil {
+		return err
+	}
+	_ = m.Legacy.Delete(key)
+	return nil
+}
 
 // Delete removes key from Current and Legacy.
 func (m Migrating) Delete(key string) error {
