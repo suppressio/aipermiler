@@ -48,6 +48,10 @@ type result struct {
 	ExitNote   string   `json:"exitNote,omitempty"`
 	Candidates []string `json:"candidates,omitempty"`
 	Screen     string   `json:"screen,omitempty"`
+	// -statusline: windows read from the status line JSON (rate_limits) instead of the screen.
+	Source string `json:"source,omitempty"`
+	// ScreenMatch: with -statusline, whether the panel showed the same percentages (same run).
+	ScreenMatch *bool `json:"screenMatch,omitempty"`
 }
 
 // session is the platform PTY: Write sends keys, Read returns output, Close kills the whole tree
@@ -77,8 +81,15 @@ func main() {
 	launchdPath := flag.Bool("launchd-path", false, "child PATH=/usr/bin:/bin:/usr/sbin:/sbin, as a launchd GUI job")
 	discoverOnly := flag.Bool("discover", false, "only list discovery candidates")
 	flag.StringVar(&workdir, "workdir", "", "fixed working directory (default: a new temp folder, removed after)")
+	flag.BoolVar(&useStatusLine, "statusline", false, "read the windows from the rate_limits our own statusLine command receives after /usage")
+	sink := flag.String("sl-sink", "", "internal: statusLine command mode, append stdin to FILE")
+	flag.BoolVar(&graceful, "graceful", false, "leave through /exit before the kill")
 	flag.BoolVar(&acceptTrust, "accept-trust", false, "answer \"Yes, I trust this folder\" once (only for the probe's own empty folder)")
 	flag.Parse()
+	if *sink != "" {
+		statusLineSink(*sink)
+		return
+	}
 
 	res := result{OS: runtime.GOOS + "/" + runtime.GOARCH}
 	if *launchdPath { // discovery sees the same PATH as a launchd GUI job
@@ -148,7 +159,17 @@ func probe(res *result, timeout time.Duration, launchdPath, raw bool) {
 	}
 
 	t0 := time.Now()
-	s, err := start(res.Bin, claudeArgs, cwd, childEnv(launchdPath))
+	args := claudeArgs
+	slFile := ""
+	if useStatusLine {
+		var err error
+		if args, slFile, err = statusLineArgs(); err != nil {
+			res.State, res.Reason = "error", err.Error()
+			return
+		}
+		defer os.RemoveAll(filepath.Dir(slFile))
+	}
+	s, err := start(res.Bin, args, cwd, childEnv(launchdPath))
 	if err != nil {
 		res.State, res.Reason = "error", "start: "+err.Error()
 		return
@@ -173,6 +194,8 @@ func probe(res *result, timeout time.Duration, launchdPath, raw bool) {
 	var lastData time.Time
 	sentAt := time.Time{}
 	trustSent := false
+	var escAt time.Time
+	var screenWs []window
 	phase := "start"
 	finish := func(state, reason string) {
 		res.State, res.Reason = state, reason
@@ -223,10 +246,41 @@ loop:
 				finish("not_signed_in", "")
 				break
 			}
+			if slFile != "" {
+				if ws := readStatusLine(slFile); len(ws) > 0 {
+					res.Windows, res.Source = ws, "statusline"
+					if screenWs != nil {
+						m := len(ws) == len(screenWs)
+						for i := 0; m && i < len(ws); i++ {
+							m = ws[i].UsedPercent == screenWs[i].UsedPercent
+						}
+						res.ScreenMatch = &m
+					}
+					if reStale.MatchString(text) {
+						finish("stale", "could not refresh")
+					} else {
+						finish("ok", res.Reason)
+					}
+					break
+				}
+			}
 			ws := parse(text)
+			// The status line is hidden while the panel is open: close it once the panel has
+			// loaded, then give the status line a few seconds; the screen is the fallback.
+			if slFile != "" && len(ws) > 0 {
+				if escAt.IsZero() {
+					_, _ = s.Write([]byte("\x1b"))
+					escAt = time.Now()
+					screenWs = ws
+				}
+				if time.Since(escAt) < 5*time.Second {
+					break
+				}
+				ws = screenWs
+			}
 			settled := lastData.After(sentAt) && time.Since(lastData) > 700*time.Millisecond
 			if len(ws) > 0 && settled {
-				res.Windows = ws
+				res.Windows, res.Source = ws, "screen"
 				if reStale.MatchString(text) {
 					finish("stale", "could not refresh")
 				} else {
@@ -234,6 +288,29 @@ loop:
 				}
 			} else if time.Since(sentAt) > 12*time.Second {
 				finish("not_ready", "no usage windows on screen")
+			}
+		}
+	}
+	// -graceful: leave through /exit first, so claude finishes its own writes and cleanup;
+	// the kill below is then only a fallback.
+	if graceful && phase == "done" && (res.State == "ok" || res.State == "stale") {
+		_, _ = s.Write([]byte("\x1b"))
+		time.Sleep(200 * time.Millisecond)
+		_, _ = s.Write([]byte("/exit"))
+		time.Sleep(300 * time.Millisecond)
+		_, _ = s.Write([]byte("\r"))
+		exitAt := time.Now()
+		res.ExitNote = "graceful: no exit within 5s"
+	wait:
+		for {
+			select {
+			case _, ok := <-chunks:
+				if !ok {
+					res.ExitNote = fmt.Sprintf("graceful: exited after %d ms", time.Since(exitAt).Milliseconds())
+					break wait
+				}
+			case <-time.After(5*time.Second - time.Since(exitAt)):
+				break wait
 			}
 		}
 	}
@@ -245,6 +322,9 @@ loop:
 	cpu, note := s.Close()
 	res.WallMs = time.Since(t0).Milliseconds()
 	res.CPUMs = cpu.Milliseconds()
+	if res.ExitNote != "" {
+		note = res.ExitNote + "; " + note
+	}
 	res.ExitNote = note
 	if v := reVersion.FindString(scr.text()); v != "" {
 		res.Version = v
@@ -255,8 +335,10 @@ loop:
 }
 
 var (
-	workdir     string
-	acceptTrust bool
+	workdir       string
+	acceptTrust   bool
+	useStatusLine bool
+	graceful      bool
 )
 
 var reVersion = regexp.MustCompile(`Claude\s*Code\s*v?\d+\.\d+\.\d+`)
