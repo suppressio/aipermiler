@@ -72,18 +72,11 @@ func probeTranscript(file, workdir string) string {
 	return path
 }
 
+// sameDir compares the directories themselves (inode / file id), not their spellings.
 func sameDir(a, b string) bool {
-	// Symlinks first, so "link/.." follows the link like the OS does; then absolute.
-	resolve := func(p string) (string, error) {
-		real, err := filepath.EvalSymlinks(p)
-		if err != nil {
-			return "", err
-		}
-		return filepath.Abs(real)
-	}
-	ra, err1 := resolve(a)
-	rb, err2 := resolve(b)
-	return err1 == nil && err2 == nil && ra == rb
+	sa, err1 := os.Stat(a)
+	sb, err2 := os.Stat(b)
+	return err1 == nil && err2 == nil && os.SameFile(sa, sb)
 }
 
 // readStatusLine returns the windows of the last status line run that carried rate_limits.
