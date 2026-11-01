@@ -6,7 +6,7 @@
 //
 // Windows: the NSIS installer (.exe) can be built from Linux/macOS only with Wine;
 // without it a .zip of the ready-to-run app is built instead (extract and start
-// "IA Hypermiler.exe"). Usage: `npm run package:test` (add `-- --linux` or `-- --win`
+// "AIpermiler.exe"). Usage: `npm run package:test` (add `-- --linux` or `-- --win`
 // for one platform only).
 
 const { spawnSync } = require('child_process');
@@ -20,8 +20,8 @@ const npm = process.platform === 'win32' ? 'npm.cmd' : 'npm';
 
 function run(command, args) {
   console.log(`\n> ${command} ${args.join(' ')}`);
-  // HYPERMILER_CORE_VERSION: the core built for each package carries the same test version.
-  const result = spawnSync(command, args, { cwd: root, stdio: 'inherit', env: { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: 'false', HYPERMILER_CORE_VERSION: version } });
+  // AIPERMILER_CORE_VERSION: the core built for each package carries the same test version.
+  const result = spawnSync(command, args, { cwd: root, stdio: 'inherit', env: { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: 'false', AIPERMILER_CORE_VERSION: version } });
   if (result.status !== 0) {
     console.error(`\nTest build stopped: "${command} ${args.join(' ')}" failed.`);
     process.exit(result.status ?? 1);
@@ -63,7 +63,7 @@ if (wantWin) {
   const native = process.platform === 'win32' || hasCommand('wine');
   buildCore('win32-x64');
   run(npx, ['electron-builder', '--win', native ? 'nsis' : 'zip', ...common, ...(native ? [] : ['-c.win.signAndEditExecutable=false'])]);
-  if (!native) console.log('\nNo Wine on this machine: Windows build as .zip (extract it and start "IA Hypermiler.exe"). Install Wine for the .exe installer.');
+  if (!native) console.log('\nNo Wine on this machine: Windows build as .zip (extract it and start "AIpermiler.exe"). Install Wine for the .exe installer.');
 }
 
 const files = fs.existsSync(outDir) ? fs.readdirSync(outDir).filter((f) => /\.(deb|exe|zip)$/.test(f)) : [];

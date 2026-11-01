@@ -13,23 +13,23 @@ afterEach(() => {
 });
 
 function asset(name: string): GithubReleaseAsset {
-  return { name, browser_download_url: `https://github.com/suppressio/ia-hypermiler/releases/download/v0.3.0-beta/${name}` };
+  return { name, browser_download_url: `https://github.com/suppressio/aipermiler/releases/download/v0.3.0-beta/${name}` };
 }
 
 const CI_ASSETS = [
-  asset('ia-hypermiler-0.3.0-beta-arm64.dmg'),
-  asset('ia-hypermiler-0.3.0-beta-arm64.dmg.blockmap'),
-  asset('ia-hypermiler-0.3.0-beta.AppImage'),
-  asset('ia-hypermiler-Setup-0.3.0-beta.exe'),
-  asset('ia-hypermiler-Setup-0.3.0-beta.exe.blockmap'),
-  asset('ia-hypermiler_0.3.0-beta_amd64.deb'),
+  asset('aipermiler-0.3.0-beta-arm64.dmg'),
+  asset('aipermiler-0.3.0-beta-arm64.dmg.blockmap'),
+  asset('aipermiler-0.3.0-beta.AppImage'),
+  asset('aipermiler-Setup-0.3.0-beta.exe'),
+  asset('aipermiler-Setup-0.3.0-beta.exe.blockmap'),
+  asset('aipermiler_0.3.0-beta_amd64.deb'),
   asset('latest.yml'),
 ];
 
 function release(tag: string, overrides: Partial<GithubRelease> = {}): GithubRelease {
   return {
     tag_name: tag,
-    html_url: `https://github.com/suppressio/ia-hypermiler/releases/tag/${tag}`,
+    html_url: `https://github.com/suppressio/aipermiler/releases/tag/${tag}`,
     draft: false,
     prerelease: false,
     published_at: '2026-10-01T10:00:00Z',
@@ -70,10 +70,10 @@ test('pickLatestRelease: pre-releases only for who runs a pre-release', () => {
 });
 
 test('pickDownloadAsset: right package for every OS', () => {
-  assert.equal(pickDownloadAsset(CI_ASSETS, 'win32', 'x64', false)?.name, 'ia-hypermiler-Setup-0.3.0-beta.exe');
-  assert.equal(pickDownloadAsset(CI_ASSETS, 'darwin', 'arm64', false)?.name, 'ia-hypermiler-0.3.0-beta-arm64.dmg');
-  assert.equal(pickDownloadAsset(CI_ASSETS, 'linux', 'x64', true)?.name, 'ia-hypermiler-0.3.0-beta.AppImage');
-  assert.equal(pickDownloadAsset(CI_ASSETS, 'linux', 'x64', false)?.name, 'ia-hypermiler_0.3.0-beta_amd64.deb');
+  assert.equal(pickDownloadAsset(CI_ASSETS, 'win32', 'x64', false)?.name, 'aipermiler-Setup-0.3.0-beta.exe');
+  assert.equal(pickDownloadAsset(CI_ASSETS, 'darwin', 'arm64', false)?.name, 'aipermiler-0.3.0-beta-arm64.dmg');
+  assert.equal(pickDownloadAsset(CI_ASSETS, 'linux', 'x64', true)?.name, 'aipermiler-0.3.0-beta.AppImage');
+  assert.equal(pickDownloadAsset(CI_ASSETS, 'linux', 'x64', false)?.name, 'aipermiler_0.3.0-beta_amd64.deb');
 });
 
 test('pickDownloadAsset: no fitting package → null (Intel Mac with arm64-only dmg, linux arm64 without deb)', () => {
@@ -94,16 +94,16 @@ test('fetchLatestUpdate: queries the release list (not /latest) and offers the p
   assert.deepEqual(update, {
     version: '0.3.0-beta',
     publishedAt: '2026-10-01T10:00:00Z',
-    releaseUrl: 'https://github.com/suppressio/ia-hypermiler/releases/tag/v0.3.0-beta',
-    downloadUrl: 'https://github.com/suppressio/ia-hypermiler/releases/download/v0.3.0-beta/ia-hypermiler-Setup-0.3.0-beta.exe',
-    assetName: 'ia-hypermiler-Setup-0.3.0-beta.exe',
+    releaseUrl: 'https://github.com/suppressio/aipermiler/releases/tag/v0.3.0-beta',
+    downloadUrl: 'https://github.com/suppressio/aipermiler/releases/download/v0.3.0-beta/aipermiler-Setup-0.3.0-beta.exe',
+    assetName: 'aipermiler-Setup-0.3.0-beta.exe',
   });
 });
 
 test('fetchLatestUpdate: without a fitting package falls back to the release page', async () => {
   globalThis.fetch = (async () => new Response(JSON.stringify([release('v0.3.0-beta')]), { status: 200 }));
   const update = await fetchLatestUpdate('0.2.1-beta', { platform: 'darwin', arch: 'x64', isAppImage: false });
-  assert.equal(update?.downloadUrl, 'https://github.com/suppressio/ia-hypermiler/releases/tag/v0.3.0-beta');
+  assert.equal(update?.downloadUrl, 'https://github.com/suppressio/aipermiler/releases/tag/v0.3.0-beta');
   assert.equal(update.assetName, null);
 });
 
@@ -120,7 +120,7 @@ test('fetchLatestUpdate: HTTP error or unexpected response → explicit error', 
 });
 
 test('guideUrl: the README of the repository in the interface language', () => {
-  assert.equal(guideUrl('en'), 'https://github.com/suppressio/ia-hypermiler/blob/main/README.md');
-  assert.equal(guideUrl('it'), 'https://github.com/suppressio/ia-hypermiler/blob/main/README.it.md');
+  assert.equal(guideUrl('en'), 'https://github.com/suppressio/aipermiler/blob/main/README.md');
+  assert.equal(guideUrl('it'), 'https://github.com/suppressio/aipermiler/blob/main/README.it.md');
   assert.ok(guideUrl('it').startsWith(TRUSTED_DOWNLOAD_PREFIX));
 });

@@ -13,8 +13,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/github"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/usage"
+	"github.com/suppressio/aipermiler/gocore/internal/github"
+	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
 
 // Port of services/copilot.ts (docs/RESEARCH.md §2). Two sources:

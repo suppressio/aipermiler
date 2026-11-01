@@ -2,7 +2,7 @@
 package buildinfo
 
 // Name follows the rename in #9.
-const Name = "hypermiler"
+const Name = "aipermiler"
 
 // Version is set at build time with -ldflags -X.
 var Version = "dev"

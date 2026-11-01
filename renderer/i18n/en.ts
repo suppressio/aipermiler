@@ -134,7 +134,7 @@ export const en = {
   'unit.ratePerHour': '{n}%/h',
 
   // --- Settings: general -----------------------------------------------------
-  'settings.windowTitle': 'IA Hypermiler — Settings',
+  'settings.windowTitle': 'AIpermiler — Settings',
   'settings.title': 'Settings',
   'settings.infoAria': 'More information',
   'settings.loading': 'Loading settings…',

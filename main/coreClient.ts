@@ -1,5 +1,5 @@
 // main/coreClient.ts — the Electron side of the Go core CLI (#177, approach on #176).
-// For each read the main process runs the bundled `hypermiler` binary with execFile
+// For each read the main process runs the bundled `aipermiler` binary with execFile
 // (no shell, no console window on Windows), `--json` and a timeout, and parses one
 // document of contract v1 (docs/CORE-CLI.md). Secrets go on stdin, never in argv:
 // the argument list is visible in the process list. No port and no lifecycle: the
@@ -101,7 +101,7 @@ export interface CoreVersion {
 // ---------------------------------------------------------------------------
 
 export function coreBinaryName(platform: NodeJS.Platform): string {
-  return platform === 'win32' ? 'hypermiler.exe' : 'hypermiler';
+  return platform === 'win32' ? 'aipermiler.exe' : 'aipermiler';
 }
 
 export interface CoreBinaryLocation {
@@ -115,13 +115,13 @@ export interface CoreBinaryLocation {
 }
 
 /**
- * HYPERMILER_CORE_BIN (absolute) wins, for development against a core built elsewhere;
+ * AIPERMILER_CORE_BIN (absolute) wins, for development against a core built elsewhere;
  * otherwise the packaged copy, or core-bin/ of the repository in development.
  */
 export function resolveCoreBinary(location: CoreBinaryLocation): string {
-  const override = location.env.HYPERMILER_CORE_BIN?.trim();
+  const override = location.env.AIPERMILER_CORE_BIN?.trim();
   if (override) {
-    if (!path.isAbsolute(override)) throw new CoreBinaryError('HYPERMILER_CORE_BIN must be an absolute path');
+    if (!path.isAbsolute(override)) throw new CoreBinaryError('AIPERMILER_CORE_BIN must be an absolute path');
     return override;
   }
   const name = coreBinaryName(location.platform);
@@ -320,7 +320,7 @@ function providerError(doc: Record<string, unknown>, provider: string): Error {
 }
 
 /**
- * Reads the result of `hypermiler usage <provider> --json`: the usage on exit 0, the
+ * Reads the result of `aipermiler usage <provider> --json`: the usage on exit 0, the
  * provider error (thrown) on exit 1. Anything else — a usage error (exit 2), a document
  * that contradicts its exit code, an unknown exit code — is a CoreOutputError.
  */

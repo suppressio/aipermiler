@@ -7,12 +7,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/buildinfo"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/cli"
+	"github.com/suppressio/aipermiler/gocore/internal/buildinfo"
+	"github.com/suppressio/aipermiler/gocore/internal/cli"
 )
 
 func TestRun(t *testing.T) { // uses t.Setenv; paralleltest recognizes this constraint
-	t.Setenv("HYPERMILER_LOG_LEVEL", "warn")
+	t.Setenv("AIPERMILER_LOG_LEVEL", "warn")
 	wantVersion := fmt.Sprintf("%s %s (%s/%s)\n", buildinfo.Name, buildinfo.Version, runtime.GOOS, runtime.GOARCH)
 	tests := []struct {
 		name       string
@@ -65,7 +65,7 @@ func TestRun(t *testing.T) { // uses t.Setenv; paralleltest recognizes this cons
 }
 
 func TestRunLogsToStderr(t *testing.T) { // uses t.Setenv; paralleltest recognizes this constraint
-	t.Setenv("HYPERMILER_LOG_LEVEL", "debug")
+	t.Setenv("AIPERMILER_LOG_LEVEL", "debug")
 	var stdout, stderr bytes.Buffer
 	if code := cli.Run([]string{"version"}, strings.NewReader(""), &stdout, &stderr); code != cli.ExitOK {
 		t.Fatalf("Run() = %d; want %d", code, cli.ExitOK)

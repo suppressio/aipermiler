@@ -10,5 +10,5 @@ export function trayTooltip(accounts: SummaryAccount[]): string {
     const usage = `${account.label} ${used === null ? '--' : `${formatNumber(used)}%`}`;
     return account.stale ? t('tray.staleUsage', { usage }) : usage;
   }).join(' · ');
-  return summary ? `IA Hypermiler\n${summary}` : 'IA Hypermiler';
+  return summary ? `AIpermiler\n${summary}` : 'AIpermiler';
 }

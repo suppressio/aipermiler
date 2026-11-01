@@ -16,7 +16,7 @@
 import { fetchJson } from './_http';
 import type { UpdateInfo } from '../types/index';
 
-const REPO = 'suppressio/ia-hypermiler';
+const REPO = 'suppressio/aipermiler';
 // 100 = GitHub's page maximum, one request. Beyond it an installed pre-release is no
 // longer recognised (it then follows normal releases) and a normal release preceded by
 // 100 pre-releases is missed: years of margin at the current pace, no pagination.
@@ -148,7 +148,7 @@ export interface UpdateEnvironment {
 /** Checks GitHub Releases: UpdateInfo when a newer version exists, null otherwise. Throws on error. */
 export async function fetchLatestUpdate(currentVersion: string, env: UpdateEnvironment): Promise<UpdateInfo | null> {
   const releases = await fetchJson(RELEASES_API_URL, {
-    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'ia-hypermiler' },
+    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'aipermiler' },
     label: 'GitHub Releases',
   });
   if (!Array.isArray(releases)) throw new Error('GitHub Releases: unexpected response (not a list)');

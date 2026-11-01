@@ -6,14 +6,14 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/buildinfo"
+	"github.com/suppressio/aipermiler/gocore/internal/buildinfo"
 )
 
 // Dir returns the platform's config directory or an absolute development override.
 func Dir() (string, error) {
-	if override := os.Getenv("HYPERMILER_CONFIG_DIR"); override != "" {
+	if override := os.Getenv("AIPERMILER_CONFIG_DIR"); override != "" {
 		if !filepath.IsAbs(override) {
-			return "", fmt.Errorf("HYPERMILER_CONFIG_DIR must be an absolute path")
+			return "", fmt.Errorf("AIPERMILER_CONFIG_DIR must be an absolute path")
 		}
 		return override, nil
 	}

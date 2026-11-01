@@ -69,8 +69,8 @@ export interface IpcEventChannels {
   'window:hoverChanged': [isHovering: boolean];
 }
 
-/** API exposed by the preload to the renderer (`window.hypermiler`). */
-export interface HypermilerBridge {
+/** API exposed by the preload to the renderer (`window.aipermiler`). */
+export interface AipermilerBridge {
   getView(): Promise<TrayViewState>;
   onViewUpdate(callback: (state: TrayViewState) => void): () => void;
   getSettings(): Promise<AppSettings>;

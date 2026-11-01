@@ -3,8 +3,8 @@ package copilot
 import (
 	"time"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/github"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/secrets"
+	"github.com/suppressio/aipermiler/gocore/internal/github"
+	"github.com/suppressio/aipermiler/gocore/internal/secrets"
 )
 
 // NewForTest points the provider at a fake GitHub (both base URLs), a fixed clock and a

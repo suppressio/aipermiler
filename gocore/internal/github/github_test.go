@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/github"
+	"github.com/suppressio/aipermiler/gocore/internal/github"
 )
 
 func TestNormalizeHost(t *testing.T) {

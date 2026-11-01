@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/copilot"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/secrets"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/usage"
+	"github.com/suppressio/aipermiler/gocore/internal/copilot"
+	"github.com/suppressio/aipermiler/gocore/internal/secrets"
+	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
 
 const token = "synthetic-token-value"

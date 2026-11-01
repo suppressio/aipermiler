@@ -52,7 +52,7 @@ test('a panel click with the badge Off browses locally and leaves the badge Off'
   const sent: unknown[] = [];
   const state = { view: off, localView: null as UsageView | null, latestSnapshot: { accounts: [a, b] } };
   const context = { state, renderSnapshot: () => undefined, runGuarded: () => undefined,
-    window: { hypermiler: { setView: (choice: unknown) => { sent.push(choice); } } } };
+    window: { aipermiler: { setView: (choice: unknown) => { sent.push(choice); } } } };
   const choose = new Script(`${functions}\nchoosePanelView`).runInNewContext(context) as (view: UsageView) => void;
   choose({ accountId: 'b', windowId: '5h' });
   assert.deepEqual(sent, []);
@@ -81,7 +81,7 @@ test('an account without windows opens locally in Manual until the selection cha
   const state = { view: view('manual', { accountId: 'a', windowId: '5h' }), localView: null, localOverride: false,
     latestSnapshot: { accounts: [a, empty] } };
   const context = { state, renderSnapshot: () => undefined, runGuarded: () => undefined,
-    window: { hypermiler: { setView: (choice: unknown) => { sent.push(choice); } } } };
+    window: { aipermiler: { setView: (choice: unknown) => { sent.push(choice); } } } };
   const run = (name: string) => new Script(`${functions}\n${name}`).runInNewContext(context) as (arg?: unknown) => unknown;
   run('choosePanelView')({ accountId: 'c', windowId: null });
   assert.deepEqual(sent, []);

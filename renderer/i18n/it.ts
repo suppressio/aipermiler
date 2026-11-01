@@ -123,7 +123,7 @@ export const it: Record<MessageKey, string> = {
   'unit.hoursMinutes': '{h} h {m} min',
   'unit.ratePerHour': '{n}%/h',
 
-  'settings.windowTitle': 'IA Hypermiler — Impostazioni',
+  'settings.windowTitle': 'AIpermiler — Impostazioni',
   'settings.title': 'Impostazioni',
   'settings.infoAria': 'Maggiori informazioni',
   'settings.loading': 'Caricamento impostazioni…',

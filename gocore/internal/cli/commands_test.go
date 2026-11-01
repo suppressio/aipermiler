@@ -7,9 +7,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/cli"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/provider"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/usage"
+	"github.com/suppressio/aipermiler/gocore/internal/cli"
+	"github.com/suppressio/aipermiler/gocore/internal/provider"
+	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
 
 // accountProvider is a fake with every optional capability (tokens, login, raw,

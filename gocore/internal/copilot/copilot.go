@@ -16,10 +16,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/buildinfo"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/github"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/secrets"
-	"github.com/suppressio/ia-hypermiler/gocore/internal/usage"
+	"github.com/suppressio/aipermiler/gocore/internal/buildinfo"
+	"github.com/suppressio/aipermiler/gocore/internal/github"
+	"github.com/suppressio/aipermiler/gocore/internal/secrets"
+	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
 
 // Provider is one Copilot account of one run.

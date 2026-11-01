@@ -39,7 +39,7 @@ export const it: Record<MainMessageKey, string> = {
   'notify.formatDrift': 'Il formato della risposta {provider} sembra cambiato: ho aperto una bozza di segnalazione nel browser (da rivedere e confermare tu).',
   'notify.updateAvailable': 'È disponibile la versione {version}: apri Impostazioni → Aggiornamenti per scaricarla.',
 
-  'startup.failedTitle': 'IA Hypermiler non è riuscita ad avviarsi',
+  'startup.failedTitle': 'AIpermiler non è riuscita ad avviarsi',
 
 
   'error.sessionExpired': "Sessione scaduta o non valida — riconnetti l'account da Impostazioni. ({detail})",
@@ -48,9 +48,9 @@ export const it: Record<MainMessageKey, string> = {
   'error.copilotSignedOut': 'Account Copilot non collegato, o GitHub non accetta più il suo token: ricollegalo dalle Impostazioni.',
   'error.keyringUnavailable': 'Il portachiavi di sistema, dove si tiene il token di Copilot, non è raggiungibile (su Linux serve GNOME Keyring o KWallet nella sessione desktop). ({detail})',
   'error.accountRemovedDuringSignIn': 'L\'account è stato rimosso durante l\'accesso: il suo token non è stato conservato.',
-  'error.coreMissing': 'Il core di IA Hypermiler non si avvia: reinstalla l\'app (in sviluppo usa `npm start`, che lo compila, o imposta HYPERMILER_CORE_BIN). ({detail})',
-  'error.coreTimeout': 'Il core di IA Hypermiler non ha risposto in tempo; restano gli ultimi valori e il prossimo aggiornamento riprova.',
-  'error.coreBadOutput': 'Il core di IA Hypermiler ha dato una risposta che questa versione non sa leggere: aggiorna l\'app o segnalalo. ({detail})',
+  'error.coreMissing': 'Il core di AIpermiler non si avvia: reinstalla l\'app (in sviluppo usa `npm start`, che lo compila, o imposta AIPERMILER_CORE_BIN). ({detail})',
+  'error.coreTimeout': 'Il core di AIpermiler non ha risposto in tempo; restano gli ultimi valori e il prossimo aggiornamento riprova.',
+  'error.coreBadOutput': 'Il core di AIpermiler ha dato una risposta che questa versione non sa leggere: aggiorna l\'app o segnalalo. ({detail})',
   'error.reportNoAccounts': 'Collega almeno un account prima di segnalare le risposte.',
   'report.confirmTitle': "Creare un report di diagnosi?",
   'report.confirmDetail': "Il report legge l'utilizzo di {accounts} account collegati e salva un file di testo nella cartella Download con:\n• le risposte di utilizzo di Claude/GitHub, con valori reali (percentuali, importi, date)\n• le impostazioni che influiscono sul pacing (ambito, giorno di rinnovo, calendario di lavoro)\n• come l'app ha letto i dati (finestre, verdetti, budget)\n• gli ultimi 7 giorni di storico e i campioni di oggi\n• gli ultimi errori e avvisi dell'app\n• dati di sistema: fuso orario, schermi e scalatura, memoria/CPU usate dall'app, i suoi tempi interni, numero di core e RAM\n\nMai inclusi: nomi degli account, credenziali, cookie, id, il dominio aziendale, testi liberi, modello di CPU/GPU, nome del computer o dell'utente.\n\nNon viene inviato nulla: si apre la cartella e una bozza di issue GitHub nel browser. Sei tu a decidere se allegare il file e inviarla.",

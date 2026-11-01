@@ -11,7 +11,7 @@
 import type { ProviderId } from '../types/index';
 
 const REPO_OWNER = 'suppressio';
-const REPO_NAME = 'ia-hypermiler';
+const REPO_NAME = 'aipermiler';
 
 export interface FormatDriftIssueParams {
   provider: ProviderId;
@@ -24,7 +24,7 @@ export function buildFormatDriftIssueUrl({ provider, endpointLabel, shape }: For
   const title = `Response format changed: ${serviceName} (${endpointLabel})`;
 
   const body = [
-    `Detected automatically by IA Hypermiler on ${new Date().toISOString()}.`,
+    `Detected automatically by AIpermiler on ${new Date().toISOString()}.`,
     '',
     `Service: **${serviceName}**`,
     `Endpoint: \`${endpointLabel}\``,
@@ -116,7 +116,7 @@ export interface ReportIssueParams {
 /** Short issue draft pointing to the report file the user attaches by hand. */
 export function buildReportIssueUrl({ appVersion, fileName, accounts }: ReportIssueParams): string {
   const body = [
-    `Diagnostic report from IA Hypermiler ${appVersion}, accounts: ${accounts.join(', ') || 'none'}.`,
+    `Diagnostic report from AIpermiler ${appVersion}, accounts: ${accounts.join(', ') || 'none'}.`,
     '',
     `**Attach the file \`${fileName}\`** (saved in your Downloads folder) by dragging it here.`,
     '',
