@@ -40,6 +40,7 @@ export const it: Record<MainMessageKey, string> = {
   'notify.updateAvailable': 'È disponibile la versione {version}: apri Impostazioni → Aggiornamenti per scaricarla.',
 
   'startup.failedTitle': 'AIpermiler non è riuscita ad avviarsi',
+  'startup.migrationFailed': 'Non è stato possibile spostare le impostazioni da IA Hypermiler: l\'app si ferma per non perderle. Chiudi IA Hypermiler se è aperta e riavvia AIpermiler. ({detail})',
 
 
   'error.sessionExpired': "Sessione scaduta o non valida — riconnetti l'account da Impostazioni. ({detail})",
