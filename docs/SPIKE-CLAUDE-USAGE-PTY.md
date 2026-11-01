@@ -1,35 +1,92 @@
 🌐 **English** | [Italiano](SPIKE-CLAUDE-USAGE-PTY.it.md)
 
-# Spike #141 — Claude quotas from `claude /usage` in a PTY
+# Spike #141 / #183 — Claude quotas from `claude /usage` in a PTY
 
-> Part of #139. Status: **done on Linux, go.** Windows (ConPTY) and macOS are still untested.
+> Part of #139. Status: **done on Linux (#141), Windows 11 and Intel macOS (#183), go as the Claude source for the Go core (#147).** Not checked: Apple Silicon and the Homebrew cask (#193), a real update prompt. Every claim says whether it was run (*verified*) or deduced (*inferred*).
 
 ## Setup
 
-First run (2026-10-26, unattended agent) had no Claude login and stopped at "Select login method". Rerun the same day on a signed-in Linux machine (Debian testing, Claude Code 2.1.311, claude.ai Max login), with `scripts/spikes/claude-usage-pty.py`: Python `pty.fork()`, 50×140 window, `TERM=xterm-256color`, `--settings '{"disableAllHooks":true}'`, cwd in a scratch folder, then type `/usage` + Enter and kill the process.
+**#141, 2026-10-26, Linux** (Debian testing, Claude Code 2.1.311, claude.ai Max login): `scripts/spikes/claude-usage-pty.py`, Python `pty.fork()`, 50×140 window, `TERM=xterm-256color`, `--settings '{"disableAllHooks":true}'`, cwd in a scratch folder, then type `/usage` + Enter and kill the process.
+
+**#183, 2026-10-31, Windows and macOS**, with a throw-away Go probe that does what the core will do (`scripts/spikes/claude-usage-pty-go/`): find the binary, start it in a PTY (`creack/pty` on Linux/macOS, ConPTY through `golang.org/x/sys/windows` on Windows), wait for the prompt, type `/usage`, render the screen with a small VT emulator, parse it, kill the whole process tree, report wall and CPU time. Same claude.ai login on every OS, signed in by the maintainer with `claude` → `/login` and signed out at the end. The probe never opens Claude's credential files.
+
+- **Windows 11** (build 26300, VM on a temporary overlay), four installs side by side: native installer (2.1.316), winget `Anthropic.ClaudeCode` (2.1.302), npm global with Node 26 (2.1.316), VS Code extension `anthropic.claude-code` (2.1.314). Probe built as a GUI app (`-H=windowsgui`, no console of its own, like the core).
+- **macOS 14.8.9 Sonoma** (Intel VM, the one of #171), three installs: native installer, npm global (`sudo npm i -g`, Node from nodejs.org, prefix `/usr/local`), VS Code extension. Probe run over SSH and as a launchd job in the user's GUI session (`launchctl bootstrap gui/<uid>`), the context GUI apps start from (a real `.app` opened from Finder was not tried).
+- **Linux** (Debian testing, 2.1.316): the same Go probe, to compare with Python.
+
+Flags used on every run: `--settings '{"disableAllHooks":true}' --strict-mcp-config --setting-sources local` (no hooks, no MCP servers, no user or project settings or plugins). `--bare` cannot be used: its help says "OAuth and keychain are never read", so a claude.ai login is invisible to it.
 
 ## Results
 
 | Question | Answer |
 |---|---|
-| Does a PTY drive work? | Yes. The TUI starts, the slash menu opens, `/usage` opens the *Usage* tab of the settings panel. |
-| Fields shown | `Current session` (5h window) and `Current week (all models)`, each with `NN% used` and `Resets <time> (<IANA zone>)`, e.g. `Resets 12:10am (Europe/Rome)`, `Resets Oct 28, 10pm (Europe/Rome)`. Below: `Usage credits` (on/off), a local "what's contributing" breakdown (not needed). Per-model weekly lines did not show on this account; the parser keeps any `<label>` + `NN% used`, so they would be picked up. |
-| Does `/usage` consume quota or call a model? | No. The same panel shows `Total cost: $0.0000`, `0 input, 0 output` tokens, and 21% / 41% stayed identical over 5 probes. |
-| Does it leave a session file? | No: no transcript under `~/.claude/projects` for the probe folder (no message is sent). It does touch Claude's own state on startup (`.claude.json` backup, changelog cache, skills/plugin sync), as any start would. |
-| Cost per probe | ~8.6 s wall (3 s start wait) and ~1.9 s CPU (user+sys, Python + `claude`). At the app's 30 min refresh this is ~0.1% of one core. |
-| Polling interval | 30 min default, never below 5 min. A probe is a full Claude Code start, not a cheap HTTP call. |
-| Offline / refresh failed | The panel shows the last cached numbers plus `Showing last-known usage as of 3m ago (could not refresh)`: keep the values but mark them stale. |
-| Not signed in | Screen shows `Select login method`: report "not signed in", not a parse error. |
-| Gotchas | Strip `CLAUDE_CODE_*` from the child env when the app itself runs inside Claude Code (inherited markers change behaviour, e.g. "transcript saving is off"). `--no-session-persistence` is rejected outside `--print`. Strip ANSI/OSC; cursor moves can drop every space (`Currentsession`, `21%used`, `Resets12:10am`), so never rely on spaces or `\b` between words. |
+| Does a PTY drive work? | Yes on all three OSes (verified). The TUI starts, `/usage` opens the *Usage* tab of the settings panel, both windows are parsed. On Windows ConPTY's repaint uses cursor moves and erases instead of plain lines: a VT emulator (cursor addressing, erase line/display, scroll) is needed, stripping escapes is not enough. |
+| Fields shown | `Current session` (5 h window) and `Current week (all models)`, each with `NN% used` and `Resets <time> (<IANA zone>)`, e.g. `Resets 12:10am (Europe/Rome)`, `Resets Oct 28, 10pm (Europe/Rome)`. Above them a `Session` block (cost, duration, tokens of this run), below `Usage credits` and a local "what's contributing" breakdown (not needed). Per-model weekly lines did not show on this account; the parser keeps any `<label>` + `NN% used`, so they would be picked up. Same layout on Linux, Windows and macOS (2.1.302-2.1.316). |
+| Does `/usage` consume quota or call a model? | No. The panel shows `Total cost: $0.0000` and `0 input, 0 output` tokens, and the percentages stayed identical over repeated probes (verified, #141 and #183). |
+| Does it leave a session file? | No transcript under `~/.claude/projects` (no message is sent, #141). It does touch Claude's own state on startup (`.claude.json` backup, changelog cache, skills/plugin sync), as any start would. |
+| Cost per probe | Go probe, signed in, from start to the kill (verified): Linux ~2.9-3.5 s wall, ~1.7 s CPU; Windows ~3.1-3.7 s wall, ~1.5-1.9 s CPU (job object accounting, the whole tree); macOS ~2.8-3.1 s wall, ~1.1-1.3 s CPU (9 runs, 3 per binary). The prompt is ready after ~1.6-2.2 s; the rest is the 1.2 s quiet wait before typing and the panel load. At a 30 min refresh this is ~0.1% of one core. The Python prototype of #141 took ~8.6 s only because of its fixed 3 s waits. |
+| Process tree and leftovers | Claude starts helpers: the Windows job counted 30-35 processes over a probe, 1 still alive at the kill. No `claude` process left behind on any OS (verified): POSIX kills the process group (`pty.Start` sets `Setsid`, so `claude` leads its own group); Windows puts `claude.exe` in a job object with `KILL_ON_JOB_CLOSE` and terminates the job. On Windows even `TerminateProcess` of `claude.exe` alone left nothing (verified with `-nojob`), so the job is a safety net, not a fix for an observed leak. |
+| Console window (Windows) | From the GUI-built probe run in the desktop session (`schtasks /it`), 167 screenshots ~55 ms apart showed **no window** (verified; a control run with `timeout.exe` did show one, so the method sees windows). **`CREATE_NO_WINDOW` breaks ConPTY**: the screen stays empty and the probe times out after 25 s (verified). This is the opposite of the Codex rule (`docs/SPIKE-CODEX-APP-SERVER.md`, where `CREATE_NO_WINDOW` is required for a pipe child): the pseudo console already hides the child. |
+| Folder trust prompt | A new folder gets `Quick safety check: Is this a project you created or one you trust?` before the prompt (verified on Windows in `%TEMP%`, on Linux under `$HOME`, on macOS in `~/Library/Caches`). It did not show under `/tmp` on Linux, which is why #141 missed it (why `/tmp` is exempt was not looked into). Answered once (Down + Enter on "Yes, I trust this folder") in a **fixed** working directory, it is remembered: later probes in the same folder went straight to the prompt (verified on Windows and macOS). A new temp folder per probe would hit it every time. |
+| Offline / refresh failed | The panel shows the last cached numbers plus `Showing last-known usage as of … (could not refresh)` (verified offline on Windows in 3.2 s and on macOS in 2.8 s, network link of the VM unplugged; #141 on Linux). No long network timeout: keep the values, mark them stale. |
+| Not signed in | After a logout the TUI starts normally with `Not logged in · Run /login` in the footer (Windows 0.45 s, macOS 0.41 s, verified). A fresh config folder shows the first-run theme picker before any login (Linux, macOS, ~0.5 s, verified). `Select login method` (#141) is the screen after the theme. All three are recognised before `/usage` is typed. |
+| `claude auth status` | Prints JSON (`loggedIn`, `authMethod`, plus email and organisation when signed in) in ~0.16-0.25 s, no PTY needed (verified on Windows and macOS). A cheap pre-check before a full probe. The core reads only `loggedIn` and `authMethod`, never stores or logs the rest. |
+| macOS Keychain and SSH | Claude keeps the claude.ai login in the login Keychain. Over SSH it is not reachable: `claude auth status` says `loggedIn: false` while the same command from the GUI session says `true` (verified). The TUI over SSH also shows no "Not logged in" text: `/usage` opens with only the `Session` block and no windows, so the probe waited its 12 s and returned `not_ready` (verified). Same lesson as Codex on Windows: the core must run in the user's GUI session, and the adapter should treat "Usage tab open, no windows" as signed out after a negative `auth status`, not as a timeout. |
+| Update or notice prompt | Not reproduced: the older winget build (2.1.302, with 2.1.316 out) started without any prompt. The probe treats an unknown screen with no prompt as `not_ready` after its timeout; the update regex is a guess (unverified). The native installer updates itself in the background; whether a probe start triggers a download was not measured (`DISABLE_AUTOUPDATER=1` in the child env would avoid it, unverified). |
+| Gotchas | Strip `CLAUDE_CODE_*` and `CLAUDECODE` from the child env when the app itself runs inside Claude Code (inherited markers change behaviour). Set `TERM=xterm-256color`. `--no-session-persistence` is rejected outside `--print`. Cursor moves can drop every space (`Currentsession`, `12%used`, `Resets12:10am`), so never rely on spaces or `\b` between words. |
 | Parse stability | It is a TUI, not an API. Keep a raw screen fixture per Claude Code version and fail loudly (format drift) when neither window is found. |
+
+### Binary layouts
+
+All verified by installing them, except Homebrew (read from the cask metadata on formulae.brew.sh).
+
+| OS | Install | Where the native binary is | On `PATH`? |
+|---|---|---|---|
+| Windows | native installer (`irm https://claude.ai/install.ps1 \| iex`) | `%USERPROFILE%\.local\bin\claude.exe` (a ~335 MB copy; versions under `.local\share\claude\versions\`) | **No**, the installer does not add it |
+| Windows | winget `Anthropic.ClaudeCode` | `%LOCALAPPDATA%\Microsoft\WinGet\Packages\Anthropic.ClaudeCode_Microsoft.Winget.Source_8wekyb3d8bbwe\claude.exe` | yes, symlink in `WinGet\Links` |
+| Windows | npm global | `%APPDATA%\npm\node_modules\@anthropic-ai\claude-code\bin\claude.exe` | only shims: `claude.cmd` (runs that `.exe` directly, no Node), `claude.ps1`, a `sh` script |
+| Windows | VS Code extension | `%USERPROFILE%\.vscode\extensions\anthropic.claude-code-<ver>-win32-x64\resources\native-binary\claude.exe` | no |
+| macOS | native installer (`curl -fsSL https://claude.ai/install.sh \| bash`) | `~/.local/bin/claude` → `~/.local/share/claude/versions/<ver>` | not on the launchd `PATH` |
+| macOS | npm global (nodejs.org Node) | `/usr/local/bin/claude` → `/usr/local/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe`, a native Mach-O despite the name | `/usr/local/bin` is not on the launchd `PATH` |
+| macOS | VS Code extension | `~/.vscode/extensions/anthropic.claude-code-<ver>-darwin-x64/resources/native-binary/claude` | no |
+| macOS | Homebrew cask `claude-code` / `claude-code@latest` (inferred) | `$(brew --prefix)/bin/claude`: `/opt/homebrew/bin` on Apple Silicon, `/usr/local/bin` on Intel (the same path npm uses) | no |
+| Linux | npm global | `<prefix>/lib/node_modules/@anthropic-ai/claude-code/bin/claude.exe` | via `<prefix>/bin/claude` |
+
+npm's postinstall hard-links the platform package's native binary to `bin/claude.exe` (read in `install.cjs`; on macOS the file had a link count of 2). If postinstall did not run, `bin/claude.exe` is a stub under 4 KB and a `cli-wrapper.cjs` is used instead (read in the package, not reproduced): skip any candidate under 1 MB or ending in `.js`/`.cjs`. Unlike Codex, the npm shims never need Node on Windows; on macOS the symlink already points at the native file. The extension's bundled binary has its own version (2.1.314 next to the CLI's 2.1.316), so neither source can be assumed newer.
+
+### PTY library
+
+| Option | Licence | Dependencies | Size | Notes |
+|---|---|---|---|---|
+| **`github.com/creack/pty` v1.1.24** (Linux, macOS) | MIT | none | ~1,850 lines | The de facto Go PTY package; on Windows it has no usable implementation |
+| **ConPTY through `golang.org/x/sys/windows`** (Windows) | BSD-3 | already in the core (indirect via `go-keyring`, v0.27.0: would become direct) | ~130 lines of our own (`pty_windows.go`) | `CreatePseudoConsole`, the attribute list, job objects and `ComposeCommandLine` are all in x/sys; only the job accounting struct (used for the CPU figure) is missing |
+| `github.com/aymanbagabas/go-pty` v0.2.3 (both) | MIT | pulls `u-root`, `x/crypto`, a newer `x/sys`; requires Go 1.25 | — | Rejected: heavier and forces a Go upgrade of the core (1.24) |
+| Our own POSIX PTY on `x/sys/unix` | — | none new | ~100 lines per OS (Linux and Darwin ioctls differ) | Possible, but more of our own code to keep for little gain |
+
+Binary size impact on the core was not measured; from the code size it is expected to be small (inferred).
 
 ## Decision
 
-- **Primary source: `/usage` in a PTY.** The numbers come from the server, so they are right whatever client the user works in (including the VS Code extension, which does not run the status line).
-- **Fallback for terminal-only users:** status line forwarding (`rate_limits.five_hour` / `seven_day`), free and push-based, but not available in the VS Code extension (anthropics/claude-code#21943).
-- **Hard rules:** run only the unmodified `claude` binary with the user's own sign-in; never read its credential files; never ask the user to sign in inside our app (#140). Scratch working directory, hooks disabled, process killed after each read, timeout with a clear "not ready" state (first-run or update prompts can block the PTY).
-- **Go core (#139):** `creack/pty` on Linux/macOS and a ConPTY library on Windows. Both are new dependencies: ask before adding. Windows and macOS need their own probe run.
+- **Primary Claude source for the Go core: one-shot `claude` + `/usage` in a PTY**, 50×140, `TERM=xterm-256color`, flags `--settings '{"disableAllHooks":true}' --strict-mcp-config --setting-sources local`; render with a VT emulator, parse, kill the whole tree. Timeout per probe ~25 s; `not_ready` when no panel appears 12 s after typing.
+- **PTY:** `creack/pty` on Linux/macOS, ConPTY written on `golang.org/x/sys/windows` (no Windows PTY library). Proposed with the costs above; added to the core only with the owner's OK in #147.
+- **Working directory:** one fixed, empty folder owned by the app (e.g. under the OS cache dir), not a new temp folder per probe, so the folder trust prompt comes at most once. Proposal for the owner: the core answers that prompt itself, only for its own empty folder (nothing in it to trust; settings come from `--setting-sources local` only). Alternative: report `not_ready` with a hint and let the user run `claude` there once.
+- **States before `/usage`:** theme picker or `Select login method` or `Not logged in` → signed out; trust prompt → as above; anything else that blocks → `not_ready` at the timeout. `could not refresh` → values kept, marked stale. Optionally `claude auth status` first (~0.2 s): `loggedIn: false` → signed out without a PTY, and it also turns the macOS "Usage tab with no windows" into a clear state.
+- **Windows:** spawn the native `claude.exe` directly (never `claude.cmd`/`.ps1`), **without** `CREATE_NO_WINDOW`, suspended, inside a job object with `KILL_ON_JOB_CLOSE`, then resume; terminate the job at the end.
+- **macOS:** look in fixed prefixes, never rely on the shell `PATH`; run the core in the user's GUI session (over SSH or as a system daemon the Keychain login is invisible).
+- **Binary discovery order:**
+  1. explicit path from the account settings;
+  2. `PATH` entries (`claude`, `claude.exe`), symlinks resolved;
+  3. the native installer's `~/.local/bin/claude[.exe]` (not on `PATH` on Windows, nor on the launchd `PATH`);
+  4. fixed prefixes per OS: Windows npm `%APPDATA%\npm\node_modules\@anthropic-ai\claude-code\bin\claude.exe`, then the winget package folder; macOS `/opt/homebrew/bin/claude`, `/usr/local/bin/claude`, then the npm `lib/node_modules/…/bin/claude.exe` under `/usr/local` and `/opt/homebrew`; Linux the npm `lib/node_modules/…/bin/claude.exe` under `/usr/local` and `/usr`;
+  5. the newest VS Code-family extension (`.vscode`, `.vscode-insiders`, `.cursor`, `.windsurf`, `.vscode-server`): `anthropic.claude-code-<ver>-<os>-<arch>/resources/native-binary/claude[.exe]`, the current OS's folder only, newest by **semver** (the probe sorts names lexically, which puts 2.1.99 after 2.1.100).
+
+  Skip `.js`/`.cjs` targets and files under 1 MB (npm stub); de-duplicate by resolved path.
+- **Hard rules (unchanged):** run only the unmodified `claude` binary with the user's own sign-in; never read its credential files; never ask the user to sign in inside our app (#140); strip `CLAUDE_CODE_*`/`CLAUDECODE` from the child env.
+- **To do before shipping:** Apple Silicon and Homebrew (#193); a raw screen fixture per Claude Code version, tests from the fixtures (#147).
 
 ## Prototype
 
-`scripts/spikes/claude-usage-pty.py` — throw-away, Python, POSIX only, not part of the build, lint or tests. `--raw` prints the cleaned screen; extra `claude` flags go after `--`.
+- `scripts/spikes/claude-usage-pty.py` (#141) — Python, POSIX only. `--raw` prints the cleaned screen; extra `claude` flags go after `--`.
+- `scripts/spikes/claude-usage-pty-go/` (#183) — Go, Linux/macOS/Windows, its own `go.mod` (the dependencies stay out of the core). `go run . [-bin PATH] [-discover] [-raw] [-out FILE] [-timeout 25s] [-workdir DIR] [-accept-trust] [-launchd-path]`; Windows only: `-nojob`, `-nowindow` (the negative checks above). Prints one JSON result with the state, the windows, the timings and the discovery candidates.
+
+Both are throw-away: not part of the build, lint or tests.
