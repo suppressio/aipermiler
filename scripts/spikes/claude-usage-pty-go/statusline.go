@@ -73,12 +73,13 @@ func probeTranscript(file, workdir string) string {
 }
 
 func sameDir(a, b string) bool {
+	// Symlinks first, so "link/.." follows the link like the OS does; then absolute.
 	resolve := func(p string) (string, error) {
-		abs, err := filepath.Abs(p)
+		real, err := filepath.EvalSymlinks(p)
 		if err != nil {
 			return "", err
 		}
-		return filepath.EvalSymlinks(abs)
+		return filepath.Abs(real)
 	}
 	ra, err1 := resolve(a)
 	rb, err2 := resolve(b)
