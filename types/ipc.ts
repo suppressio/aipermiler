@@ -12,7 +12,6 @@ import type {
   UpdateSettings,
   UsageSnapshot,
   WindowStyle,
-  TrayBadgeChoice,
   TrayViewState,
 } from './index';
 
@@ -22,13 +21,14 @@ export interface CopilotOAuthPayload {
   host: string;
 }
 
+export type CoreStatus = { ok: true; version: string } | { ok: false; error: string };
+
 // A handler with nothing to return (`void` is only allowed as a generic argument).
 type NoResult = Awaited<Promise<void>>;
 
 /** renderer → main, `ipcRenderer.invoke` / `ipcMain.handle`: arguments and result. */
 export interface IpcInvokeChannels {
   'view:get': { args: []; result: TrayViewState };
-  'view:set': { args: [choice: TrayBadgeChoice]; result: TrayViewState };
   'settings:get': { args: []; result: AppSettings };
   'settings:set': { args: [patch: Partial<AppSettings>]; result: AppSettings };
   'window:setAlwaysOnTop': { args: [value: boolean]; result: boolean };
@@ -36,7 +36,6 @@ export interface IpcInvokeChannels {
   'window:setStyle': { args: [style: WindowStyle]; result: WindowStyle };
   'accounts:add': { args: [provider: ProviderId]; result: AccountId };
   'accounts:remove': { args: [id: AccountId]; result: NoResult };
-  'accounts:connectCodex': { args: [id: AccountId]; result: NoResult };
   'accounts:connectCopilot': { args: [id: AccountId, token: string, host: string]; result: { username: string } };
   'accounts:connectCopilotOAuth': { args: [id: AccountId, payload: CopilotOAuthPayload]; result: { username: string } };
   'accounts:disconnect': { args: [id: AccountId]; result: NoResult };
@@ -44,6 +43,8 @@ export interface IpcInvokeChannels {
   // draft; `created` false when the user cancelled.
   'diagnostics:createReport': { args: []; result: { created: boolean; fileName: string | null } };
   'app:getVersion': { args: []; result: string };
+  // The bundled Go core (#177): its version, or why it cannot run (localized).
+  'core:getStatus': { args: []; result: CoreStatus };
   'updates:check': { args: []; result: UpdateSettings };
   'updates:download': { args: []; result: NoResult };
   'updates:openReleaseNotes': { args: []; result: NoResult };
@@ -68,10 +69,9 @@ export interface IpcEventChannels {
   'window:hoverChanged': [isHovering: boolean];
 }
 
-/** API exposed by the preload to the renderer (`window.hypermiler`). */
-export interface HypermilerBridge {
+/** API exposed by the preload to the renderer (`window.aipermiler`). */
+export interface AipermilerBridge {
   getView(): Promise<TrayViewState>;
-  setView(choice: TrayBadgeChoice): Promise<TrayViewState>;
   onViewUpdate(callback: (state: TrayViewState) => void): () => void;
   getSettings(): Promise<AppSettings>;
   setSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
@@ -88,12 +88,12 @@ export interface HypermilerBridge {
   closeWindow(): void;
   addAccount(provider: ProviderId): Promise<AccountId>;
   removeAccount(id: AccountId): Promise<void>;
-  connectCodex(id: AccountId): Promise<NoResult>;
   connectCopilot(id: AccountId, token: string, host: string): Promise<{ username: string }>;
   connectCopilotOAuth(id: AccountId, clientId: string, clientSecret: string, host: string): Promise<{ username: string }>;
   disconnectAccount(id: AccountId): Promise<void>;
   createDiagnosticReport(): Promise<{ created: boolean; fileName: string | null }>;
   getAppVersion(): Promise<string>;
+  getCoreStatus(): Promise<CoreStatus>;
   checkForUpdates(): Promise<UpdateSettings>;
   downloadUpdate(): Promise<void>;
   openReleaseNotes(): Promise<void>;

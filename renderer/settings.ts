@@ -2,7 +2,7 @@
 // Every visible string goes through t() or data-i18n attributes (renderer/i18n).
 
 import type { AccountConfig, AccountId, AppSettings, ProviderId, UpdateSettings, TrayViewState } from '../types/index';
-import type { HypermilerBridge } from '../types/ipc';
+import type { AipermilerBridge } from '../types/ipc';
 import { byId } from './dom.js';
 import { applyTranslations, formatDate, formatDateTime, formatTime, resolveLocale, setLocale, t, type MessageKey } from './i18n/index.js';
 import { summarizeWorkSchedule } from './schedule.js';
@@ -11,7 +11,7 @@ import { renewalFromProvider } from './renewal.js';
 
 declare global {
   interface Window {
-    hypermiler: HypermilerBridge;
+    aipermiler: AipermilerBridge;
   }
 }
 
@@ -130,16 +130,17 @@ function accounts(): AccountConfig[] {
   return Array.isArray(settings?.accounts) ? settings.accounts : [];
 }
 
-// A Claude account has nothing to connect since #140: it only carries the local insights.
+// Claude (#140) and Codex (#178) have nothing to connect: Claude only carries the local
+// insights, Codex is read through the Codex sign-in of this computer.
 function isAccountConnected(account: AccountConfig): boolean {
-  if (account.provider === 'codex') return account.session.capturedAt !== null;
-  return account.provider === 'claude' ? false : !!account.credentials.username;
+  return account.provider === 'copilot' && !!account.credentials.username;
 }
 
 function connectionLabel(account: AccountConfig): string {
   if (account.provider === 'claude') return t('settings.accounts.statusClaudeLocalOnly');
+  if (account.provider === 'codex') return t('settings.accounts.statusCodexSignIn');
   if (!isAccountConnected(account)) return t('settings.accounts.statusNotConnected');
-  return account.provider === 'copilot' && account.credentials.username
+  return account.credentials.username
     ? t('settings.accounts.statusConnectedAs', { user: account.credentials.username })
     : t('settings.accounts.statusConnected');
 }
@@ -195,8 +196,6 @@ function renderAccountsTable(): void {
     actionsCell.appendChild(actionButton(isExpanded ? 'settings.accounts.close' : 'settings.accounts.configure', 'toggle-detail', account.id));
     if (isAccountConnected(account)) {
       actionsCell.appendChild(actionButton('settings.accounts.disconnect', 'disconnect', account.id));
-    } else if (account.provider === 'codex') {
-      actionsCell.appendChild(actionButton('settings.accounts.connect', 'connect-codex', account.id));
     }
     actionsCell.appendChild(actionButton('settings.accounts.remove', 'remove', account.id));
 
@@ -331,14 +330,6 @@ function applyAccountDetailState(index: number): void {
   if (!detail) return;
   applyScheduleLock(account, detail);
   applyRenewalLock(account, detail);
-  if (account.provider === 'codex') {
-    const status = detail.querySelector<HTMLElement>('[data-role="detail-status"]');
-    if (status) status.textContent = connectionLabel(account);
-    const connect = detail.querySelector<HTMLButtonElement>('[data-action="connect-codex"]');
-    if (connect) connect.textContent = t(isAccountConnected(account) ? 'settings.accounts.reconnect' : 'settings.accounts.connect');
-    const disconnect = detail.querySelector<HTMLButtonElement>('[data-action="disconnect"]');
-    if (disconnect) disconnect.hidden = !isAccountConnected(account);
-  }
   if (account.provider !== 'copilot') return;
   const isOrg = account.accountScope === 'organization';
   (detail.querySelector('[data-role="org-warning"]') as HTMLElement).hidden = !isOrg;
@@ -361,17 +352,42 @@ function enforceSingleLocalInsightsDraft(keepIndex: number): void {
   });
 }
 
+// The draft merged with a fresh store copy can hold two enabled Codex accounts (one
+// enabled in the draft, one just added): same rule as enforceSingleCodexAccount in
+// store/migrate.ts, the first enabled one is kept.
+function keepFirstEnabledCodex(list: AccountConfig[]): AccountConfig[] {
+  let seen = false;
+  return list.map((a) => {
+    if (a.provider !== 'codex' || !a.enabled) return a;
+    if (seen) return { ...a, enabled: false };
+    seen = true;
+    return a;
+  });
+}
+
+// At most one enabled Codex account: the core reads the one Codex sign-in of this
+// computer (enforceSingleCodexAccount in store/migrate.ts does the same on save).
+function enforceSingleCodexDraft(keepIndex: number): void {
+  if (accounts()[keepIndex]?.provider !== 'codex') return;
+  accounts().forEach((account, index) => {
+    if (index === keepIndex || account.provider !== 'codex' || !account.enabled) return;
+    account.enabled = false;
+    const el = document.querySelector<HTMLInputElement>(`[data-field="accounts.${index}.enabled"]`);
+    if (el) el.checked = false;
+  });
+}
+
 // After an action performed by the main process (connect/disconnect/add/remove)
 // the real store state is needed for the touched account — but unsaved draft
 // changes on OTHER accounts and sections must not be lost (the form used to be
 // reloaded from scratch, discarding them).
 async function reloadAfterAccountAction(actedOn: AccountId | null): Promise<void> {
-  const fresh = await window.hypermiler.getSettings();
+  const fresh = await window.aipermiler.getSettings();
   const draft = settings;
   savedSettings = structuredClone(fresh);
   if (draft) {
     const draftAccounts = new Map(accounts().map((a) => [a.id, a]));
-    fresh.accounts = fresh.accounts.map((a) => (a.id !== actedOn ? draftAccounts.get(a.id) ?? a : a));
+    fresh.accounts = keepFirstEnabledCodex(fresh.accounts.map((a) => (a.id !== actedOn ? draftAccounts.get(a.id) ?? a : a)));
     for (const [key, value] of Object.entries(draft)) {
       if (key !== 'accounts') (fresh as unknown as PlainRecord)[key] = value;
     }
@@ -402,12 +418,7 @@ async function runAccountAction(action: string, id: AccountId, button: HTMLButto
 
   button.disabled = true;
   try {
-    if (action === 'connect-codex') {
-      setDetailStatus(id, t('settings.accounts.loginInProgress'));
-      await window.hypermiler.connectCodex(id);
-      await reloadAfterAccountAction(id);
-      showSaveStatus(t('settings.accounts.connected', { name }));
-    } else if (action === 'connect-copilot-pat') {
+    if (action === 'connect-copilot-pat') {
       const input = detailElement(id)?.querySelector<HTMLInputElement>('[data-role="token-input"]');
       const token = input?.value.trim() ?? '';
       if (!token) {
@@ -415,7 +426,7 @@ async function runAccountAction(action: string, id: AccountId, button: HTMLButto
         return;
       }
       setDetailStatus(id, t('settings.accounts.checkingToken'));
-      const result = await window.hypermiler.connectCopilot(id, token, githubHostInput(id));
+      const result = await window.aipermiler.connectCopilot(id, token, githubHostInput(id));
       await reloadAfterAccountAction(id);
       showSaveStatus(t('settings.accounts.connectedAs', { name, user: result.username }));
     } else if (action === 'connect-copilot-oauth') {
@@ -427,16 +438,16 @@ async function runAccountAction(action: string, id: AccountId, button: HTMLButto
         return;
       }
       setDetailStatus(id, t('settings.accounts.oauthAuthorize'));
-      const result = await window.hypermiler.connectCopilotOAuth(id, clientId, clientSecret, githubHostInput(id));
+      const result = await window.aipermiler.connectCopilotOAuth(id, clientId, clientSecret, githubHostInput(id));
       await reloadAfterAccountAction(id);
       showSaveStatus(t('settings.accounts.connectedOauthAs', { name, user: result.username }));
     } else if (action === 'disconnect') {
-      await window.hypermiler.disconnectAccount(id);
+      await window.aipermiler.disconnectAccount(id);
       await reloadAfterAccountAction(id);
       showSaveStatus(t('settings.accounts.disconnected', { name }));
     } else if (action === 'remove') {
       if (!window.confirm(t('settings.accounts.removeConfirm', { name }))) return;
-      await window.hypermiler.removeAccount(id);
+      await window.aipermiler.removeAccount(id);
       if (expandedAccountId === id) expandedAccountId = null;
       await reloadAfterAccountAction(id);
       showSaveStatus(t('settings.accounts.removed', { name }));
@@ -482,7 +493,7 @@ function renderUpdatesCard(updates: UpdateSettings | undefined): void {
     notes.addEventListener('click', (event) => {
       event.preventDefault();
       // Goes through the main process, which only opens URLs of the project repository.
-      runGuarded(window.hypermiler.openReleaseNotes());
+      runGuarded(window.aipermiler.openReleaseNotes());
     });
     status.append(notes);
   } else if (updates?.lastError) {
@@ -532,8 +543,8 @@ function guarded(handler: () => Promise<void>): () => void {
   return () => { runGuarded(handler()); };
 }
 
-async function persist(key: string): Promise<void> {
-  await window.hypermiler.setSettings({ [key]: (settings as unknown as PlainRecord)[key] });
+async function persist(key: string): Promise<AppSettings> {
+  return window.aipermiler.setSettings({ [key]: (settings as unknown as PlainRecord)[key] });
 }
 
 // --- Events ----------------------------------------------------------------------------
@@ -552,6 +563,7 @@ function bindEvents(): void {
     if (accountMatch) {
       const index = Number(accountMatch[1]);
       if (accountMatch[2] === 'localInsights' && value === true) enforceSingleLocalInsightsDraft(index);
+      if (accountMatch[2] === 'enabled' && value === true) enforceSingleCodexDraft(index);
       applyAccountDetailState(index);
     }
     // No saving or side effect here: the change stays a draft in the form until
@@ -568,7 +580,7 @@ function bindEvents(): void {
   byId('btn-add-account').addEventListener('click', guarded(async () => {
     const provider = byId('add-account-provider', HTMLSelectElement).value as ProviderId;
     captureDraftFromForm();
-    const id = await window.hypermiler.addAccount(provider);
+    const id = await window.aipermiler.addAccount(provider);
     expandedAccountId = id;
     newAccountId = id;
     await reloadAfterAccountAction(id);
@@ -595,7 +607,7 @@ function bindEvents(): void {
     button.disabled = true;
     status.textContent = '';
     try {
-      const result = await window.hypermiler.createDiagnosticReport();
+      const result = await window.aipermiler.createDiagnosticReport();
       status.textContent = result.created && result.fileName
         ? t('settings.diagnostics.reportCreated', { file: result.fileName })
         : '';
@@ -611,7 +623,13 @@ function bindEvents(): void {
     // e.g. a focused number input) and saves everything at once.
     const touchedKeys = captureDraftFromForm();
     for (const key of touchedKeys) {
-      await persist(key);
+      const stored = await persist(key);
+      // The main process normalizes the accounts (e.g. one enabled Codex account): the
+      // form shows what was really saved, not the draft.
+      if (key === 'accounts' && settings) {
+        settings.accounts = structuredClone(stored.accounts);
+        populateForm();
+      }
     }
 
     // Side effects that need a dedicated main-process action: applied only now
@@ -621,10 +639,10 @@ function bindEvents(): void {
     const newAlwaysOnTop = getPath(settings, 'ui.alwaysOnTop') as boolean;
     const newLanguage = getPath(settings, 'ui.language') as AppSettings['ui']['language'];
     if (newStyle !== savedSettings?.ui.windowStyle) {
-      await window.hypermiler.setWindowStyle(newStyle);
+      await window.aipermiler.setWindowStyle(newStyle);
     }
     if (newAlwaysOnTop !== savedSettings?.ui.alwaysOnTop) {
-      await window.hypermiler.setAlwaysOnTop(newAlwaysOnTop);
+      await window.aipermiler.setAlwaysOnTop(newAlwaysOnTop);
     }
     if (newLanguage !== savedSettings?.ui.language) {
       // This window too switches language at once; the draft is kept.
@@ -636,7 +654,7 @@ function bindEvents(): void {
     // A field affecting the budget computation (plan, renewal day, manual quota,
     // work schedule…) must not wait for the next automatic refresh (up to 30 min).
     if (touchedKeys.has('accounts')) {
-      window.hypermiler.requestUsageRefresh();
+      window.aipermiler.requestUsageRefresh();
     }
 
     savedSettings = structuredClone(settings);
@@ -650,7 +668,7 @@ function bindEvents(): void {
     btn.disabled = true;
     status.textContent = t('settings.updates.checking');
     try {
-      renderUpdatesCard(await window.hypermiler.checkForUpdates());
+      renderUpdatesCard(await window.aipermiler.checkForUpdates());
     } catch (err) {
       status.textContent = t('settings.updates.failed', { error: errorMessage(err) });
     } finally {
@@ -659,12 +677,12 @@ function bindEvents(): void {
   }));
 
   byId('btn-open-guide').addEventListener('click', guarded(async () => {
-    await window.hypermiler.openGuide();
+    await window.aipermiler.openGuide();
   }));
 
   byId('btn-download-update').addEventListener('click', guarded(async () => {
     try {
-      await window.hypermiler.downloadUpdate();
+      await window.aipermiler.downloadUpdate();
     } catch (err) {
       showSaveStatus(t('settings.updates.downloadFailed', { error: errorMessage(err) }));
     }
@@ -672,7 +690,7 @@ function bindEvents(): void {
 
   byId('btn-cancel').addEventListener('click', guarded(async () => {
     // Discards unsaved changes: reloads the persisted state and repopulates the form.
-    settings = await window.hypermiler.getSettings();
+    settings = await window.aipermiler.getSettings();
     savedSettings = structuredClone(settings);
     populateForm();
     showSaveStatus(t('settings.cancelled'));
@@ -683,9 +701,9 @@ async function init(): Promise<void> {
   // The loading placeholders (settings.html) in the system language right away: the
   // saved language is known only once the main process answers.
   applyLanguage('auto');
-  settings = await window.hypermiler.getSettings();
+  settings = await window.aipermiler.getSettings();
   savedSettings = structuredClone(settings);
-  window.hypermiler.onViewUpdate((updated) => {
+  window.aipermiler.onViewUpdate((updated) => {
     const clean = JSON.stringify(settings?.ui.trayBadge) === JSON.stringify(savedSettings?.ui.trayBadge);
     trayView = updated;
     if (clean && settings && savedSettings) {
@@ -695,19 +713,23 @@ async function init(): Promise<void> {
     }
     renderTrayBadgeOptions();
   });
-  trayView = await window.hypermiler.getView();
+  trayView = await window.aipermiler.getView();
   settings.ui.trayBadge = structuredClone(trayView.selection);
   savedSettings.ui.trayBadge = structuredClone(trayView.selection);
   applyLanguage(settings.ui.language);
   populateForm();
   bindEvents();
-  byId('app-version', HTMLElement).textContent = await window.hypermiler.getAppVersion();
+  byId('app-version', HTMLElement).textContent = await window.aipermiler.getAppVersion();
+  // Not awaited: running the core takes a moment and must not delay the form.
+  runGuarded(window.aipermiler.getCoreStatus().then((status) => {
+    byId('core-status', HTMLElement).textContent = status.ok ? status.version : t('settings.diagnostics.coreUnavailable', { error: status.error });
+  }));
   renderUpdatesCard(settings.updates);
   // Disabled in the markup until the settings are loaded and the handlers bound.
   for (const id of ['btn-add-account', 'btn-cancel', 'btn-save', 'btn-report-responses']) byId(id, HTMLButtonElement).disabled = false;
   // Only the updates state (owned by the main process): the rest of the form stays
   // a draft, a full repopulation would discard unsaved changes.
-  window.hypermiler.onSettingsUpdate((updated) => {
+  window.aipermiler.onSettingsUpdate((updated) => {
     if (settings) {
       settings.updates = { ...updated.updates, autoCheck: settings.updates.autoCheck };
     }

@@ -58,13 +58,22 @@ export interface UsageCoreDeps {
   localInsights(): Promise<ClaudeLocalInsights | null>;
   /** Readable message of a fetch error, shown with the stale data. */
   describeError(err: unknown): string;
+  /**
+   * A failed fetch that is a state the user has to act on rather than a failure (Codex
+   * signed out, #178): its message, shown as AccountSnapshot.notice instead of
+   * lastError. null = an error.
+   */
+  accountNotice(err: unknown): string | null;
   /** Called on every failed fetch, before falling back to the last good data (format drift report). */
   onFetchError(provider: ProviderId, err: unknown): void;
   now(): Date;
   logError(message: string, ...details: unknown[]): void;
 }
 
-export type StampedUsage = RawAccountUsage & { accountId: AccountId; lastUpdatedAt: string; stale: boolean; lastError?: string };
+export type StampedUsage = RawAccountUsage & { accountId: AccountId; lastUpdatedAt: string; stale: boolean; lastError?: string; notice?: string };
+
+// Why an account has no fresh data: an error, or a state the user has to act on.
+type AccountProblem = { lastError: string } | { notice: string };
 
 // ---------------------------------------------------------------------------
 // Local history: neither Claude nor Copilot provides a daily history via API (see
@@ -337,7 +346,7 @@ export function computeWindowSnapshot(
 
 export function computeAccountSnapshot(
   draft: HistoryDraft,
-  raw: RawAccountUsage & { accountId: AccountId; lastUpdatedAt?: string; stale?: boolean; lastError?: string },
+  raw: RawAccountUsage & { accountId: AccountId; lastUpdatedAt?: string; stale?: boolean; lastError?: string; notice?: string },
   cfg: AccountConfig,
   now: Date,
   localInsights: ClaudeLocalInsights | null,
@@ -384,7 +393,7 @@ export function computeAccountSnapshot(
 // cannot tell "not connected" from "connected but the sync just failed", and shows the
 // wrong message ("No account connected") even when the account IS connected — see
 // AGENTS.md, "never a blank screen or silent failure".
-function emptyAccountSnapshot(cfg: AccountConfig, lastError: string): AccountSnapshot {
+function emptyAccountSnapshot(cfg: AccountConfig, problem: AccountProblem): AccountSnapshot {
   return {
     accountId: cfg.id,
     provider: cfg.provider,
@@ -401,14 +410,14 @@ function emptyAccountSnapshot(cfg: AccountConfig, lastError: string): AccountSna
     workingDaysUntilReset: null,
     estimatedAutonomyWorkingDays: null,
     stale: true,
-    lastError,
+    ...problem,
   };
 }
 
 // The last result of an account not fetched in this refresh: stale with the reason
 // while it is in backoff after a failure.
-function cachedUsage(lastGood: Omit<StampedUsage, 'stale'>, lastError: string | undefined): StampedUsage {
-  return lastError === undefined ? { ...lastGood, stale: false } : { ...lastGood, stale: true, lastError };
+function cachedUsage(lastGood: Omit<StampedUsage, 'stale'>, problem: AccountProblem | undefined): StampedUsage {
+  return problem === undefined ? { ...lastGood, stale: false } : { ...lastGood, stale: true, ...problem };
 }
 
 // Whether any window of a freshly fetched account rose since its last sample: the
@@ -429,7 +438,12 @@ function windowsRose(draft: HistoryDraft, accountId: AccountId, windows: QuotaWi
 export function createUsageCore(deps: UsageCoreDeps): { buildUsageSnapshot(mode: RefreshMode): Promise<{ snapshot: UsageSnapshot; consumptionRose: boolean | null }> } {
   const { store } = deps;
   const accountFetchStates = new Map<AccountId, AccountFetchState>();
-  const accountFetchErrors = new Map<AccountId, string>();
+  const accountFetchErrors = new Map<AccountId, AccountProblem>();
+
+  function describeProblem(err: unknown): AccountProblem {
+    const notice = deps.accountNotice(err);
+    return notice === null ? { lastError: deps.describeError(err) } : { notice };
+  }
 
   async function fetchAccountOrFallback(cfg: AccountConfig): Promise<StampedUsage> {
     const accountId = cfg.id;
@@ -449,9 +463,10 @@ export function createUsageCore(deps: UsageCoreDeps): { buildUsageSnapshot(mode:
       // first successful fetch would never be detected.
       deps.onFetchError(cfg.provider, err);
       const lastGood = store.history().lastGood?.[accountId];
-      accountFetchErrors.set(accountId, deps.describeError(err));
+      const problem = describeProblem(err);
+      accountFetchErrors.set(accountId, problem);
       if (!lastGood) throw err; // no previous data: propagate, the caller decides how to show it
-      return { ...lastGood, stale: true, lastError: deps.describeError(err) };
+      return { ...lastGood, stale: true, ...problem };
     }
   }
 
@@ -473,7 +488,7 @@ export function createUsageCore(deps: UsageCoreDeps): { buildUsageSnapshot(mode:
       let account: AccountSnapshot;
       const unavailable = deps.quotasUnavailable(cfg);
       if (unavailable !== null) {
-        account = emptyAccountSnapshot(cfg, unavailable);
+        account = emptyAccountSnapshot(cfg, { lastError: unavailable });
       } else {
         try {
           // An account in backoff, or fetched moments ago, keeps its last result: nothing
@@ -488,9 +503,9 @@ export function createUsageCore(deps: UsageCoreDeps): { buildUsageSnapshot(mode:
           if (fetchNow) consumptionRose = consumptionRose === true || (fresh && windowsRose(draft, cfg.id, raw.quotaWindows));
           account = computeAccountSnapshot(draft, raw, cfg, now, localInsights, fresh);
         } catch (err) {
-          const message = deps.describeError(err);
-          deps.logError(`[main] ${cfg.label} unavailable and no previous data:`, message);
-          account = emptyAccountSnapshot(cfg, message);
+          const problem = describeProblem(err);
+          deps.logError(`[main] ${cfg.label} unavailable and no previous data:`, 'notice' in problem ? problem.notice : problem.lastError);
+          account = emptyAccountSnapshot(cfg, problem);
         }
       }
       if (localInsights) account.localInsights = localInsights;

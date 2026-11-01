@@ -16,6 +16,7 @@ import type {
   TrayBadgeSettings,
   QuotaWindow,
 } from '../types/index';
+import path from 'node:path';
 import { isPlainRecord, mergeWithDefaults } from './merge';
 import { pickCriticalWindow } from '../budget';
 import { DEFAULT_WORK_SCHEDULE } from './defaults';
@@ -51,11 +52,13 @@ export function defaultCodexAccount(id: AccountId, label = PROVIDER_DISPLAY_NAME
     id,
     provider: 'codex',
     label,
-    enabled: false,
+    // Enabled from the start: there is no Connect step, the core uses the Codex sign-in
+    // of this computer (#178).
+    enabled: true,
     subscription: { renewalRule: { type: 'dayOfMonth', day: 1 } },
     workSchedule: structuredClone(DEFAULT_WORK_SCHEDULE),
     partition: claudePartitionFor(id),
-    session: { capturedAt: null },
+    binaryPath: null,
   };
 }
 
@@ -125,6 +128,15 @@ export function nextAccountLabel(provider: ProviderId, existing: AccountConfig[]
 // `accountScope` were entered by hand and used by no computation (2026-10).
 const CLAUDE_OBSOLETE_FIELDS = ['planTier', 'accountScope'];
 const COPILOT_OBSOLETE_FIELDS = ['planTier'];
+// The captured chatgpt.com session (#82) is gone since Codex is read through the core (#178).
+const CODEX_OBSOLETE_FIELDS = ['session'];
+
+/** A codex binary path from disk or Settings: absolute, trimmed, else auto-detection (null). */
+export function normalizeCodexBinaryPath(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  return trimmed !== '' && path.isAbsolute(trimmed) ? trimmed : null;
+}
 
 function withoutObsoleteFields(value: unknown, fields: readonly string[]): unknown {
   if (!isPlainRecord(value)) return value;
@@ -181,6 +193,22 @@ export function migrateAccounts(rawAccounts: unknown, legacyLocalInsightsEnabled
  * sessions do not say which account they belong to. If more have it (patch from the
  * renderer), the first in order wins.
  */
+/**
+ * At most one enabled Codex account (#178): the core reads the one Codex sign-in of
+ * this computer, so two enabled accounts would show the same data under two names (and
+ * accounts migrated from separate ChatGPT logins would all get it). The first enabled
+ * one is kept; reading another login per account is #188.
+ */
+export function enforceSingleCodexAccount(accounts: AccountConfig[]): AccountConfig[] {
+  let seen = false;
+  return accounts.map((a) => {
+    if (a.provider !== 'codex' || !a.enabled) return a;
+    if (seen) return { ...a, enabled: false };
+    seen = true;
+    return a;
+  });
+}
+
 export function enforceSingleLocalInsights(accounts: AccountConfig[]): AccountConfig[] {
   let seen = false;
   return accounts.map((a) => {
@@ -228,13 +256,13 @@ export function normalizeAccounts(rawAccounts: unknown[], inheritedSchedule?: un
       const cfg = withoutObsoleteFields(mergeWithDefaults(defaultClaudeAccount(id), raw), CLAUDE_OBSOLETE_FIELDS) as ClaudeAccountSettings;
       result.push({ ...cfg, id, provider: 'claude', partition: claudePartitionFor(id), workSchedule: scheduleFor(raw, inheritedSchedule) });
     } else if (raw.provider === 'codex') {
-      const cfg = mergeWithDefaults(defaultCodexAccount(id), raw) as CodexAccountSettings;
+      const cfg = withoutObsoleteFields(mergeWithDefaults(defaultCodexAccount(id), raw), CODEX_OBSOLETE_FIELDS) as CodexAccountSettings;
       result.push({
         ...cfg,
         id,
         provider: 'codex',
         partition: claudePartitionFor(id),
-        session: { capturedAt: typeof cfg.session.capturedAt === 'string' ? cfg.session.capturedAt : null },
+        binaryPath: normalizeCodexBinaryPath(cfg.binaryPath),
         workSchedule: scheduleFor(raw, inheritedSchedule),
       });
     } else if (raw.provider === 'copilot') {
@@ -244,7 +272,7 @@ export function normalizeAccounts(rawAccounts: unknown[], inheritedSchedule?: un
       result.push({ ...cfg, id, provider: 'copilot', host, workSchedule: scheduleFor(raw, inheritedSchedule) });
     }
   }
-  return enforceSingleLocalInsights(result);
+  return enforceSingleCodexAccount(enforceSingleLocalInsights(result));
 }
 
 /** Migrates the old string preference; null window defers only an uncached legacy choice. */

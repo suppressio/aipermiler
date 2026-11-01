@@ -1,40 +1,53 @@
 🌐 [English](README.md) | **Italiano**
 
-# IA Hypermiler
+# AIpermiler
+
+**Vai più lontano con meno token.** L'hypermiling, per la tua quota AI.
 
 Un piccolo widget sempre in primo piano, per Windows, macOS e Linux, che ti dice a che ritmo stai usando le quote di **Claude**, **GitHub Copilot** e **Codex** (abbonamento ChatGPT) e quanto puoi ancora usare oggi perché la quota arrivi al rinnovo.
 
-> **Le quote di Claude non sono disponibili in questa versione.** Anthropic non consente alle app di terzi di accedere a claude.ai né di salvarne la sessione ([Claude Code legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)), ed era l'unico modo con cui questa app poteva leggerle. Un account Claude ora mostra solo gli insight locali di Claude Code. Le quote torneranno con una fonte consentita ([#139](https://github.com/suppressio/ia-hypermiler/issues/139)).
+> **Le quote di Claude non sono disponibili in questa versione.** Anthropic non consente alle app di terzi di accedere a claude.ai né di salvarne la sessione ([Claude Code legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)), ed era l'unico modo con cui questa app poteva leggerle. Un account Claude ora mostra solo gli insight locali di Claude Code. Le quote torneranno con una fonte consentita ([#139](https://github.com/suppressio/aipermiler/issues/139)).
 
-<p align="center"><img src="docs/screenshots/widget-it.png" alt="Il widget di IA Hypermiler con dati di esempio" width="406"></p>
+<p align="center"><img src="docs/screenshots/widget-it.png" alt="Il widget di AIpermiler con dati di esempio" width="406"></p>
 
 <sub>Dati di esempio, non un account reale.</sub>
 
-- **Più account**, Copilot e Codex in qualsiasi combinazione (per esempio un account Codex personale e una licenza Copilot aziendale), ognuno con la sua sessione; un account Claude porta gli insight locali.
+- **Più account**, Copilot e Codex in qualsiasi combinazione (per esempio un account Codex personale e una licenza Copilot aziendale); un account Claude porta gli insight locali.
 - **I tuoi giorni lavorativi**: ogni account può seguire un suo orario (giornata intera, mezza o libera per ogni giorno della settimana), così i weekend non contano come tempo in cui avresti potuto usare la quota.
 - **Un budget per oggi**, ricalcolato ogni mattina da quanto resta.
 - **Notifiche** quando una quota supera la tua soglia di allarme, o quando il consumo di oggi va molto oltre il budget di oggi.
 - Interfaccia in italiano e inglese.
 
-> Progetto personale in sviluppo attivo. Le versioni sono pre-release (`v0.x-beta`).
+> Progetto personale in sviluppo attivo (`v0.x-beta`). Cosa è previsto e cosa è in corso: [roadmap](https://github.com/users/suppressio/projects/5).
 
 ---
 
 ## Installazione
 
-Scarica il pacchetto per il tuo sistema da [Releases](https://github.com/suppressio/ia-hypermiler/releases): `.exe` (Windows), `.dmg` (macOS), `.AppImage` o `.deb` (Linux).
+Apri l'**[ultima release](https://github.com/suppressio/aipermiler/releases/latest)** e scarica, sotto *Assets*, il file per il tuo sistema:
+
+| Sistema | File |
+|---|---|
+| Windows | `AIpermiler-Setup-<versione>.exe` |
+| macOS (Apple Silicon) | `AIpermiler-<versione>-arm64.dmg` |
+| Linux, qualsiasi distribuzione | `AIpermiler-<versione>.AppImage` |
+| Debian, Ubuntu | `aipermiler_<versione>_amd64.deb` |
+
+Le altre versioni, comprese le pre-release di test, sono nella pagina [Releases](https://github.com/suppressio/aipermiler/releases).
 
 I pacchetti non sono firmati: Windows SmartScreen e macOS Gatekeeper mostrano un avviso la prima volta. L'app controlla le nuove versioni all'avvio e ogni 24 ore e apre nel browser il download giusto.
+
+**Arrivi da IA Hypermiler (v0.4.x)?** Dalla v0.5.0 l'app si chiama AIpermiler. Le versioni fino alla 0.4.18 annunciano l'aggiornamento ma non riescono ad aprirne il download: scaricalo a mano dall'[ultima release](https://github.com/suppressio/aipermiler/releases/latest). Installalo come al solito: su Windows e su Debian/Ubuntu sostituisce IA Hypermiler, mentre su macOS e con l'AppImage puoi cancellare la vecchia app dopo. Al primo avvio impostazioni, account e storico vengono spostati, e gli account Copilot collegati restano collegati.
 
 ## Primo avvio
 
 1. Apri **Impostazioni** (⚙ nel widget, o dall'icona nel tray) → **Aggiungi account**.
 2. **Claude**: nessun login. Aggiungi l'account solo per gli insight locali (vedi sotto); le sue quote non sono disponibili in questa versione.
-   **Codex (ChatGPT)**: aggiungi un account con questo provider, clicca *Connetti…* e accedi nella finestra chatgpt.com, che si chiude da sola. Non servono Codex CLI né un'estensione IDE; viene letto solo l'utilizzo. *Disconnetti* cancella la sessione.
-   **GitHub Copilot**: incolla un Personal Access Token (fine-grained con *Plan* in sola lettura, o classic senza scope), oppure accedi con una GitHub OAuth App. Per una licenza aziendale su un tenant `<nome>.ghe.com`, imposta prima il dominio GitHub.
+   **Codex (ChatGPT)**: serve Codex con accesso su questo computer, la [Codex CLI](https://developers.openai.com/codex/cli) (`codex login`) o l'estensione Codex di VS Code. Aggiungi un account con questo provider: legge subito l'utilizzo, tramite il tuo accesso a Codex, senza finestre di login e senza sessioni ChatGPT salvate dall'app. Se Codex è installato in un posto insolito, indica il percorso nell'account (*Programma Codex*). Senza accesso, l'account lo dice e ti indica dove accedere. Un solo account Codex può essere attivo, perché c'è un solo accesso a Codex per computer (#188 segue un accesso per account).
+   **GitHub Copilot**: incolla un Personal Access Token (fine-grained con *Plan* in sola lettura, o classic senza scope), oppure accedi con una GitHub OAuth App. Per una licenza aziendale su un tenant `<nome>.ghe.com`, imposta prima il dominio GitHub. Il token si conserva nel portachiavi di sistema (Gestione credenziali di Windows, Portachiavi di macOS, GNOME Keyring o KWallet su Linux), non nei file dell'app; un token salvato da una versione precedente viene spostato lì al primo avvio.
 3. Facoltativo, per ogni account: il **calendario di lavoro** (ultima sezione dell'account) e, solo se il provider non lo comunica, il **giorno di rinnovo**.
 
-Il badge nel tray mostra un account e una finestra di limite come numero colorato (verde, arancione, rosso come nel widget, grigio se non aggiornato; su macOS, testo accanto all'icona). Scegli **Disattivato**, **Auto** o un **account · finestra** dal menu del tray o da Impostazioni → Aspetto. Auto segue la finestra critica dell'ultimo account il cui utilizzo è aumentato, resta fermo durante l'inattività e parte dall'utilizzo più alto. Il pannello resta sulla vista che stai leggendo. Un clic su un account o una finestra del pannello seleziona Manuale (con il badge Disattivato cambia solo il pannello): pannello e tray mostrano quindi la stessa vista, anche scegliendola dal tray. Se l'account manuale è disabilitato o la finestra scompare, la voce selezionata è disabilitata e compare temporaneamente il valore Auto; la preferenza ritorna quando disponibile. Con **Avvisi critici** attivo (predefinito), un'altra vista alla soglia di notifica o sopra si alterna al badge normale ogni 2 secondi in rosso (`!95`, oppure `100`; macOS `!95%`), indipendentemente dalle animazioni della finestra. Disattivare il badge disattiva anche gli avvisi. Il tooltip elenca tutti gli account. Chiudendo il widget l'app resta nel tray; *Esci* è nel suo menu.
+Il badge nel tray mostra un account e una finestra di limite come numero colorato (verde, arancione, rosso come nel widget, grigio se non aggiornato; su macOS, testo accanto all'icona). Scegli **Disattivato**, **Auto** o un **account · finestra** dal menu del tray o da Impostazioni → Aspetto. Auto segue la finestra critica dell'ultimo account il cui utilizzo è aumentato, resta fermo durante l'inattività e parte dall'utilizzo più alto. Il pannello resta sulla vista che stai leggendo. Un clic su un account o una finestra del pannello cambia solo il pannello, in ogni modalità; in Manuale, scegliere una vista dal tray o dalle Impostazioni porta il pannello su quella vista. Se l'account manuale è disabilitato o la finestra scompare, la voce selezionata è disabilitata e compare temporaneamente il valore Auto; la preferenza ritorna quando disponibile. Con **Avvisi critici** attivo (predefinito), ogni altra vista alla soglia di notifica o sopra compare a turno, dalla più alta, tra un badge normale e l'altro ogni 2 secondi in rosso (`!95`, oppure `100`; macOS `!95%`), indipendentemente dalle animazioni della finestra. Disattivare il badge disattiva anche gli avvisi. Il tooltip elenca tutti gli account. Chiudendo il widget l'app resta nel tray; *Esci* è nel suo menu.
 
 ---
 
@@ -42,7 +55,7 @@ Il badge nel tray mostra un account e una finestra di limite come numero colorat
 
 Tutti i valori qui sotto riguardano la finestra di quota mostrata, di solito quella che richiede più attenzione. Con più account c'è una scheda per account; con più finestre di quota (per esempio il limite di 5 ore e quello settimanale di Claude) una lista sopra il valore principale le mostra tutte con un breve verdetto. Clicca una riga per vedere quella finestra.
 
-Codex mostra il **Limite 5 ore** e il **Limite settimanale**, entrambi rolling. Come per le altre finestre rolling, il limite di 5 ore si legge in ore: tempo al reset, previsionale al reset e autonomia al ritmo attuale, con gli indicatori giornalieri nascosti. Il limite settimanale si legge per giorno lavorativo. Altre finestre, come la revisione codice, compaiono con la propria etichetta solo se ChatGPT le comunica.
+Codex mostra il **Limite 5 ore** e il **Limite settimanale**, entrambi rolling. Come per le altre finestre rolling, il limite di 5 ore si legge in ore: tempo al reset, previsionale al reset e autonomia al ritmo attuale, con gli indicatori giornalieri nascosti. Il limite settimanale si legge per giorno lavorativo.
 
 ### Vista compatta
 
@@ -152,10 +165,10 @@ Le animazioni della finestra fanno risplendere e lampeggiare ogni 10 secondi i v
 
 ## Privacy e sicurezza
 
-- Sessioni e token sono salvati solo sul tuo computer, cifrati, e non vengono mai mostrati all'interfaccia né scritti nei log. Le sessioni di claude.ai salvate dalle versioni precedenti vengono cancellate al primo avvio di questa versione. I cookie Codex restano nella sessione isolata dell'account; il suo access token non viene mai salvato.
-- L'app parla solo con i provider (chatgpt.com, l'API GitHub del tuo dominio) e con GitHub Releases per il controllo aggiornamenti. Nient'altro viene inviato altrove.
+- Il token di Copilot è salvato solo sul tuo computer, nel portachiavi di sistema, e non viene mai mostrato all'interfaccia né scritto nei log. Le sessioni di claude.ai salvate dalle versioni precedenti vengono cancellate al primo avvio, e così i cookie chatgpt.com del vecchio login Codex: Codex ora si legge tramite il tuo accesso a Codex, di cui l'app non salva nulla.
+- L'app parla solo con l'API GitHub del tuo dominio, con Codex su questo computer (che parla da sé con ChatGPT) e con GitHub Releases per il controllo aggiornamenti. Nient'altro viene inviato altrove.
 - **Segnalare un problema**: Impostazioni → Diagnostica → *Crea report di diagnosi* salva un file di testo in Download e apre una bozza di issue su GitHub. Il file **contiene** i tuoi valori di consumo (percentuali, importi, date di reset) ma nessun nome, id o credenziale. Le issue di questo repository sono **pubbliche**: leggi il file prima di allegarlo, oppure descrivi il problema senza.
-- Codex usa endpoint interni non documentati che possono cambiare senza preavviso. Se un provider cambia il formato delle risposte, si apre una bozza di issue precompilata con la sola struttura (nomi e tipi dei campi, mai i valori). Puoi disattivarla nelle Impostazioni.
+- Codex si legge tramite `codex app-server`, un comando che Codex segna come sperimentale, quindi può cambiare. Se un provider cambia il formato delle risposte, si apre una bozza di issue precompilata con la sola struttura (nomi e tipi dei campi, mai i valori). Puoi disattivarla nelle Impostazioni.
 
 ---
 

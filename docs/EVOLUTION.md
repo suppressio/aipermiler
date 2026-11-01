@@ -35,7 +35,7 @@ These assumptions correct/narrow the scope compared with a first, more "open" re
 ## Points of attention from the "outside" analysis
 
 - The 5 points are not independent initiatives: they are the same direction (from "widget" to "personal data platform about AI usage, with the UI as one client among many") seen from 5 angles.
-- The structural irony of point 2: the app already has a whole diagnostics discipline for when *a provider's API* changes format under it (`FormatDriftError`). If the app itself becomes an API consulted by other developer tools, it will face the same problem in reverse (stability of its own contract over time) — there is no thinking on how yet.
+- The structural irony of point 2: the app already has a whole diagnostics discipline for when *a provider's API* changes format under it (`FormatDriftError`). If the app itself becomes an API consulted by other developer tools, it will face the same problem in reverse (stability of its own contract over time) — there is no thinking on how yet. Answered in #26: a versioned contract with shared fixtures, see [CORE-CLI](CORE-CLI.md).
 - A non-trivial tension between points 1/3 (parity between providers) and point 4 (the richest insight exists only for Claude via local files): the more is invested in deep analysis, the more asymmetric the product becomes in favour of Claude.
 - Point 5 is an unmeasured hypothesis today: nobody has verified how much RAM/CPU the app really uses in tray-only mode on a real machine — before investing in a solution (expensive: independent daemon + packaging/auto-start per platform), the problem is worth quantifying.
 - There is a low-cost alternative for much of the need in point 2: an on-demand headless CLI command (e.g. `--json`/export) instead of an always-on server with network authentication — see row "2b" in the table below.
@@ -117,6 +117,14 @@ Reading against the rule above: CPU is idle (0.01% average, the cursor poll does
 
 **#99, 2026-10-22** (same Linux machine, X11/KDE, throw-away profile, tray-only PSS of the app's process tree): `app.disableHardwareAcceleration()` took it from ~378 to ~295 MB (−83 MB, −22%), almost all from the GPU process (172 → 97 MB: Chromium keeps a software GPU process). CPU still idle. The three skins render correctly, transparent-digital included (screenshots on the real display). Kept: noticeably lighter with no visible regression, though still above the ~250 MB rule; destroying the window on close is the next tuning step. Windows not checked yet (#98).
 
+**#98, 2026-10-25** (Windows, installed v0.4.17-beta, so hardware acceleration already off; **real profile** with accounts and network, not the throw-away one; tray-only for 60 min, 30 s samples, first 3 skipped; summed working set and CPU over all `ia-hypermiler` processes, measured with PowerShell `Get-Process` instead of `measure-resources.js` so no source checkout was needed; CPU % = delta CPU seconds / 30 s / logical cores × 100, i.e. 100% = whole machine, while `percentCPUUsage` in the Linux figures has 100% = one core; no per-process breakdown):
+
+```
+SUMMARY tray: processes=4 avgMB=320 maxMB=346 avgCPU=0.05% maxCPU=0.6% samples=117
+```
+
+CPU is low here too, even with real polling: almost all samples at or below 0.2% of the machine, one 0.6% spike over the hour. On the one-core scale of the Linux figures (12 logical cores) that is ~0.6% average, slightly above the ~0.5% rule, with one ~7% spike: a small absolute load, but not idle like the Linux throw-away profile (0.01%). Real polling and the 120 ms cursor poll are the candidates; #138 also stops the latter. Memory slowly went down from ~346 to ~303 MB per sample, likely Windows trimming the working set of idle processes. Like on Linux, the summed working set counts shared pages once per process, so it overstates the footprint; it is not comparable with the Linux PSS figures above, only roughly with the Linux summed working set (712 MB, before #99, throw-away profile, different tool and OS). Reading against the rule: CPU just above and memory above ~250 MB by a modest margin → **tuning** (#138), not point 5; which process dominates was not measured on Windows, so this follows the Linux breakdown by analogy. The remaining tuning step is the same as on Linux: destroy the window on close (~30-55 MB on Linux PSS; the Windows saving is not estimated). After that the rule applies as written above: point 5 only if tuning is not enough.
+
 ## Update (2026-10-22): 2a done (#23)
 
 `core/usage.ts` holds fetch orchestration and snapshot computation: `createUsageCore(deps).buildUsageSnapshot(mode)` plus `computeAccountSnapshot`/`computeWindowSnapshot`/`resolvePeriodBounds` and the history draft. Everything Electron-bound is injected (`UsageCoreDeps`): the store (`UsageStore`: accounts, ui, history, last good result), the provider fetch, connection check, local insights, error wording, the format-drift hook, the clock and the logger. The per-account backoff state now lives inside the core instance. `main.ts` keeps windows, tray, IPC, timers, notifications, the local-insights utility process and the settings-store adapter. The code was moved without changes; `core/usage.test.ts` pins its behaviour on an in-memory store (first refresh, rise detection, stale fallback, backoff, manual cache, local insights, pruning, rolling-hours vs monthly windows). Next: 2b, a headless CLI over the same core. Not moved: the local insights cache policy (`computeLocalInsightsIfNeeded`, it starts an Electron utility process) and the notifications.
@@ -126,3 +134,23 @@ Reading against the rule above: CPU is idle (0.01% average, the cursor poll does
 Anthropic's [Claude Code legal and compliance](https://code.claude.com/docs/en/legal-and-compliance) page says that third-party developers may not offer Claude.ai sign-in in their apps, and *"may not collect, store, or intermediate Claude.ai credentials or session tokens — sign-in to a Claude account must complete through Anthropic's own flow"*, with enforcement possible without notice. Capturing `sessionKey` from an embedded login window, the only way this app read Claude quotas, is exactly that case. #140 removes it: no Claude sign-in, no claude.ai fetch, and the sessions stored by earlier versions are deleted at the first start. Claude accounts stay for the local insights, which read only local Claude Code files.
 
 Reusing Claude Code's own OAuth tokens is forbidden by the same rule. Two allowed sources exist, both through Anthropic's unmodified binary and sign-in: the status line JSON (`rate_limits.five_hour` / `seven_day`), which Claude Code does **not** run in the VS Code extension (tested 2026-10-25, reported in anthropics/claude-code#21943), and the `/usage` panel of `claude` run in a pseudo-terminal (spike #141). They come back with the standalone core in Go (#139, milestone v0.6.0), which is also the answer to point 5: a small always-on core with the Electron UI as an optional client.
+
+## Update (2026-10-31): Go core resource budget (#145)
+
+Measured on Linux, `uname -m`: `x86_64`, with `go version go1.27.3 linux/amd64`. The skeleton exposes only `version` and `help`, with no providers or network calls.
+
+| Target | Stripped size (MB) |
+|---|---:|
+| linux/amd64 | 2.7 |
+| linux/arm64 | 2.7 |
+| windows/amd64 | 2.9 |
+| darwin/arm64 | 2.6 |
+| darwin/amd64 | 2.8 |
+
+For one `hypermiler version` run on linux/amd64, medians over 10 runs: **1.46 ms wall time** and **6.4 MB max RSS** (6,380 KiB; range 6,188-6,472). Method: each target built from `gocore/` with `CGO_ENABLED=0 GOOS=<os> GOARCH=<arch> go build -trimpath -ldflags "-s -w" ./cmd/hypermiler`, version left at `dev`, size = file bytes / 1,000,000. Wall time from `time.perf_counter()` around `subprocess.run([binary, "version"])` in Python, one fresh Python process per run. Max RSS from `busybox time -v` (a parent that forks, so the child inherits only busybox's own ~1.7 MB before `exec`; a Python parent would report its own ~14 MB instead).
+
+This is the baseline to compare every later step against: adapters #148/#149 will add a spawned process and network time.
+
+**With the Codex adapter (#148)**, same machine, real signed-in `codex-cli 0.163.0` (native binary found from the npm shim on `PATH`): one `hypermiler usage codex --json` takes **~0.53 s wall** and **~0.3 s CPU** (user + system of the whole process tree), over 3 runs with `busybox time -v`. Its max RSS is **~490 MB**, and that is the spawned `codex app-server`, not the core (which stays at the ~6 MB above): `ru_maxrss` of the children is the largest single descendant. It lasts half a second per refresh and nothing stays resident (no `codex` process left after the run), but it is the number to watch if the refresh pace gets faster.
+
+**With the Copilot adapter (#149)** the binary carries `net/http`, TLS and the keyring (D-Bus on Linux): stripped sizes grow to **8.3 MB** linux/amd64, 7.7 linux/arm64, 8.2 windows/amd64, 7.5 darwin/arm64, 8.1 darwin/amd64 (from 2.6-2.9). One `usage copilot` that stops at the keyring lookup (no token stored) takes **~12.6 MB** max RSS (`busybox time -v`, 5 runs), with a negligible wall time; a real read adds the GitHub calls (each bounded at 10 s).

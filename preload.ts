@@ -4,7 +4,7 @@
 // Channel names and payload types come from the shared contract (types/ipc.ts).
 
 import { contextBridge, ipcRenderer } from 'electron';
-import type { HypermilerBridge, IpcEventChannels, IpcInvokeChannels, IpcSendChannels } from './types/ipc';
+import type { AipermilerBridge, IpcEventChannels, IpcInvokeChannels, IpcSendChannels } from './types/ipc';
 
 function invoke<C extends keyof IpcInvokeChannels>(channel: C, ...args: IpcInvokeChannels[C]['args']): Promise<IpcInvokeChannels[C]['result']> {
   return ipcRenderer.invoke(channel, ...args) as Promise<IpcInvokeChannels[C]['result']>;
@@ -20,9 +20,8 @@ function subscribe<C extends keyof IpcEventChannels>(channel: C, callback: (...a
   return () => ipcRenderer.removeListener(channel, listener);
 }
 
-const bridge: HypermilerBridge = {
+const bridge: AipermilerBridge = {
   getView: () => invoke('view:get'),
-  setView: (choice) => invoke('view:set', choice),
   onViewUpdate: (callback) => subscribe('view:update', callback),
   getSettings: () => invoke('settings:get'),
   setSettings: (patch) => invoke('settings:set', patch),
@@ -49,7 +48,6 @@ const bridge: HypermilerBridge = {
   // Account registry (issue #4): every operation is per account id, not per provider.
   addAccount: (provider) => invoke('accounts:add', provider),
   removeAccount: (id) => invoke('accounts:remove', id),
-  connectCodex: (id) => invoke('accounts:connectCodex', id),
   connectCopilot: (id, token, host) => invoke('accounts:connectCopilot', id, token, host),
   connectCopilotOAuth: (id, clientId, clientSecret, host) => invoke('accounts:connectCopilotOAuth', id, { clientId, clientSecret, host }),
   disconnectAccount: (id) => invoke('accounts:disconnect', id),
@@ -59,6 +57,7 @@ const bridge: HypermilerBridge = {
 
   // Updates (issue #5): the URL to open is decided by the main process, never by the renderer.
   getAppVersion: () => invoke('app:getVersion'),
+  getCoreStatus: () => invoke('core:getStatus'),
   checkForUpdates: () => invoke('updates:check'),
   downloadUpdate: () => invoke('updates:download'),
   openReleaseNotes: () => invoke('updates:openReleaseNotes'),
@@ -66,4 +65,4 @@ const bridge: HypermilerBridge = {
   openGuide: () => invoke('app:openGuide'),
 };
 
-contextBridge.exposeInMainWorld('hypermiler', bridge);
+contextBridge.exposeInMainWorld('aipermiler', bridge);

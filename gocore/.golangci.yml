@@ -1,0 +1,59 @@
+# golangci-lint v2. Strict on purpose: start from the standard set and add the
+# linters below; relax a rule only with a reason written here.
+version: "2"
+
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  default: standard
+  enable:
+    - depguard
+    - errcheck
+    - errorlint
+    - gocritic
+    - misspell
+    - nolintlint
+    - paralleltest
+    - revive
+    - testpackage
+    - unconvert
+    - unparam
+  settings:
+    depguard:
+      # Import rules. The real layering is set in the #75 approach issue; the
+      # rule below is the first one and shows the shape: a rule applies to the
+      # files it lists and denies everything not allowed.
+      rules:
+        pacing-is-pure:
+          list-mode: strict
+          files:
+            - "**/internal/pacing/**"
+            - "!$test"
+          allow:
+            - $gostd
+          # $gostd alone would let I/O in; the more specific deny wins.
+          deny:
+            - pkg: os
+              desc: pacing is pure, no I/O
+            - pkg: io/fs
+              desc: pacing is pure, no I/O
+            - pkg: net
+              desc: pacing is pure, no I/O
+            - pkg: syscall
+              desc: pacing is pure, no I/O
+            - pkg: unsafe
+              desc: pacing is pure, no I/O
+    misspell:
+      # The module path holds the owner's GitHub login, not a typo of "suppressor".
+      ignore-rules:
+        - suppressio
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

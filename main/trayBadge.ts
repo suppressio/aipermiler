@@ -50,14 +50,15 @@ export function pickBadge(accounts: BadgeAccount[], choice: TrayBadgeSettings, a
   return autoBadge(accounts, autoAccountId);
 }
 
-export function pickAlert(accounts: BadgeAccount[], choice: TrayBadgeSettings, shown: Badge | null, threshold: number): Badge | null {
-  if (choice.view.mode === 'off' || !choice.critical) return null;
+/** Every window at or above the threshold except the shown one, highest first. */
+export function pickAlerts(accounts: BadgeAccount[], choice: TrayBadgeSettings, shown: Badge | null, threshold: number): Badge[] {
+  if (choice.view.mode === 'off' || !choice.critical) return [];
   return accounts.flatMap(account => account.quotaWindows.flatMap(win => {
     if (shown?.view.accountId === account.accountId && shown.view.windowId === win.id) return [];
     const percent = normalizedUtilization(win);
     return percent !== null && percent >= threshold
       ? [{ percent, stale: account.stale === true, view: { accountId: account.accountId, windowId: win.id } }] : [];
-  })).sort((a, b) => b.percent - a.percent)[0] ?? null;
+  })).sort((a, b) => b.percent - a.percent);
 }
 
 export function sameChoice(a: TrayBadgeChoice, b: TrayBadgeChoice): boolean {

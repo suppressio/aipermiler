@@ -60,7 +60,7 @@ export interface QuotaWindow {
   resetsAt: Date | string | null;
 }
 
-/** Raw data returned by a service (services/codex.ts, services/copilot.ts). */
+/** Raw usage of an account: contract v1 of the Go core (docs/CORE-CLI.md, main/coreClient.ts). */
 export interface RawAccountUsage {
   planTier: string | null;
   subscriptionRenewsAt: Date | string | null;
@@ -304,6 +304,9 @@ export interface AccountSnapshot extends RawAccountUsage {
   lastUpdatedAt?: string;
   stale?: boolean;
   lastError?: string;
+  // A state of the account the user has to act on (e.g. "sign in with Codex", #178),
+  // shown in place of an error; never set together with lastError.
+  notice?: string;
 }
 
 export interface UsageSnapshot {
@@ -355,11 +358,14 @@ export interface CopilotAccountSettings extends AccountConfigBase {
   // renderer/settings.ts (applyAccountDetailState) and main.ts (accounts:connectCopilot*).
   authMethod: 'pat' | 'oauth';
   // Personal plan or company (organization) seat: chooses which endpoints are read
-  // (services/copilot.ts fetchUsage).
+  // (`aipermiler usage copilot --scope`, gocore/internal/copilot).
   accountScope: AccountScope;
   // "github.com" or a GitHub Enterprise Cloud tenant with data residency
   // ("<tenant>.ghe.com"), where company seats live — see services/githubHost.ts.
   host: string;
+  // Since #179 the token lives in the core's OS keyring (entry copilot/<id>), never in
+  // the store: `token` only holds one of an earlier version until main.ts
+  // (moveCopilotTokensToKeyring) hands it over; `username` marks a connected account.
   credentials: { token: string | null; username: string | null };
   // Client ID of a GitHub OAuth App registered by the user (not a secret — see
   // renderer/settings.ts): alternative to the PAT, registered on the account's host.
@@ -370,8 +376,13 @@ export interface CopilotAccountSettings extends AccountConfigBase {
 
 export interface CodexAccountSettings extends AccountConfigBase {
   provider: 'codex';
+  // Electron partition (`persist:account-<id>`) that held the chatgpt.com cookies
+  // before #178; cleared once at startup (main.ts purgeStoredCodexSessions).
   partition: string;
-  session: { capturedAt: string | null };
+  // Absolute path of the codex binary, or null to let the core find it (CLI on PATH,
+  // npm global, VS Code extension; docs/CORE-CLI.md). Usage is read through the
+  // user's own Codex sign-in by the core (#148), never through a stored session.
+  binaryPath: string | null;
 }
 
 export type AccountConfig = ClaudeAccountSettings | CopilotAccountSettings | CodexAccountSettings;
@@ -471,6 +482,9 @@ export interface AppSettings {
     // One-off removal of the claude.ai sessions stored by earlier versions (#140, see
     // main.ts, purgeStoredClaudeSessions).
     claudeSessionsPurged?: boolean;
+    // One-off removal of the chatgpt.com cookies stored before Codex moved to the core
+    // (#178, main.ts purgeStoredCodexSessions).
+    codexSessionsPurged?: boolean;
   };
   diagnostics: DiagnosticsSettings;
   updates: UpdateSettings;
@@ -478,21 +492,4 @@ export interface AppSettings {
   // rescanning all local Claude Code sessions on every 30-minute refresh — see main.ts
   // LOCAL_INSIGHTS_RECOMPUTE_INTERVAL_MS.
   localInsightsCache: { claudeCode: ClaudeLocalInsights | null };
-}
-
-/** Credenziali passate a services/copilot.ts fetchUsage(). */
-export interface CopilotCredentials {
-  token: string;
-  accountScope?: AccountScope;
-  manualQuota?: number | null;
-  /**
-   * GitHub host of the account (services/githubHost.ts). Required: a forgotten host used
-   * to fall back to github.com silently, sending a tenant token there (v0.4.4/0.4.5).
-   */
-  host: string;
-}
-
-export interface CodexCredentials {
-  cookieHeader: string;
-  userAgent: string;
 }

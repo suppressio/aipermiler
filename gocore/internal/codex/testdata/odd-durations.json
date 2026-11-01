@@ -1,0 +1,45 @@
+{
+  "rateLimits": {
+    "planType": "plus",
+    "primary": {
+      "usedPercent": 73,
+      "windowDurationMins": 2000,
+      "resetsAt": null
+    },
+    "secondary": {
+      "usedPercent": 21,
+      "windowDurationMins": 300,
+      "resetsAt": 1793484600
+    },
+    "credits": null,
+    "individualLimit": null
+  },
+  "rateLimitsByLimitId": {
+    "codex": {
+      "planType": "plus",
+      "primary": {
+        "usedPercent": 88,
+        "windowDurationMins": 90,
+        "resetsAt": null
+      },
+      "secondary": {
+        "usedPercent": 21,
+        "windowDurationMins": 300,
+        "resetsAt": 1793484600
+      },
+      "credits": null,
+      "individualLimit": null
+    },
+    "synthetic-odd": {
+      "planType": "plus",
+      "primary": {
+        "usedPercent": 99,
+        "windowDurationMins": 2000,
+        "resetsAt": null
+      },
+      "secondary": null,
+      "credits": null,
+      "individualLimit": null
+    }
+  }
+}

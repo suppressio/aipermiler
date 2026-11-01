@@ -1,9 +1,11 @@
 // main.ts — Electron main process
-// Day 2, Session 1: real data from services/claude.ts and services/copilot.ts instead
-// of the Day 1 mock. When a fetch fails, the last known data is shown with its
-// timestamp (never a blank screen, see AGENTS.md).
+// Usage comes from the Go core CLI (main/core.ts) for Codex and Copilot (#178, #179).
+// When a fetch fails, the last known data is shown with its timestamp (never a blank
+// screen, see AGENTS.md).
 
-import { app, dialog, BrowserWindow, Notification, shell, Menu, screen, utilityProcess } from 'electron';
+// Loaded by entry.ts only after the userData migration succeeded (#200).
+import { userDataMigration } from './main/userDataBootstrap';
+import { app, dialog, BrowserWindow, Notification, shell, Menu, screen, session, utilityProcess } from 'electron';
 import store, { DEFAULTS } from './store/index';
 import { normalizeSettings } from './store/normalize';
 import { isPlainRecord } from './store/merge';
@@ -11,22 +13,21 @@ import { applyCompact, createMainWindow, createSettingsWindow } from './main/win
 import { createTray } from './main/tray';
 import { badgeEntries, pickBadge, resolveLegacyView, sameChoice, trackAutoAccount } from './main/trayBadge';
 import { clearClaudePartition, clearDefaultSessionClaudeCookies } from './main/claude-auth';
-import { captureGithubOAuthToken } from './main/copilot-oauth';
 import * as providers from './main/providers';
 import * as refreshPolicy from './main/refreshPolicy';
 import type { RefreshMode } from './main/refreshPolicy';
-import { defaultAccountFor, enforceSingleLocalInsights, nextAccountLabel, normalizeAccounts, purgeClaudeSessions } from './store/migrate';
+import { defaultAccountFor, enforceSingleCodexAccount, enforceSingleLocalInsights, nextAccountLabel, normalizeAccounts, purgeClaudeSessions } from './store/migrate';
 import * as budget from './budget';
 import { createUsageCore, refreshIntervalMs } from './core/usage';
-import { captureCodexSession } from './main/codex-auth';
-import { CodexSignInRequiredError } from './services/codex';
-import * as copilotService from './services/copilot';
 import path from 'path';
 import { fetchLatestUpdate, guideUrl, TRUSTED_DOWNLOAD_PREFIX } from './services/updates';
-import { DEFAULT_GITHUB_HOST, normalizeGithubHost } from './services/githubHost';
+import { DEFAULT_GITHUB_HOST, githubOAuthBase, normalizeGithubHost } from './services/githubHost';
 import type { TrayHandle } from './main/tray';
 import { FormatDriftError, shapeSignature } from './services/_shape';
-import { buildFormatDriftIssueUrl, buildReportIssueUrl } from './diagnostics/githubIssue';
+import { CoreBinaryError, CoreOutputError, CoreProviderError, CoreTimeoutError } from './main/coreClient';
+import { core } from './main/core';
+import { copilotAccountFlags } from './main/coreRequests';
+import { buildFormatDriftIssueUrl, buildReportIssueUrl, shortError } from './diagnostics/githubIssue';
 import { buildDiagnosticReport, neutralize } from './diagnostics/report';
 import type { ReportAccount } from './diagnostics/report';
 import { LogBuffer, captureConsole } from './diagnostics/logBuffer';
@@ -78,6 +79,9 @@ let lastSnapshot: UsageSnapshot | null = null;
 // installed app has no visible console (diagnostics/logBuffer.ts).
 const logBuffer = new LogBuffer(50);
 captureConsole(logBuffer);
+for (const warning of userDataMigration.warnings) console.warn(`[main] ${warning}`);
+if (userDataMigration.migrated) console.log('[main] settings moved from the folder of the old app name');
+
 
 // Durations of the last refresh and of the last local insights scan, for the
 // diagnostic report (a slow startup had to be inferred before).
@@ -194,7 +198,7 @@ function startLocalInsights(windowDays: number, refreshWhenDone: boolean): Promi
 function computeLocalInsightsInProcess(windowDays: number): Promise<ClaudeLocalInsights | null> {
   return new Promise((resolve, reject) => {
     const child = utilityProcess.fork(path.join(__dirname, 'services', 'claudeLocalSessions.worker.js'), [], {
-      serviceName: 'IA Hypermiler local insights',
+      serviceName: 'AIpermiler local insights',
     });
     let settled = false;
     const settle = (action: () => void): void => {
@@ -242,15 +246,24 @@ function updateAccount(id: AccountId, update: (cfg: AccountConfig) => AccountCon
 // progress log, session about the account_session_invalid error.
 function friendlyErrorMessage(err: unknown): string {
   const error = err as Error & { status?: number };
-  if (err instanceof CodexSignInRequiredError || error.status === 401 || error.status === 403) {
+  // Codex signed out is a state, not a failure: say where to sign in (#178).
+  if (err instanceof CoreProviderError && err.code === 'signed_out' && err.provider === 'codex') {
+    return t('error.codexSignedOut');
+  }
+  if (error.status === 401 || error.status === 403) {
     return t('error.sessionExpired', { detail: error.message });
   }
-  if (err instanceof copilotService.CopilotUsageUnavailableError) {
-    return t('error.copilotEnterpriseManaged');
+  if (err instanceof CoreProviderError && err.provider === 'copilot') {
+    if (err.reason === 'enterprise_managed_seat') return t('error.copilotEnterpriseManaged');
+    if (err.code === 'signed_out') return t('error.copilotSignedOut');
+    if (err.reason === 'keyring_unavailable') return t('error.keyringUnavailable', { detail: err.message });
   }
   if (err instanceof providers.ClaudeUsageUnavailableError) {
     return t('error.claudeQuotasUnavailable');
   }
+  if (err instanceof CoreBinaryError) return t('error.coreMissing', { detail: error.message });
+  if (err instanceof CoreTimeoutError) return t('error.coreTimeout');
+  if (err instanceof CoreOutputError) return t('error.coreBadOutput', { detail: error.message });
   return error.message;
 }
 
@@ -287,7 +300,7 @@ function maybeReportFormatDrift(provider: ProviderId, err: unknown): void {
 
   if (Notification.isSupported()) {
     new Notification({
-      title: 'IA Hypermiler',
+      title: 'AIpermiler',
       body: t('notify.formatDrift', { provider: providers.providerDisplayName(provider) }),
     }).show();
   }
@@ -305,7 +318,8 @@ function reportConfig(cfg: AccountConfig): Record<string, unknown> {
     workSchedule: cfg.workSchedule,
   };
   switch (cfg.provider) {
-    case 'codex': return common;
+    // Never the path itself (it can hold the user name): only whether one is set.
+    case 'codex': return { ...common, binaryPath: cfg.binaryPath ? 'set' : 'auto-detect' };
     case 'claude':
       return { ...common, authMethod: cfg.authMethod, localInsights: cfg.localInsights };
     case 'copilot':
@@ -377,6 +391,7 @@ function reportInterpretation(accountId: AccountId, accounts: Pick<ReportAccount
     lastUpdatedAt: account.lastUpdatedAt ?? null,
     stale: account.stale ?? false,
     lastError: account.lastError ? neutralize(account.lastError, accounts) : null,
+    notice: account.notice ?? null,
     criticalWindow: account.criticalWindow?.id ?? null,
     windows: account.windows.map((w) => ({
       id: w.window.id,
@@ -428,7 +443,7 @@ function maybeNotifyThreshold(snapshot: UsageSnapshot): void {
 
     if (Notification.isSupported()) {
       new Notification({
-        title: 'IA Hypermiler',
+        title: 'AIpermiler',
         body: t('notify.threshold', { account: account.label, threshold }),
       }).show();
     }
@@ -457,7 +472,7 @@ function maybeNotifyPace(snapshot: UsageSnapshot): void {
 
     if (Notification.isSupported()) {
       new Notification({
-        title: 'IA Hypermiler',
+        title: 'AIpermiler',
         body: t('notify.pace', { account: account.label, used: formatNumber(over.usedToday), budget: formatNumber(over.budget) }),
       }).show();
     }
@@ -477,6 +492,13 @@ const usageCore = createUsageCore({
   },
   fetchUsage: providers.fetchUsage,
   isConnected: providers.isConnected,
+  // Signed out is a state, not a failure: Codex (sign in with Codex), Copilot (reconnect).
+  accountNotice: (err) => {
+    if (!(err instanceof CoreProviderError) || err.code !== 'signed_out') return null;
+    if (err.provider === 'codex') return t('error.codexSignedOut');
+    if (err.provider === 'copilot') return t('error.copilotSignedOut');
+    return null;
+  },
   quotasUnavailable: (cfg) => (cfg.provider === 'claude' ? t('error.claudeQuotasUnavailable') : null),
   localInsights: computeLocalInsightsIfNeeded,
   describeError: friendlyErrorMessage,
@@ -672,7 +694,7 @@ function preserveRealSecretsOnWrite(key: string, value: unknown): unknown {
   for (const cur of current) {
     if (!merged.some((m) => m.id === cur.id)) merged.push(cur);
   }
-  return enforceSingleLocalInsights(merged);
+  return enforceSingleCodexAccount(enforceSingleLocalInsights(merged));
 }
 
 // ---------------------------------------------------------------------------
@@ -718,7 +740,7 @@ async function checkForUpdates(source: 'auto' | 'manual'): Promise<UpdateSetting
 
   if (next.available && next.available.version !== next.notifiedVersion && Notification.isSupported()) {
     const notification = new Notification({
-      title: 'IA Hypermiler',
+      title: 'AIpermiler',
       body: t('notify.updateAvailable', { version: next.available.version }),
     });
     notification.on('click', openSettingsWindow);
@@ -751,13 +773,6 @@ function broadcastSettings(): void {
 
 function registerIpcHandlers(): void {
   handle('view:get', () => getTrayViewState());
-  handle('view:set', (_event, raw: unknown) => {
-    if (!isPlainRecord(raw)) throw new Error('View: invalid choice');
-    const entry = getTrayViewState().entries.find(e => e.enabled && raw.mode === e.view.mode
-      && (e.view.mode !== 'manual' || (raw.accountId === e.view.accountId && raw.windowId === e.view.windowId)));
-    if (!entry) throw new Error('View: unavailable choice');
-    return setTrayView(entry.view);
-  });
   handle('settings:get', () => redactSecretsForRenderer(store.store));
 
   handle('settings:set', (_event, patch: unknown) => {
@@ -833,8 +848,11 @@ function registerIpcHandlers(): void {
     const accounts = getAccounts();
     const id = `${provider}-${randomUUID().slice(0, 8)}`;
     accounts.push(defaultAccountFor(provider, id, nextAccountLabel(provider, accounts)));
-    store.set('accounts', accounts);
+    // A new Codex account starts enabled unless another one already is (#178).
+    store.set('accounts', enforceSingleCodexAccount(accounts));
     broadcastSettings();
+    // Codex has no Connect step that would trigger the first read: refresh now.
+    runDetached('refresh usage', refreshAndBroadcast('forced'));
     return id;
   });
 
@@ -850,23 +868,20 @@ function registerIpcHandlers(): void {
     runDetached('refresh usage', refreshAndBroadcast('forced'));
   });
 
-  handle('accounts:connectCodex', async (_event, rawId: unknown) => {
-    const id = requireString(rawId, 'Account');
-    const cfg = findAccount(id);
-    if (!cfg || cfg.provider !== 'codex') throw new Error(`Codex account not found: ${id}`);
-    const { capturedAt } = await captureCodexSession(cfg.partition);
-    updateAccount(id, (a) => a.provider === 'codex' ? { ...a, enabled: true, session: { capturedAt } } : a);
-    broadcastSettings();
-    runDetached('refresh usage', refreshAndBroadcast('forced'));
-  });
 
   handle('accounts:connectCopilot', async (_event, rawId: unknown, rawToken: unknown, rawHost: unknown) => {
     const id = requireString(rawId, 'Account');
     const token = requireString(rawToken, 'Token').trim();
     const host = requireGithubHost(rawHost);
-    const username = await copilotService.resolveUsername(token, host);
+    const cfg = findAccount(id);
+    if (!cfg || cfg.provider !== 'copilot') throw new Error(`Copilot account not found: ${id}`);
+    // The core checks the token with GitHub and keeps it in the OS keyring (#179): it
+    // goes on the core's stdin, never in argv, and is not written to the store.
+    const flags = copilotAccountFlags({ ...cfg, host });
+    const username = await core.tokenSet({ provider: 'copilot', flags, token, verify: true });
+    await dropTokenIfAccountRemoved(id, flags);
     updateAccount(id, (a) => (a.provider === 'copilot'
-      ? { ...a, enabled: true, authMethod: 'pat', host, credentials: { token, username } }
+      ? { ...a, enabled: true, authMethod: 'pat', host, credentials: { token: null, username } }
       : a));
     broadcastSettings();
     runDetached('refresh usage', refreshAndBroadcast('forced'));
@@ -884,10 +899,29 @@ function registerIpcHandlers(): void {
       clientSecret: requireString(payloadRecord.clientSecret, 'Client Secret'),
       host: requireGithubHost(payloadRecord.host),
     };
-    const { accessToken } = await captureGithubOAuthToken(payload);
-    const username = await copilotService.resolveUsername(accessToken, payload.host);
+    const cfg = findAccount(id);
+    if (!cfg || cfg.provider !== 'copilot') throw new Error(`Copilot account not found: ${id}`);
+    // The core runs the PKCE loopback and keeps the token in the OS keyring (#179); the
+    // app only opens the authorization URL it announces, checked against the host.
+    const authorizePrefix = `${githubOAuthBase(payload.host)}/authorize?`;
+    const accountFlags = copilotAccountFlags({ ...cfg, host: payload.host });
+    const username = await core.login({
+      provider: 'copilot',
+      flags: [...accountFlags, '--client-id', payload.clientId, '--locale', getLocale()],
+      clientSecret: payload.clientSecret,
+      onAuthorize: (url) => {
+        if (!url.startsWith(authorizePrefix)) {
+          console.error('[main] the core announced an unexpected sign-in URL; not opened');
+          return;
+        }
+        shell.openExternal(url).catch((err: unknown) => {
+          console.error('[main] could not open the GitHub sign-in page:', err);
+        });
+      },
+    });
+    await dropTokenIfAccountRemoved(id, accountFlags);
     updateAccount(id, (a) => (a.provider === 'copilot'
-      ? { ...a, enabled: true, authMethod: 'oauth', host: payload.host, credentials: { token: accessToken, username }, oauthApp: { clientId: payload.clientId } }
+      ? { ...a, enabled: true, authMethod: 'oauth', host: payload.host, credentials: { token: null, username }, oauthApp: { clientId: payload.clientId } }
       : a));
     broadcastSettings();
     runDetached('refresh usage', refreshAndBroadcast('forced'));
@@ -895,6 +929,16 @@ function registerIpcHandlers(): void {
   });
 
   handle('app:getVersion', () => app.getVersion());
+
+  // The bundled core's version, or why it cannot run (Settings, next to the app version).
+  handle('core:getStatus', async () => {
+    try {
+      const v = await core.version();
+      return { ok: true, version: `${v.name} ${v.version} (${v.os}/${v.arch})` };
+    } catch (err) {
+      return { ok: false, error: friendlyErrorMessage(err) };
+    }
+  });
 
   handle('updates:check', () => checkForUpdates('manual'));
 
@@ -926,7 +970,7 @@ function registerIpcHandlers(): void {
       defaultId: 0,
       cancelId: 1,
       noLink: true,
-      title: 'IA Hypermiler',
+      title: 'AIpermiler',
       message: t('report.confirmTitle'),
       detail: t('report.confirmDetail', { accounts: connected.length }),
     };
@@ -954,10 +998,15 @@ function registerIpcHandlers(): void {
     // The app's reading of the data, once every name is known (errors are neutralized).
     for (const account of accounts) account.interpretation = reportInterpretation(account.id, accounts);
 
+    // The core's version, or the reason it cannot run (no paths: shortError).
+    const coreVersion = await core.version()
+      .then((v) => `${v.version} (${v.os}/${v.arch})`)
+      .catch((err: unknown) => `unavailable: ${shortError(err instanceof Error ? err.message : String(err))}`);
     const text = buildDiagnosticReport({
       generatedAt: now,
       environment: {
         app: app.getVersion(),
+        core: coreVersion,
         platform: process.platform,
         arch: process.arch,
         osRelease: os.release(),
@@ -975,7 +1024,7 @@ function registerIpcHandlers(): void {
       accounts,
       log: logBuffer.list(),
     });
-    const fileName = `ia-hypermiler-report-${budget.localDateKey(now)}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}.txt`;
+    const fileName = `aipermiler-report-${budget.localDateKey(now)}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}${String(now.getSeconds()).padStart(2, '0')}.txt`;
     const filePath = path.join(app.getPath('downloads'), fileName);
     await writeFile(filePath, text, 'utf8');
     shell.showItemInFolder(filePath);
@@ -997,6 +1046,55 @@ function registerIpcHandlers(): void {
 // #140: once, remove every claude.ai session stored by earlier versions (account
 // partitions, the pre-#4 defaultSession cookies, the stored sessionKey) and the last
 // fetched Claude quotas. Retried on the next start if anything fails.
+// #178: once, remove the chatgpt.com cookies that the Codex login window stored in each
+// account partition before Codex moved to the core. The store side (the `session`
+// field) is already dropped by normalizeAccounts.
+async function purgeStoredCodexSessions(): Promise<void> {
+  if (store.get('meta').codexSessionsPurged === true) return;
+  let failures = 0;
+  for (const cfg of getAccounts()) {
+    if (cfg.provider !== 'codex') continue;
+    try {
+      await session.fromPartition(cfg.partition).clearStorageData();
+    } catch (err) {
+      failures += 1;
+      console.error(`[main] removing the chatgpt.com cookies of account '${cfg.label}' failed:`, (err as Error).message);
+    }
+  }
+  if (failures === 0) {
+    store.set('meta', { ...store.get('meta'), codexSessionsPurged: true });
+  } else {
+    console.error(`[main] ${String(failures)} Codex cookie store(s) not cleared, retrying at the next start`);
+  }
+}
+
+// The account can be removed while its sign-in is still open in the browser (or a token
+// check is running): the core has just stored a token nobody could delete any more.
+// Remove it and fail the connection.
+async function dropTokenIfAccountRemoved(id: AccountId, flags: string[]): Promise<void> {
+  if (findAccount(id)?.provider === 'copilot') return;
+  await core.tokenDelete({ provider: 'copilot', flags });
+  throw new Error(t('error.accountRemovedDuringSignIn'));
+}
+
+// #179: the Copilot token of an earlier version, kept in the encrypted store, is handed
+// to the core once (stdin, unchecked: it was checked when connected, and startup must
+// not wait on GitHub) and then removed from the store. A failure (keyring not reachable,
+// core missing) keeps it in the store and retries at the next start; meanwhile the core
+// cannot read it, so the account shows the error.
+async function moveCopilotTokensToKeyring(): Promise<void> {
+  for (const cfg of getAccounts()) {
+    if (cfg.provider !== 'copilot' || !cfg.credentials.token) continue;
+    try {
+      await core.tokenSet({ provider: 'copilot', flags: copilotAccountFlags(cfg), token: cfg.credentials.token, verify: false });
+      updateAccount(cfg.id, (a) => (a.provider === 'copilot' ? { ...a, credentials: { ...a.credentials, token: null } } : a));
+      console.log(`[main] Copilot token of account '${cfg.label}' moved to the OS keyring (#179)`);
+    } catch (err) {
+      console.error(`[main] moving the Copilot token of account '${cfg.label}' to the OS keyring failed, retrying at the next start:`, friendlyErrorMessage(err));
+    }
+  }
+}
+
 async function purgeStoredClaudeSessions(): Promise<void> {
   if (store.get('meta').claudeSessionsPurged === true) return;
   // The store part runs first and always: it cannot fail on a single partition.
@@ -1042,6 +1140,8 @@ app.whenReady().then(async () => {
   registerIpcHandlers();
   applyMainLocale();
   await purgeStoredClaudeSessions();
+  await purgeStoredCodexSessions();
+  await moveCopilotTokensToKeyring();
 
   const win = createMainWindow(store);
   mainWindow = win;
@@ -1061,6 +1161,13 @@ app.whenReady().then(async () => {
 
   scheduleRefreshLoop();
   startWindowHoverPolling();
+  // A core that cannot run is reported in the log buffer (diagnostic report) at once,
+  // not only when a provider first reads through it.
+  runDetached('core version check', core.version().then((v) => {
+    console.log(`[main] core ${v.name} ${v.version} (${v.os}/${v.arch})`);
+  }, (err: unknown) => {
+    console.warn('[main] core unavailable:', friendlyErrorMessage(err));
+  }));
   startUpdateChecks();
 
   app.on('activate', () => {

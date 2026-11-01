@@ -21,11 +21,12 @@ import Store from 'electron-store';
 import type { AppSettings } from '../types/index';
 import { normalizeSettings } from './normalize';
 import { DEFAULTS } from './defaults';
+import { STORE_NAME } from '../main/userDataMigration';
 
 export { DEFAULTS };
 
 const store = new Store<AppSettings>({
-  name: 'ia-hypermiler-config',
+  name: STORE_NAME,
   encryptionKey: 'dev-only-placeholder-change-before-release',
   defaults: DEFAULTS,
 });

@@ -1,6 +1,7 @@
 node_modules/
 dist/
 release/
+core-bin/
 .env
 .env.test
 store/*.json

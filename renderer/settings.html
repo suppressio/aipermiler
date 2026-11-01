@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title data-i18n="settings.windowTitle">IA Hypermiler — Settings</title>
+  <title data-i18n="settings.windowTitle">AIpermiler — Settings</title>
   <link rel="stylesheet" href="settings.css" />
 </head>
 <body>
@@ -96,12 +96,10 @@
             <input type="text" data-account-field="label" />
           </label>
         </div>
-        <p data-i18n="settings.codex.loginHint">Login opens a chatgpt.com window. Only usage is read.</p>
-        <div class="account-actions">
-          <button type="button" class="btn-secondary" data-action="connect-codex" data-i18n="settings.accounts.connect">Connect</button>
-          <button type="button" class="btn-secondary" data-action="disconnect" data-i18n="settings.accounts.disconnect">Disconnect</button>
-        </div>
-        <p class="connection-status" data-role="detail-status"></p>
+        <p class="hint" data-i18n="settings.codex.signInHint">Usage is read through Codex signed in on this computer (Codex CLI or the VS Code extension). Sign in there; the app stores no ChatGPT session. Only one Codex account can be active, since there is one Codex sign-in per computer.</p>
+        <label><span class="label-row"><span data-i18n="settings.codex.binaryPath">Codex binary (optional)</span> <button type="button" class="info-icon" aria-label="More information" data-i18n-aria-label="settings.infoAria">ⓘ<span class="tooltip" role="tooltip" data-i18n="settings.codex.binaryPathHint"></span></button></span>
+          <input type="text" data-account-field="binaryPath" data-i18n-placeholder="settings.codex.binaryPathPlaceholder" placeholder="Found automatically" spellcheck="false" />
+        </label>
         <div data-role="schedule-slot"></div>
       </div>
     </template>
@@ -269,7 +267,7 @@
       <h2 data-i18n="settings.diagnostics.title">Diagnostics</h2>
       <label>
         <input type="checkbox" data-field="diagnostics.autoReportFormatDrift" />
-        <span data-i18n="settings.diagnostics.autoReport">Report automatically if the format of a Claude/Copilot response changes</span>
+        <span data-i18n="settings.diagnostics.autoReport">Report automatically if the format of a provider response changes</span>
         <button type="button" class="info-icon" aria-label="More information" data-i18n-aria-label="settings.infoAria">ⓘ<span class="tooltip" role="tooltip" data-i18n="settings.diagnostics.hint"></span></button>
       </label>
       <div class="field-row">
@@ -277,6 +275,7 @@
         <button type="button" class="info-icon" aria-label="More information" data-i18n-aria-label="settings.infoAria">ⓘ<span class="tooltip" role="tooltip" data-i18n="settings.diagnostics.reportResponsesHint"></span></button>
       </div>
       <p class="hint" id="report-responses-status" role="status"></p>
+      <p class="hint"><span data-i18n="settings.diagnostics.core">Core:</span> <span id="core-status">…</span></p>
     </section>
 
     <div class="save-bar">

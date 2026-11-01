@@ -64,6 +64,7 @@ function harness(accounts: AccountConfig[], first: RawAccountUsage, extra: Parti
     quotasUnavailable: () => null,
     localInsights: async () => { localInsightsCalls.count += 1; return null as ClaudeLocalInsights | null; },
     describeError: (err) => `friendly: ${(err as Error).message}`,
+    accountNotice: (err) => ((err as Error).message === 'signed out' ? 'sign in please' : null),
     onFetchError: (provider, err) => { errors.push({ provider, err }); },
     now: () => clock.now,
     logError: (message) => { logs.push(message); },
@@ -295,4 +296,32 @@ test('a monthly window pace gets day metrics: reset, budget and redistribution',
   assert.equal(w.daysUntilReset, account.daysUntilReset);
   assert.equal(account.workingDaysUntilReset, w.workingDaysUntilReset);
   assert.ok(w.chart.length > 0);
+});
+
+test('a failed fetch that is a state (signed out) is a notice, not an error, with or without previous data (#178)', async () => {
+  const h = harness([claudeAccount()], usage(weeklyWindow(40)));
+  h.answer.next = async () => { throw new Error('signed out'); };
+  const first = at((await h.core.buildUsageSnapshot('forced')).snapshot.accounts, 0);
+  assert.equal(first.notice, 'sign in please');
+  assert.equal(first.lastError, undefined);
+  assert.equal(first.stale, true);
+
+  h.answer.next = async () => usage(weeklyWindow(40));
+  h.clock.now = new Date(NOW.getTime() + 30 * MIN);
+  const ok = at((await h.core.buildUsageSnapshot('forced')).snapshot.accounts, 0);
+  assert.equal(ok.notice, undefined);
+  assert.equal(ok.stale, false);
+
+  h.answer.next = async () => { throw new Error('signed out'); };
+  h.clock.now = new Date(NOW.getTime() + 60 * MIN);
+  const later = at((await h.core.buildUsageSnapshot('forced')).snapshot.accounts, 0);
+  assert.equal(later.notice, 'sign in please');
+  assert.equal(later.lastError, undefined);
+  assert.equal(later.stale, true);
+  assert.equal(at(later.windows, 0).window.used, 40, 'the last data stays shown');
+
+  // A scheduled tick during the backoff keeps the notice.
+  h.clock.now = new Date(NOW.getTime() + 62 * MIN);
+  const skipped = at((await h.core.buildUsageSnapshot('scheduled')).snapshot.accounts, 0);
+  assert.equal(skipped.notice, 'sign in please');
 });

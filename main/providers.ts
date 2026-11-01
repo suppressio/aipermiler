@@ -2,17 +2,18 @@
 // docs/EVOLUTION.md point 3). main.ts works only on generic AccountConfig values and
 // delegates here everything that depends on the provider: connection state,
 // credentials for the service, disconnection, redaction of secrets towards the
-// renderer. The services (services/codex.ts, services/copilot.ts) are unchanged: the
-// fetchUsage(credentials) contract of AGENTS.md is already the common base across
-// providers. Claude quotas are not read (#140): see ClaudeUsageUnavailableError. Adding a provider = a new branch in each function below (the exhaustive
+// renderer. Codex (#178) and Copilot (#179) are read by the Go core CLI (main/core.ts):
+// Codex through the user's own Codex sign-in, Copilot with the token the core keeps in
+// the OS keyring. No provider secret lives in the app any more, except a Copilot token
+// of an earlier version until main.ts moves it to the keyring. Claude quotas are not read (#140): see ClaudeUsageUnavailableError. Adding a provider = a new branch in each function below (the exhaustive
 // `switch` on `provider` makes tsc fail when one is forgotten).
 
-import * as codexService from '../services/codex';
-import { buildCodexCookieHeader, codexUserAgent, clearCodexPartition } from './codex-auth';
-import * as copilotService from '../services/copilot';
+import { core } from './core';
+import { requireFresh } from './coreClient';
+import { codexUsageRequest, copilotAccountFlags, copilotUsageRequest } from './coreRequests';
 import { clearClaudePartition } from './claude-auth';
 import { PROVIDER_DISPLAY_NAMES } from '../store/migrate';
-import type { AccountConfig, CodexAccountSettings, CodexCredentials, ProviderId, RawAccountUsage } from '../types/index';
+import type { AccountConfig, ProviderId, RawAccountUsage } from '../types/index';
 
 const SECRET_PLACEHOLDER = '••••••••';
 
@@ -35,34 +36,29 @@ export function providerDisplayName(provider: ProviderId): string {
 
 export function isConnected(cfg: AccountConfig): boolean {
   switch (cfg.provider) {
-    case 'codex': return cfg.session.capturedAt !== null;
+    // Nothing to connect: the core uses the Codex sign-in of this computer (#178).
+    case 'codex': return true;
     // Nothing to connect: the account exists for the local insights (#140).
     case 'claude': return true;
-    case 'copilot': return !!cfg.credentials.token;
+    // Connected once the core holds its token (username set at connect), or while a
+    // token of an earlier version waits to be moved to the keyring.
+    case 'copilot': return !!cfg.credentials.username || !!cfg.credentials.token;
   }
 }
 
-async function codexCredentials(cfg: CodexAccountSettings): Promise<CodexCredentials> {
-  return {
-    cookieHeader: await buildCodexCookieHeader(cfg.partition),
-    userAgent: codexUserAgent(cfg.partition),
-  };
-}
+/** Label of the Codex source in the diagnostic report. */
+export const CODEX_CORE_ENDPOINT_LABEL = 'core: codex app-server account/rateLimits/read';
+
 
 /** Calls the provider service's fetchUsage with the account credentials. */
 export async function fetchUsage(cfg: AccountConfig): Promise<RawAccountUsage> {
   switch (cfg.provider) {
     case 'codex':
-      return codexService.fetchUsage(await codexCredentials(cfg));
+      return requireFresh(await core.usage(codexUsageRequest(cfg)), 'codex');
     case 'claude':
       throw new ClaudeUsageUnavailableError();
     case 'copilot':
-      return copilotService.fetchUsage({
-        token: cfg.credentials.token as string,
-        accountScope: cfg.accountScope,
-        manualQuota: cfg.manualQuota,
-        host: cfg.host,
-      });
+      return requireFresh(await core.usage(copilotUsageRequest(cfg)), 'copilot');
   }
 }
 
@@ -74,22 +70,14 @@ export async function fetchUsage(cfg: AccountConfig): Promise<RawAccountUsage> {
 export async function fetchRawResponse(cfg: AccountConfig): Promise<{ endpointLabel: string; response: unknown }> {
   switch (cfg.provider) {
     case 'codex':
-      return {
-        endpointLabel: codexService.USAGE_ENDPOINT_LABEL,
-        response: await codexService.fetchUsageResponse(await codexCredentials(cfg)),
-      };
+      // The core's reading (contract v1 document), not the raw app-server answer: the
+      // core never forwards it. Redacted like any response by the report.
+      return { endpointLabel: CODEX_CORE_ENDPOINT_LABEL, response: await core.usage(codexUsageRequest(cfg)) };
     case 'claude':
       throw new ClaudeUsageUnavailableError();
     case 'copilot':
-      return {
-        endpointLabel: copilotService.INTERNAL_USER_ENDPOINT_LABEL,
-        response: await copilotService.fetchUsageResponse({
-          token: cfg.credentials.token as string,
-          accountScope: cfg.accountScope,
-          manualQuota: cfg.manualQuota,
-          host: cfg.host,
-        }),
-      };
+      // copilot_internal/user, the main source of both scopes, raw (redacted by the report).
+      return core.raw({ provider: 'copilot', flags: copilotAccountFlags(cfg) });
   }
 }
 
@@ -100,14 +88,20 @@ export async function fetchRawResponse(cfg: AccountConfig): Promise<{ endpointLa
  */
 export async function disconnect(cfg: AccountConfig): Promise<AccountConfig> {
   switch (cfg.provider) {
+    // Nothing stored to remove: signing out of Codex is done in Codex itself.
     case 'codex':
-      await clearCodexPartition(cfg.partition);
-      return { ...cfg, enabled: false, session: { capturedAt: null } };
+      return { ...cfg, enabled: false };
     case 'claude':
       await clearClaudePartition(cfg.partition);
       return { ...cfg, enabled: false, session: { sessionKey: null, organizationId: null, capturedAt: null, expiresAt: null } };
     case 'copilot':
-      // oauthApp.clientId is not deleted: it is not a secret and is handy to reconnect.
+      // The token lives in the core's keyring: removed there. A failure (keyring not
+      // reachable) is thrown, so the account does not look disconnected while its token
+      // stays stored. oauthApp.clientId is kept: not a secret, handy to reconnect.
+      // A never-connected account has nothing to remove (no core call needed to delete it).
+      if (cfg.credentials.username || cfg.credentials.token) {
+        await core.tokenDelete({ provider: 'copilot', flags: copilotAccountFlags(cfg) });
+      }
       return { ...cfg, enabled: false, credentials: { token: null, username: null } };
   }
 }
@@ -136,7 +130,7 @@ export function preserveSecrets(incoming: AccountConfig, current: AccountConfig 
   switch (incoming.provider) {
     case 'codex': {
       const cur = current as typeof incoming;
-      return { ...incoming, partition: cur.partition, session: { ...cur.session } };
+      return { ...incoming, partition: cur.partition };
     }
     case 'claude': {
       const cur = current as typeof incoming;

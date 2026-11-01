@@ -41,6 +41,18 @@ body {
   height: 100vh;
 }
 
+/* ---------- Scrollbar ---------- */
+/* Thin, transparent track, thumb in the skin's text colour (issue #133). Every skin and
+   the Settings window (its own colours in settings.css) use the same shape. */
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-corner { background: transparent; }
+::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, currentColor 30%, transparent);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover { background: color-mix(in srgb, currentColor 50%, transparent); }
+
 /* ---------- Titlebar comune ---------- */
 .titlebar {
   display: flex;
@@ -86,23 +98,11 @@ body.style-filled {
   background: var(--bg-filled);
   color: var(--text-filled);
 }
-/* Same "invisible until the mouse is over the window" treatment as the digital skin
-   (user feedback): no always-visible bar/border at the top, buttons and drag handle
-   appear only on hover. */
+/* Solid skins: the title bar controls are always visible (issue #133, owner pick B). They
+   used to fade in on hover only, but the 32 px bar stayed, leaving an empty band at the
+   top. Always visible: no layout jump on hover and the band has a purpose. Only the drag
+   grip below still appears on hover. The digital skin keeps hide-on-hover (no bar). */
 body.style-filled .titlebar { background: var(--bg-filled); }
-body.style-filled .titlebar-controls,
-body.style-filled .titlebar-controls-left {
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-body.style-filled.window-hover .titlebar-controls,
-body.style-filled .titlebar-controls:hover,
-body.style-filled .titlebar-controls:focus-within,
-body.style-filled.window-hover .titlebar-controls-left,
-body.style-filled .titlebar-controls-left:hover,
-body.style-filled .titlebar-controls-left:focus-within {
-  opacity: 1;
-}
 body.style-filled .titlebar-controls button,
 body.style-filled .titlebar-controls-left button { color: var(--text-filled); }
 body.style-filled .titlebar-controls button:hover,
@@ -136,19 +136,6 @@ body.style-filled-dark {
   color: var(--text-filled-dark);
 }
 body.style-filled-dark .titlebar { background: var(--bg-filled-dark); }
-body.style-filled-dark .titlebar-controls,
-body.style-filled-dark .titlebar-controls-left {
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-body.style-filled-dark.window-hover .titlebar-controls,
-body.style-filled-dark .titlebar-controls:hover,
-body.style-filled-dark .titlebar-controls:focus-within,
-body.style-filled-dark.window-hover .titlebar-controls-left,
-body.style-filled-dark .titlebar-controls-left:hover,
-body.style-filled-dark .titlebar-controls-left:focus-within {
-  opacity: 1;
-}
 body.style-filled-dark .titlebar-controls button,
 body.style-filled-dark .titlebar-controls-left button { color: var(--text-filled-dark); }
 body.style-filled-dark .titlebar-controls button:hover,

@@ -11,8 +11,8 @@ test('tray summarizes all accounts through the common quota model, without addin
     { label: 'Claude', criticalWindow: { ...window, used: 62 }, stale: false },
     { label: 'Copilot', criticalWindow: { ...window, unit: 'count', used: 120, total: 300 }, stale: false },
     { label: 'Claude work', criticalWindow: window, stale: false },
-  ]), 'IA Hypermiler\nClaude 62% · Copilot 40% · Claude work 42%');
-  assert.equal(trayTooltip([]), 'IA Hypermiler');
+  ]), 'AIpermiler\nClaude 62% · Copilot 40% · Claude work 42%');
+  assert.equal(trayTooltip([]), 'AIpermiler');
 });
 
 test('tray marks stale data and preserves unknown usage', () => {

@@ -62,7 +62,7 @@ export function neutralize(text: string, accounts: Pick<ReportAccount, 'name' | 
 
 export function buildDiagnosticReport(input: ReportInput): string {
   const document = {
-    report: 'IA Hypermiler diagnostic report',
+    report: 'AIpermiler diagnostic report',
     generatedAt: input.generatedAt.toISOString(),
     environment: input.environment,
     settings: input.settings,
@@ -81,7 +81,7 @@ export function buildDiagnosticReport(input: ReportInput): string {
     log: input.log.map((e) => ({ ...e, message: neutralize(e.message, input.accounts) })),
   };
   return [
-    '# IA Hypermiler diagnostic report — real usage values included; names, ids, credentials and free text redacted.',
+    '# AIpermiler diagnostic report — real usage values included; names, ids, credentials and free text redacted.',
     JSON.stringify(document, null, 2),
     '',
   ].join('\n');

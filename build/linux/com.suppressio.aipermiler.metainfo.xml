@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>com.suppressio.aipermiler</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>AIpermiler</name>
+  <summary>Widget that paces your AI token usage (Claude, GitHub Copilot and Codex)</summary>
+  <summary xml:lang="it">Widget che dosa il consumo di token IA (Claude, GitHub Copilot e Codex)</summary>
+  <description>
+    <p>AIpermiler monitors your AI token usage on Claude, GitHub Copilot and Codex and computes a daily budget so that your quota lasts until it renews.</p>
+    <p>An always-visible widget shows today's consumption against the ideal budget, the end-of-period projection, efficiency metrics and tips derived from your real data.</p>
+    <p xml:lang="it">AIpermiler monitora il consumo di token IA su Claude, GitHub Copilot e Codex e calcola un budget giornaliero in modo che la quota duri fino al rinnovo.</p>
+    <p xml:lang="it">Un widget sempre visibile mostra il consumo di oggi rispetto al budget ideale, la proiezione a fine periodo, le metriche di efficienza e consigli ricavati dai tuoi dati reali.</p>
+  </description>
+  <developer id="com.suppressio">
+    <name>Daniele 'suppressio'</name>
+  </developer>
+  <developer_name>Daniele 'suppressio'</developer_name>
+  <url type="homepage">https://github.com/suppressio/aipermiler</url>
+  <url type="bugtracker">https://github.com/suppressio/aipermiler/issues</url>
+  <launchable type="desktop-id">aipermiler.desktop</launchable>
+  <replaces>
+    <id>com.suppressio.ia-hypermiler</id>
+  </replaces>
+  <provides>
+    <binary>aipermiler</binary>
+  </provides>
+  <categories>
+    <category>Utility</category>
+  </categories>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.5.0-beta" date="2026-11-01" type="development"/>
+    <release version="0.4.18-beta" date="2026-10-25" type="development"/>
+    <release version="0.4.17-beta" date="2026-10-24" type="development"/>
+    <release version="0.4.16-beta" date="2026-10-22" type="development"/>
+    <release version="0.4.15-beta" date="2026-10-18" type="development"/>
+    <release version="0.4.14-beta" date="2026-10-09" type="development"/>
+  </releases>
+</component>

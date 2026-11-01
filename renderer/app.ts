@@ -1,5 +1,5 @@
 // app.ts — renderer logic of the main widget (no direct access to Node.js).
-// Reads/writes only through window.hypermiler, exposed by preload.ts.
+// Reads/writes only through window.aipermiler, exposed by preload.ts.
 // Every visible string goes through t() (renderer/i18n): see CLAUDE.md, i18n rule.
 
 import type {
@@ -15,7 +15,7 @@ import type {
   UsageView,
   TrayViewState,
 } from '../types/index';
-import type { HypermilerBridge } from '../types/ipc';
+import type { AipermilerBridge } from '../types/ipc';
 import { windowLabel } from './windowLabel.js';
 import { byId } from './dom.js';
 import { applySeverity, severityLevel, todaySeverity } from './severity.js';
@@ -40,7 +40,7 @@ import type { MessageKey } from './i18n/en.js';
 
 declare global {
   interface Window {
-    hypermiler: HypermilerBridge;
+    aipermiler: AipermilerBridge;
   }
 }
 
@@ -82,7 +82,7 @@ const compactTransition = createCompactTransition({
       .map((element) => fadeSlide(element, expanding)),
   ),
   finish: () => { compactAnimation.finish(); },
-  resize: (compact) => window.hypermiler.setCompact(compact),
+  resize: (compact) => window.aipermiler.setCompact(compact),
   apply: (compact) => {
     if (state.settings) state.settings.ui.compact = compact;
     updateCompactButton(compact);
@@ -121,7 +121,7 @@ function syncMotion(): void {
 function requestRefresh(): void {
   refreshing = true;
   syncMotion();
-  window.hypermiler.requestUsageRefresh();
+  window.aipermiler.requestUsageRefresh();
 }
 
 // --- Language ------------------------------------------------------------------
@@ -180,7 +180,7 @@ function updateCompactButton(compact: boolean): void {
 // the main process with screen.getCursorScreenPoint() (see main.ts,
 // startWindowHoverPolling) and receives it here via IPC.
 function initHoverReveal(): void {
-  window.hypermiler.onWindowHoverChanged((isHovering) => {
+  window.aipermiler.onWindowHoverChanged((isHovering) => {
     document.body.classList.toggle('window-hover', isHovering);
   });
 }
@@ -698,21 +698,13 @@ function applyView(updated: TrayViewState): void {
   if (state.latestSnapshot) renderSnapshot(state.latestSnapshot);
 }
 
-// A panel click selects that view as Manual, except with the badge Off (the user turned
-// the badge off) or on an account without windows (no view to select): then the panel
-// only browses locally.
+// A panel click only moves the panel's local view, in every mode: the tray selection
+// (Off/Auto/Manual and the Manual view) changes only from the tray menu or Settings. In
+// Manual the override holds until the selection changes.
 function choosePanelView(view: PanelView): void {
-  const mode = state.view?.selection.view.mode;
-  if (mode === 'off' || view.windowId === null) {
-    state.localView = view;
-    state.localOverride = mode === 'manual';
-    if (state.latestSnapshot) renderSnapshot(state.latestSnapshot);
-    return;
-  }
-  // An explicit choice ends the local override, also when it is the selection already
-  // persisted (main answers with an unchanged view:update, which renders the panel).
-  state.localOverride = false;
-  runGuarded(window.hypermiler.setView({ mode: 'manual', accountId: view.accountId, windowId: view.windowId }));
+  state.localView = view;
+  state.localOverride = state.view?.selection.view.mode === 'manual';
+  if (state.latestSnapshot) renderSnapshot(state.latestSnapshot);
 }
 
 function selectAccount(snapshot: UsageSnapshot): AccountSnapshot | undefined {
@@ -946,13 +938,17 @@ function renderSnapshot(snapshot: UsageSnapshot): void {
   } else if (account.planTier === 'free') {
     label = t('widget.freePlan');
   }
-  if (account.stale) {
+  if (account.stale && account.notice && !account.lastUpdatedAt) {
+    // A state the user has to act on (e.g. sign in with Codex, #178), not a failed sync.
+    label = account.notice;
+  } else if (account.stale) {
     // Never a successful sync so far: the account IS connected but the very first
     // fetch failed — not to be confused with "not connected".
     label = account.lastUpdatedAt
       ? t('widget.stale', { label, time: formatDateTime(account.lastUpdatedAt) })
       : t('widget.firstSyncFailed');
-    if (account.lastError) label = t('widget.withError', { label, error: account.lastError });
+    const reason = account.lastError ?? account.notice;
+    if (reason) label = t('widget.withError', { label, error: reason });
   }
   byId('current-label').textContent = label;
   // The compact view hides the account tabs: the label carries the account name there (style.css).
@@ -992,7 +988,7 @@ function setTipsVisible(visible: boolean): void {
 
 async function togglePin(): Promise<void> {
   const next = !(state.settings?.ui.alwaysOnTop ?? false);
-  await window.hypermiler.setAlwaysOnTop(next);
+  await window.aipermiler.setAlwaysOnTop(next);
   if (state.settings) state.settings.ui.alwaysOnTop = next;
   updatePinButton(next);
 }
@@ -1003,10 +999,10 @@ async function toggleCompact(): Promise<void> {
 }
 
 async function init(): Promise<void> {
-  const settings = await window.hypermiler.getSettings();
+  const settings = await window.aipermiler.getSettings();
   state.settings = settings;
-  window.hypermiler.onViewUpdate(applyView);
-  state.view = await window.hypermiler.getView();
+  window.aipermiler.onViewUpdate(applyView);
+  state.view = await window.aipermiler.getView();
   applyLanguage(settings);
   applyWindowStyle(settings.ui.windowStyle);
   applyAccentColor(settings.ui.accentColor);
@@ -1024,13 +1020,13 @@ async function init(): Promise<void> {
   syncMotion();
 
   byId('btn-settings').addEventListener('click', () => {
-    window.hypermiler.openSettingsWindow();
+    window.aipermiler.openSettingsWindow();
   });
   byId('btn-minimize').addEventListener('click', () => {
-    window.hypermiler.minimizeWindow();
+    window.aipermiler.minimizeWindow();
   });
   byId('btn-close').addEventListener('click', () => {
-    window.hypermiler.closeWindow();
+    window.aipermiler.closeWindow();
   });
   byId('btn-compact').addEventListener('click', () => { runGuarded(toggleCompact()); });
   byId('btn-pin').addEventListener('click', () => { runGuarded(togglePin()); });
@@ -1040,18 +1036,18 @@ async function init(): Promise<void> {
     requestRefresh();
   });
 
-  window.hypermiler.onUsageRefreshing((active) => {
+  window.aipermiler.onUsageRefreshing((active) => {
     refreshing = active;
     syncMotion();
   });
-  window.hypermiler.onUsageUpdate((snapshot) => {
+  window.aipermiler.onUsageUpdate((snapshot) => {
     refreshing = false;
     try { renderSnapshot(snapshot); }
     finally { syncMotion(); }
   });
   // Applies Settings changes live while the widget is open (accent color, always
   // on top from Settings/tray, language) — see preload.ts/main.ts, settings:update.
-  window.hypermiler.onSettingsUpdate((updated) => {
+  window.aipermiler.onSettingsUpdate((updated) => {
     const languageChanged = updated.ui.language !== state.settings?.ui.language;
     const thresholdChanged = updated.ui.notificationThresholdPercent !== state.settings?.ui.notificationThresholdPercent;
     state.settings = updated;

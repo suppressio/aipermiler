@@ -5,9 +5,10 @@
 // with unsigned packages.
 //
 // Endpoint: GET /repos/{owner}/{repo}/releases (official GitHub REST API, no
-// authentication). NOT /releases/latest: it skips pre-releases, and every release of
-// this project is one (`releaseType: "prerelease"` in package.json). No user data
-// leaves in the request: it is an anonymous GET to a public repository.
+// authentication). NOT /releases/latest: CI publishes every release as a pre-release
+// (`releaseType: "prerelease"` in package.json) and the owner promotes the tested ones
+// by hand, so the list is needed to tell the two apart. No user data leaves in the
+// request: it is an anonymous GET to a public repository.
 //
 // Pure functions (compareVersions/pickLatestRelease/pickDownloadAsset) + a single
 // network point (fetchLatestUpdate, via services/_http.ts: 10s timeout, explicit errors).
@@ -15,8 +16,11 @@
 import { fetchJson } from './_http';
 import type { UpdateInfo } from '../types/index';
 
-const REPO = 'suppressio/ia-hypermiler';
-export const RELEASES_API_URL = `https://api.github.com/repos/${REPO}/releases?per_page=20`;
+const REPO = 'suppressio/aipermiler';
+// 100 = GitHub's page maximum, one request. Beyond it an installed pre-release is no
+// longer recognised (it then follows normal releases) and a normal release preceded by
+// 100 pre-releases is missed: years of margin at the current pace, no pagination.
+export const RELEASES_API_URL = `https://api.github.com/repos/${REPO}/releases?per_page=100`;
 /** Every URL opened by the "Download" button must be under this prefix (see main.ts). */
 export const TRUSTED_DOWNLOAD_PREFIX = `https://github.com/${REPO}/`;
 
@@ -34,6 +38,7 @@ export interface GithubRelease {
   tag_name: string;
   html_url: string;
   draft: boolean;
+  prerelease: boolean;
   published_at: string | null;
   assets: GithubReleaseAsset[];
 }
@@ -81,11 +86,17 @@ export function compareVersions(a: string, b: string): number {
   return 0;
 }
 
-/** Most recent release (drafts and non-semver tags excluded), or null when it is not newer than `currentVersion`. */
+/**
+ * Most recent release (drafts and non-semver tags excluded), or null when it is not
+ * newer than `currentVersion`. Pre-releases may hold builds still to test: they are
+ * offered only when the installed version is itself a GitHub pre-release; a version
+ * missing from the list (dev build, too old) counts as a normal release.
+ */
 export function pickLatestRelease(releases: GithubRelease[], currentVersion: string): GithubRelease | null {
+  const onPrerelease = releases.some((r) => r.prerelease && parseVersion(r.tag_name) && compareVersions(r.tag_name, currentVersion) === 0);
   let best: GithubRelease | null = null;
   for (const release of releases) {
-    if (release.draft || !parseVersion(release.tag_name)) continue;
+    if (release.draft || (release.prerelease && !onPrerelease) || !parseVersion(release.tag_name)) continue;
     if (!best || compareVersions(release.tag_name, best.tag_name) > 0) best = release;
   }
   if (!best || compareVersions(best.tag_name, currentVersion) <= 0) return null;
@@ -137,7 +148,7 @@ export interface UpdateEnvironment {
 /** Checks GitHub Releases: UpdateInfo when a newer version exists, null otherwise. Throws on error. */
 export async function fetchLatestUpdate(currentVersion: string, env: UpdateEnvironment): Promise<UpdateInfo | null> {
   const releases = await fetchJson(RELEASES_API_URL, {
-    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'ia-hypermiler' },
+    headers: { Accept: 'application/vnd.github+json', 'User-Agent': 'aipermiler' },
     label: 'GitHub Releases',
   });
   if (!Array.isArray(releases)) throw new Error('GitHub Releases: unexpected response (not a list)');

@@ -4,7 +4,7 @@ import { Tray, Menu, nativeImage, app, BrowserWindow, MenuItem } from 'electron'
 import path from 'path';
 import type Store from 'electron-store';
 import { trayTooltip } from './traySummary';
-import { BADGE_SIZE, badgeText, badgeTone, pickBadge, pickAlert, renderBadge } from './trayBadge';
+import { BADGE_SIZE, badgeText, badgeTone, pickBadge, pickAlerts, renderBadge } from './trayBadge';
 import { windowLabel } from './windowLabel';
 import type { AppSettings, UsageSnapshot, TrayBadgeChoice, TrayViewState } from '../types/index';
 import { t } from './i18n/index';
@@ -43,25 +43,27 @@ export function createTray({ getMainWindow, openSettings, refreshNow, store, get
 
   const baseIcon = icon;
   const tray = new Tray(icon);
-  tray.setToolTip('IA Hypermiler');
+  tray.setToolTip('AIpermiler');
 
   let latestSnapshot: UsageSnapshot | null = null;
   let shownBadge = '';
-  let alertFrame = false;
   let alertTimer: ReturnType<typeof setInterval> | null = null;
   const stopAlert = () => {
     if (alertTimer) clearInterval(alertTimer);
     alertTimer = null;
-    alertFrame = false;
+    alertIndex = -1;
   };
   app.once('before-quit', stopAlert);
 
   let normal: ReturnType<typeof pickBadge> = null;
-  let alert: ReturnType<typeof pickAlert> = null;
+  let alerts: ReturnType<typeof pickAlerts> = [];
+  // Position in the cycle normal → alert 0 → alert 1 → … → normal; -1 = the normal view.
+  let alertIndex = -1;
   let threshold = 80;
   const renderFrame = () => {
-    const badge = alertFrame && alert ? alert : normal;
-    const isAlert = alertFrame && alert !== null;
+    const alert = alerts[alertIndex];
+    const badge = alert ?? normal;
+    const isAlert = alert !== undefined;
     const tone = badge ? isAlert ? 'warning' : badgeTone(badge, threshold) : null;
     const key = badge && tone ? `${badgeText(badge.percent, isAlert)}:${tone}:${String(isAlert)}:${String(badge.stale)}` : '';
     if (key === shownBadge) return;
@@ -92,14 +94,15 @@ export function createTray({ getMainWindow, openSettings, refreshNow, store, get
     const accounts = latestSnapshot?.accounts ?? [];
     threshold = ui.notificationThresholdPercent;
     normal = pickBadge(accounts, state.selection, state.shown?.accountId ?? null);
-    alert = pickAlert(accounts, state.selection, normal, threshold);
-    if (alert && !alertTimer) {
+    alerts = pickAlerts(accounts, state.selection, normal, threshold);
+    if (alertIndex >= alerts.length) alertIndex = -1;
+    if (alerts.length > 0 && !alertTimer) {
       alertTimer = setInterval(() => {
         if (tray.isDestroyed()) { stopAlert(); return; }
-        alertFrame = !alertFrame;
+        alertIndex = alertIndex + 1 >= alerts.length ? -1 : alertIndex + 1;
         renderFrame();
       }, 2000);
-    } else if (!alert) stopAlert();
+    } else if (alerts.length === 0) stopAlert();
     renderFrame();
   };
 

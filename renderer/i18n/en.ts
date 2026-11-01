@@ -134,7 +134,7 @@ export const en = {
   'unit.ratePerHour': '{n}%/h',
 
   // --- Settings: general -----------------------------------------------------
-  'settings.windowTitle': 'IA Hypermiler — Settings',
+  'settings.windowTitle': 'AIpermiler — Settings',
   'settings.title': 'Settings',
   'settings.infoAria': 'More information',
   'settings.loading': 'Loading settings…',
@@ -156,7 +156,6 @@ export const en = {
   'settings.accounts.hint': 'You can connect several accounts, even of the same provider (e.g. two Claude accounts): each one has its own session, isolated from the others. "Disconnect" really deletes the saved session — the next login starts from scratch.',
   'settings.accounts.configure': 'Configure',
   'settings.accounts.close': 'Close',
-  'settings.accounts.reconnect': 'Reconnect',
   'settings.accounts.connect': 'Connect…',
   'settings.accounts.disconnect': 'Disconnect',
   'settings.accounts.remove': 'Remove',
@@ -164,12 +163,11 @@ export const en = {
   'settings.accounts.statusConnectedAs': 'Connected as {user}',
   'settings.accounts.statusNotConnected': 'Not connected',
   'settings.accounts.statusClaudeLocalOnly': 'Local insights only',
+  'settings.accounts.statusCodexSignIn': 'Codex sign-in of this computer',
   'settings.accounts.enabledAria': 'Account {name} active',
   'settings.accounts.detailTitle': 'Configure “{name}”',
   'settings.accounts.detailTitleNew': 'New {provider} account',
   'settings.accounts.removeConfirm': 'Remove the account "{name}"? The saved session will be deleted.',
-  'settings.accounts.loginInProgress': 'Login in progress… (complete it in the window that opened)',
-  'settings.accounts.connected': '{name} connected',
   'settings.accounts.connectedAs': '{name} connected as {user}',
   'settings.accounts.connectedOauthAs': '{name} connected (OAuth) as {user}',
   'settings.accounts.disconnected': '{name} disconnected',
@@ -192,7 +190,10 @@ export const en = {
   'settings.claude.localInsightsHint': 'Reads local Claude Code sessions (CLI and VS Code extension — same source) to show how much of your usage happens with a very large context or in very long sessions, which tools/MCP servers you use most and how many tokens you produce per point of quota. It only reads token counts and tool names — never message content. Local sessions do not say which account they belong to: enable it on one Claude account only, the one you use with Claude Code. Sessions older than about 30 days are no longer available.',
 
   // --- Settings: Copilot detail -------------------------------------------------
-  'settings.codex.loginHint': 'Login opens a chatgpt.com window. Only usage is read.',
+  'settings.codex.signInHint': 'Usage is read through Codex signed in on this computer (Codex CLI or the VS Code extension). Sign in there; the app stores no ChatGPT session. Only one Codex account can be active, since there is one Codex sign-in per computer.',
+  'settings.codex.binaryPath': 'Codex binary (optional)',
+  'settings.codex.binaryPathHint': 'Leave empty: the app finds Codex by itself (CLI on the PATH, npm global install, VS Code extension). Fill it only if Codex is installed somewhere else: the full path of the codex program.',
+  'settings.codex.binaryPathPlaceholder': 'Found automatically',
   'settings.copilot.orgWarning': 'Company seat: usage is read from the unofficial endpoint VS Code uses, and it may change without notice. If your company has its own GitHub domain (<name>.ghe.com), set it below and connect with an account of that domain: a github.com account linked to an enterprise has no usage data.',
   'settings.copilot.host': 'GitHub domain',
   'settings.copilot.hostHint': 'github.com, or your company domain (e.g. acme.ghe.com) if you sign in to GitHub on a different address.',
@@ -288,10 +289,12 @@ export const en = {
 
   // --- Settings: diagnostics ----------------------------------------------------------
   'settings.diagnostics.title': 'Diagnostics',
-  'settings.diagnostics.autoReport': 'Report automatically if the format of a Claude/Copilot response changes',
+  'settings.diagnostics.autoReport': 'Report automatically if the format of a provider response changes',
   'settings.diagnostics.hint': 'If an endpoint stops being recognized, a pre-filled GitHub issue draft opens in the browser (field structure only, never real values such as percentages or amounts): it must always be reviewed and submitted by hand, nothing is published automatically.',
   'settings.diagnostics.reportResponses': 'Create diagnostic report (GitHub)',
   'settings.diagnostics.reportResponsesHint': "Saves in your Downloads folder one text file with the usage responses of every connected account (real values; names, ids and credentials redacted), the settings that affect pacing, how the app read the data, recent history, the last errors and a few system facts (time zone, screens, memory used by the app). A confirmation lists everything before anything is read. Then a GitHub issue draft opens: attach the file if you want. Nothing is sent by the app.",
+  'settings.diagnostics.core': 'Core:',
+  'settings.diagnostics.coreUnavailable': 'not available — {error}',
   'settings.diagnostics.reportCreated': 'Report saved in Downloads: {file}. Attach it to the issue draft opened in the browser.',
 } as const;
 

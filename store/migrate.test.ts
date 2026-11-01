@@ -7,6 +7,8 @@ import {
   claudePartitionFor,
   defaultClaudeAccount,
   defaultCopilotAccount,
+  defaultCodexAccount,
+  enforceSingleCodexAccount,
   enforceSingleLocalInsights,
   migrateAccounts,
   migrateTrayBadge,
@@ -169,4 +171,20 @@ test('purgeClaudeSessions: Claude accounts lose session and last quotas, the res
 
 test('purgeClaudeSessions: no lastGood stays undefined', () => {
   assert.equal(purgeClaudeSessions([defaultClaudeAccount('c1')], undefined).lastGood, undefined);
+});
+
+test('enforceSingleCodexAccount: at most one enabled Codex account, the first kept (#178)', () => {
+  const a = defaultCodexAccount('a');
+  const b = defaultCodexAccount('b');
+  const off = { ...defaultCodexAccount('off'), enabled: false };
+  const result = enforceSingleCodexAccount([off, a, defaultCopilotAccount('c'), b]);
+  assert.deepEqual(result.map((x) => [x.id, x.enabled]), [['off', false], ['a', true], ['c', false], ['b', false]]);
+});
+
+test('normalizeAccounts: two migrated Codex accounts → only the first stays enabled (#178)', () => {
+  const result = normalizeAccounts([
+    { id: 'x', provider: 'codex', enabled: true, session: { capturedAt: '2026-10-18T10:00:00Z' } },
+    { id: 'y', provider: 'codex', enabled: true, session: { capturedAt: '2026-10-19T10:00:00Z' } },
+  ]);
+  assert.deepEqual(result.map((x) => [x.id, x.enabled]), [['x', true], ['y', false]]);
 });

@@ -36,13 +36,21 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
+
+      # The Go core CLI ships inside every package (extraResources, #177), built on each
+      # native runner for its own OS and architecture.
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: gocore/go.mod
+          cache-dependency-path: gocore/go.mod
 
       - name: Install dependencies
         run: npm ci
@@ -59,11 +67,13 @@ jobs:
         shell: bash
         run: |
           if [ "${{ github.ref_type }}" = "tag" ]; then
+            npm run build:core
             npx electron-builder ${{ matrix.flag }} --publish=always
           else
             # A newer semver than the release it starts from (0.4.11-beta.dev.5 >
             # 0.4.11-beta) and older than the next one: no spurious update prompt.
             version="$(node -p "require('./package.json').version").dev.${{ github.run_number }}"
+            AIPERMILER_CORE_VERSION="$version" npm run build:core
             npx electron-builder ${{ matrix.flag }} --publish=never -c.extraMetadata.version="$version"
           fi
         env:
@@ -76,9 +86,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Upload package as artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: ia-hypermiler-${{ matrix.artifact }}${{ github.ref_type != 'tag' && '-test' || '' }}
+          name: aipermiler-${{ matrix.artifact }}${{ github.ref_type != 'tag' && '-test' || '' }}
           path: |
             release/*.dmg
             release/*.exe

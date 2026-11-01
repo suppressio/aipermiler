@@ -15,7 +15,7 @@ const fs = require('node:fs');
 
 const [openMin = 2, trayMin = 5, everySec = 15] = process.argv.slice(2).filter((a) => /^\d+(\.\d+)?$/.test(a)).map(Number);
 
-app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'hypermiler-measure-')));
+app.setPath('userData', fs.mkdtempSync(path.join(os.tmpdir(), 'aipermiler-measure-')));
 require(path.join(__dirname, '..', 'dist', 'main.js'));
 
 const rows = { open: [], tray: [] };

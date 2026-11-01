@@ -3,6 +3,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import { normalizeSettings } from './normalize';
 import { mergeWithDefaults } from './merge';
 import { DEFAULT_WORK_SCHEDULE, DEFAULTS } from './defaults';
@@ -153,20 +154,43 @@ test('normalizeSettings: accounts do not share the same schedule object', () => 
   assert.equal(DEFAULT_WORK_SCHEDULE.days.mon, 'full');
 });
 
-test('normalizeSettings: Codex preserves capture time and repairs malformed settings', () => {
-  const capturedAt = '2026-10-18T10:00:00Z';
-  const valid = normalizeSettings({ accounts: [{ id: 'cx', provider: 'codex', session: { capturedAt }, partition: 'wrong' }] }, DEFAULTS);
-  const account = at(valid.accounts, 0);
-  assert.equal(account.provider, 'codex');
-  assert.deepEqual(account.session, { capturedAt });
+test('normalizeSettings: an existing Codex account keeps id, settings and enabled, loses the session (#178)', () => {
+  const schedule = { enabled: true, days: { mon: 'full', tue: 'half', wed: 'full', thu: 'full', fri: 'off', sat: 'off', sun: 'off' }, hoursPerDay: 6 };
+  const before = {
+    id: 'cx', provider: 'codex', label: 'Personal Codex', enabled: true, partition: 'wrong',
+    session: { capturedAt: '2026-10-18T10:00:00Z' },
+    subscription: { renewalRule: { type: 'dayOfMonth', day: 12 } }, workSchedule: schedule,
+  };
+  const migrated = normalizeSettings({ accounts: [before] }, DEFAULTS);
+  const account = at(migrated.accounts, 0);
+  if (account.provider !== 'codex') throw new Error('Expected Codex');
+  assert.equal(account.id, 'cx');
+  assert.equal(account.label, 'Personal Codex');
+  assert.equal(account.enabled, true);
+  assert.deepEqual(account.subscription, { renewalRule: { type: 'dayOfMonth', day: 12 } });
+  assert.deepEqual(account.workSchedule, schedule);
   assert.equal(account.partition, 'persist:account-cx');
-  assert.deepEqual(normalizeSettings(valid, DEFAULTS), valid);
-  const malformed = normalizeSettings({ accounts: [{ id: 'cx', provider: 'codex', enabled: 'yes', session: { capturedAt: 42 }, workSchedule: false }] }, DEFAULTS);
+  assert.equal(account.binaryPath, null);
+  assert.ok(!('session' in account), 'the captured chatgpt.com session is dropped');
+  assert.deepEqual(normalizeSettings(migrated, DEFAULTS), migrated);
+});
+
+test('normalizeSettings: Codex binary path is absolute or null, malformed settings repaired', () => {
+  const absolute = path.resolve('opt', 'codex', 'bin', 'codex');
+  const withPath = (binaryPath: unknown) => {
+    const account = at(normalizeSettings({ accounts: [{ id: 'cx', provider: 'codex', binaryPath }] }, DEFAULTS).accounts, 0);
+    if (account.provider !== 'codex') throw new Error('Expected Codex');
+    return account.binaryPath;
+  };
+  assert.equal(withPath(absolute), absolute);
+  assert.equal(withPath(`  ${absolute}  `), absolute);
+  assert.equal(withPath('codex'), null);
+  assert.equal(withPath(''), null);
+  assert.equal(withPath(42), null);
+  const malformed = normalizeSettings({ accounts: [{ id: 'cx', provider: 'codex', enabled: 'yes', workSchedule: false }] }, DEFAULTS);
   const repaired = at(malformed.accounts, 0);
-  assert.equal(repaired.enabled, false);
+  assert.equal(repaired.enabled, true, 'the default: a new Codex account has nothing to connect');
   assert.deepEqual(repaired.workSchedule, DEFAULT_WORK_SCHEDULE);
-  if (repaired.provider !== 'codex') throw new Error('Expected Codex');
-  assert.deepEqual(repaired.session, { capturedAt: null });
 });
 
 

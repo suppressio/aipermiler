@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { BADGE_SIZE, badgeText, badgeTone, pickBadge, renderBadge, trackAutoAccount, pickAlert, badgeEntries, resolveLegacyView } from './trayBadge';
+import { BADGE_SIZE, badgeText, badgeTone, pickBadge, renderBadge, trackAutoAccount, pickAlerts, badgeEntries, resolveLegacyView } from './trayBadge';
 import type { QuotaWindow } from '../types/index';
 
 const window: QuotaWindow = { id: 'any-window', label: 'Limit', periodType: 'rolling-days', periodLength: 7, used: 42, total: 100, unit: 'percentage', resetsAt: null };
@@ -56,14 +56,17 @@ test('badge: Manual shows the exact window, unavailable choice falls back withou
   assert.equal(pickBadge([], auto, null), null);
 });
 
-test('alerts inspect all other views, including the same account, at the exact threshold', () => {
+test('alerts list every other view at or above the threshold, highest first', () => {
   const shown = pickBadge(accounts, auto, 'b');
-  assert.equal(pickAlert(accounts, auto, shown, 85)?.percent, 85);
-  assert.equal(pickAlert(accounts, auto, shown, 86), null);
-  assert.equal(pickAlert(accounts, { ...auto, critical: false }, shown, 80), null);
-  assert.equal(pickAlert(accounts, { ...auto, view: { mode: 'off' } }, null, 80), null);
+  assert.deepEqual(pickAlerts(accounts, auto, shown, 85).map(a => a.percent), [85]);
+  assert.deepEqual(pickAlerts(accounts, auto, shown, 86), []);
+  assert.deepEqual(pickAlerts(accounts, { ...auto, critical: false }, shown, 80), []);
+  assert.deepEqual(pickAlerts(accounts, { ...auto, view: { mode: 'off' } }, null, 80), []);
   const single = [account('a', 80, 0)];
-  assert.equal(pickAlert(single, auto, pickBadge(single, auto, 'a'), 80), null);
+  assert.deepEqual(pickAlerts(single, auto, pickBadge(single, auto, 'a'), 80), []);
+  const many = [account('a', 84, 0), account('b', 97, 0, true), account('c', 3, 0)];
+  const alerts = pickAlerts(many, auto, pickBadge(many, auto, 'c'), 80);
+  assert.deepEqual(alerts.map(a => [a.view.accountId, a.percent, a.stale]), [['b', 97, true], ['a', 84, false]]);
 });
 
 test('menu entries keep exactly one checked unavailable Manual view and restore it', () => {

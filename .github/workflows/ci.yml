@@ -1,11 +1,12 @@
 name: CI
 
-# Lint and tests on every PR to next and on every push to it, Linux only: the
+# Lint and tests on every PR and on every push to next, Linux only: the
 # cross-platform packaging matrix stays in build.yml (tags and manual runs).
+# The go-checks job gates the Go core (gocore/) the same way. Every PR, not only
+# those to next: a stacked PR (based on the branch of the previous one) gets
+# its checks too, before the stack reaches next.
 "on":
   pull_request:
-    branches:
-      - next
   push:
     branches:
       - next
@@ -18,10 +19,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -34,3 +35,51 @@ jobs:
 
       - name: Build + test
         run: npm test
+
+  go-checks:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: gocore
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Go
+        uses: actions/setup-go@v7
+        with:
+          go-version-file: gocore/go.mod
+          cache-dependency-path: gocore/go.mod
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "Not gofmt-formatted:"
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test -race
+        run: go test -race ./...
+
+      - name: cross-compile
+        shell: bash
+        run: |
+          set -euo pipefail
+          output_dir="$(mktemp -d)"
+          trap 'rm -rf "$output_dir"' EXIT
+          for target in linux/amd64 linux/arm64 windows/amd64 darwin/arm64 darwin/amd64; do
+            GOOS="${target%/*}" GOARCH="${target#*/}" CGO_ENABLED=0 \
+              go build -trimpath -ldflags "-s -w" -o "$output_dir/${target/\//-}" ./cmd/aipermiler
+            ls -l "$output_dir/${target/\//-}"
+          done
+
+      - name: golangci-lint (includes the import rules)
+        uses: golangci/golangci-lint-action@v9
+        with:
+          version: v2.15
+          working-directory: gocore

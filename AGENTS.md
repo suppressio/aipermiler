@@ -1,4 +1,4 @@
-# AGENTS.md — IA Hypermiler
+# AGENTS.md — AIpermiler
 
 Instructions for every coding agent (Claude Code, Codex, pi, Copilot). Read it in full before touching the code.
 
@@ -6,7 +6,7 @@ Instructions for every coding agent (Claude Code, Codex, pi, Copilot). Read it i
 
 ## What this project is
 
-**IA Hypermiler** is an Electron desktop app that monitors AI token usage (Claude, GitHub Copilot and Codex) and computes an optimal daily budget so the quota lasts until renewal. It shows an always-visible widget with daily consumption against the ideal budget, end-of-period projection, efficiency metrics and tips derived from real data. UI in English and Italian.
+**AIpermiler** is an Electron desktop app that monitors AI token usage (Claude, GitHub Copilot and Codex) and computes an optimal daily budget so the quota lasts until renewal. It shows an always-visible widget with daily consumption against the ideal budget, end-of-period projection, efficiency metrics and tips derived from real data. UI in English and Italian.
 
 **Languages:** the conversation with the user is in **Italian**. All **code** (identifiers, comments, test names, logs, internal error messages) is in **English**. Human-facing **documents** exist in English (`X.md`, primary) and Italian (`X.it.md`, secondary) with a language switcher at the top; this file is English only.
 
@@ -29,20 +29,21 @@ Instructions for every coding agent (Claude Code, Codex, pi, Copilot). Read it i
 | Packaging | electron-builder |
 | Runtime | Node.js 22 LTS |
 
-**Do not add dependencies without asking.** Every new library must be justified and agreed before installing it. (Agreed so far: TypeScript, `@types/node`, `@anthropic-ai/claude-agent-sdk`, ESLint + `@eslint/js` + `typescript-eslint` as dev dependencies.)
+**Do not add dependencies without asking.** Every new library must be justified and agreed before installing it. (Agreed so far: TypeScript, `@types/node`, `@anthropic-ai/claude-agent-sdk`, ESLint + `@eslint/js` + `typescript-eslint` as dev dependencies; in the Go core, `github.com/zalando/go-keyring` for the OS keyring, approved on #179.)
 
 ---
 
 ## Project structure
 
 ```
-ia-hypermiler/
+aipermiler/
 ├── AGENTS.md                    ← this file (English only)
 ├── CLAUDE.md                    ← only `@AGENTS.md`, so Claude Code reads the same file
 ├── LICENSE                      ← MIT
 ├── README.md / README.it.md     ← user guide only: what the app does, install, how to read every indicator (EN primary, IT secondary)
 ├── docs/                        ← every other document, EN + .it.md
 │   ├── DEVELOPMENT.md           ← build from source, tests, packaging, CI, project structure and status
+│   ├── CORE-CLI.md              ← Go CLI and transport-neutral JSON contract v1 (#26)
 │   ├── ARCHITECTURE.md          ← app design: data model, windows, widget, tray, updates, i18n
 │   ├── PACING.md                ← the pacing model: definitions, edge cases, invariants, state, example tables (source of truth for budget.ts)
 │   ├── RESEARCH.md              ← what the Claude/Copilot APIs really expose (Day 1 + addenda)
@@ -54,26 +55,45 @@ ia-hypermiler/
 ├── tsconfig.renderer.test.json  ← renderer unit tests (adds Node types; emitted as ES modules)
 ├── eslint.config.mjs            ← type-aware lint, all three TS projects
 ├── types/index.ts               ← shared types (AppSettings, AccountConfig, AccountSnapshot, …), runtime-free
-├── types/ipc.ts                 ← IPC contract: every channel with its argument/result types + HypermilerBridge (runtime-free)
+├── types/ipc.ts                 ← IPC contract: every channel with its argument/result types + AipermilerBridge (runtime-free)
 ├── scripts/
 │   ├── copy-assets.js           ← copies renderer html/css into dist/renderer/ + writes dist/renderer/package.json {type: module}
+│   ├── build-core.js            ← builds the Go core CLI into core-bin/ (gitignored; electron-builder extraResources → <resources>/core/), --target to cross-compile, --dev honours AIPERMILER_CORE_BIN
 │   └── generate-icons.js        ← one-off "gauge" icon generator (build/icon.png, build/icons/*, renderer/assets/*.png)
 ├── build/                       ← electron-builder resources (icons) — TRACKED, not an output (packages go to release/)
+├── entry.ts                     ← Electron entry point (package.json main): userData migration (#200), then loads main.ts
 ├── main.ts                      ← Electron main process: wiring only (lifecycle, windows, tray, IPC, timers, notifications, update checks)
 ├── preload.ts                   ← contextBridge renderer ↔ main
+├── gocore/                      ← Go core module (#145), strict lint + depguard; CI job `go-checks`
+│   ├── cmd/aipermiler/          ← one binary, subcommand entry point
+│   ├── contract/v1/             ← shared normative JSON fixtures (Go + future TypeScript client)
+│   └── internal/
+│       ├── buildinfo/           ← binary name and build-time version
+│       ├── cli/                 ← command dispatch and exit codes
+│       ├── codex/               ← native binary discovery, one-shot app-server probe and quota mapping
+│       ├── copilot/             ← Copilot usage (port of services/copilot.ts), token set/delete, OAuth PKCE login, raw response
+│       ├── github/              ← allowed GitHub hosts (github.com, <tenant>.ghe.com) and JSON client with a 10 s timeout
+│       ├── secrets/             ← OS keyring (go-keyring): the Copilot token, never in argv or documents; reads the pre-rename service `hypermiler` as a fallback, moves it on the next set (#200)
+│       ├── config/              ← OS config directory and development override
+│       ├── logging/             ← stderr text logger and level selection
+│       ├── pacing/              ← pure pacing model
+│       ├── provider/            ← provider interface and per-run registry factories
+│       └── usage/               ← usage model, JSON contract, errors and text rendering
 ├── core/
 │   └── usage.ts                 ← fetch orchestration + snapshot computation (createUsageCore, computeAccountSnapshot…): store, provider fetch, local insights, clock and error reporting injected, no Electron (+ usage.test.ts)
 ├── main/
 │   ├── ipc.ts                   ← typed handle/listen/sendToRenderer wrappers keyed on types/ipc.ts
+│   ├── core.ts                  ← the app's one core client (binary resolved per call)
+│   ├── coreRequests.ts          ← provider flags of the core commands from an account config (pure, + test)
+│   ├── coreClient.ts            ← runs the bundled core CLI (execFile, no shell, timeout, --json, secrets on stdin) and parses contract v1 against gocore/contract/v1 (+ test)
 │   ├── windows.ts               ← main window (skins filled/filled-dark/transparent-digital) and Settings window
 │   ├── tray.ts                  ← cross-platform tray; createTray returns { tray, refreshMenu }
 │   ├── trayBadge.ts             ← tray usage badge: account choice, tone, icon bitmap (+ test)
 │   ├── claude-auth.ts           ← cleanup of claude.ai sessions stored by earlier versions (no Claude sign-in since #140)
-│   ├── codex-auth.ts            ← ChatGPT login in a per-account partition, stock User-Agent
-│   ├── codex-session-cookie.ts  ← recognizes ChatGPT session cookies, including chunks (+ test)
 │   ├── providers.ts             ← provider-specific part of the account registry (connection, fetch, disconnect, secret redaction)
 │   ├── refreshPolicy.ts         ← adaptive refresh pace, per-account backoff, manual-refresh cache (+ test)
-│   ├── copilot-oauth.ts         ← GitHub OAuth App login (loopback PKCE), experimental alternative to the PAT (+ test)
+│   ├── userDataMigration.ts     ← moves the store from the pre-rename userData folder `ia-hypermiler` (#200, + test)
+│   ├── userDataBootstrap.ts     ← runs that migration once at import (entry.ts first, before the store exists)
 │   └── i18n/                    ← main-process strings (tray, notifications, dialogs, OAuth page): en.ts, it.ts, index.ts (+ test)
 ├── renderer/
 │   ├── index.html, style.css, app.ts           ← widget
@@ -88,8 +108,6 @@ ia-hypermiler/
 ├── services/
 │   ├── _http.ts                 ← shared fetch helper (10s timeout, explicit errors)
 │   ├── _shape.ts                ← response → structure only (never values), FormatDriftError (+ test)
-│   ├── codex.ts                 ← ChatGPT session → ephemeral Bearer → Codex usage (+ test)
-│   ├── copilot.ts               ← Copilot usage fetch (+ test)
 │   ├── claudeLocalSessions.ts   ← insights from LOCAL Claude Code sessions, opt-in (+ test)
 │   ├── claudeLocalSessions.worker.ts ← utility-process entry: the scan runs off the main process
 │   ├── updates.ts               ← new-version check via the GitHub Releases list (+ test)
@@ -106,8 +124,6 @@ ia-hypermiler/
 ├── budget.ts                    ← pure budget/efficiency/projection/verdict/tip/yield logic (+ budget.test.ts)
 ├── tests/
 │   ├── support/at.ts            ← at(array, i) helper for tests under noUncheckedIndexedAccess
-│   └── integration/             ← real-API tests, active only with local credentials (see .env.test.example)
-├── .env.test.example            ← template for integration-test variables (never commit .env.test)
 ├── dist/                        ← tsc output + copied assets (gitignored)
 └── package.json
 ```
@@ -119,7 +135,7 @@ ia-hypermiler/
 ### Electron security
 - `nodeIntegration` always `false`, `contextIsolation` always `true`.
 - The renderer never has direct access to Node.js: everything goes through `preload.ts` via `contextBridge`.
-- API keys and session cookies live only in the main process and in encrypted `electron-store` — never in the renderer, never in localStorage. `settings:get`/`settings:set` redact secrets towards the renderer (`providers.redactSecrets`) and preserve the real values on write (`providers.preserveSecrets`).
+- No provider secret in the app: the Copilot token lives in the OS keyring, owned by the Go core (#179; it reaches the core on stdin, never argv), Codex keeps nothing secret (#178). The Copilot OAuth client secret is typed in Settings and goes to the core on stdin, never saved. Whatever secret is still in the store (a Copilot token of an earlier version, until moved) stays in the main process — never in the renderer, never in localStorage. `settings:get`/`settings:set` redact secrets towards the renderer (`providers.redactSecrets`) and preserve the real values on write (`providers.preserveSecrets`).
 - IPC channels and payload types are declared once in `types/ipc.ts`; main registers through `main/ipc.ts` (`handle`/`listen`/`sendToRenderer`), the preload through typed helpers on the same maps. A new channel = one entry there. The renderer tsconfig has `rootDir: "."` so it can import `types/`; those files must stay runtime-free (the renderer build re-emits them as ES modules over the CommonJS ones).
 - Every value coming from the renderer through IPC is `unknown` and is validated in the handler (`requireString`/`requireBoolean`/`requireOneOf` in `main.ts`). `settings:set` accepts only renderer-editable sections (`accounts`, `ui`, `diagnostics`, `updates`) and normalizes the patch before writing.
 - URLs opened with `shell.openExternal` come from the main process (store/constants), never from the renderer; update URLs must start with the project repository prefix.
@@ -130,16 +146,14 @@ ia-hypermiler/
 - Think through every path on Windows, macOS and Linux before writing it.
 
 ### Service interface
-Every usage service (`services/copilot.ts`, `services/codex.ts`) exports exactly (full types in `types/index.ts`, multi-window rationale in docs/ARCHITECTURE.md §0):
+Every provider is read by the Go core CLI since #179 (no TypeScript usage service left): `main/core.ts` runs `aipermiler usage <provider> --json` and gets `RawAccountUsage` (contract v1, docs/CORE-CLI.md; full types in `types/index.ts`, multi-window rationale in docs/ARCHITECTURE.md §0):
 
 ```ts
-export async function fetchUsage(credentials: CopilotCredentials | CodexCredentials): Promise<RawAccountUsage> { ... }
-
 // RawAccountUsage = { planTier, subscriptionRenewsAt, quotaWindows: QuotaWindow[] }
 // QuotaWindow    = { id, label, periodType, periodLength, unit: 'percentage'|'count', used, total, resetsAt }
 ```
 
-When a service cannot get the data it **throws an explicit error** with a readable message — never returns `null`/`undefined` silently. No `dailyHistory` from services: none of these providers exposes it, the daily history is built locally by `main.ts` in `store.history.dailyUsage` on every successful refresh. Adding a provider = a service with `fetchUsage` + a branch in every function of `main/providers.ts` (exhaustive switches make tsc fail if one is forgotten) + a detail template in `settings.html` + dictionary keys.
+A failure is an explicit error (contract error codes → `CoreProviderError`, `FormatDriftError`, `CoreBinaryError`…) — never `null`/`undefined` silently. No `dailyHistory` from providers: the daily history is built locally by `core/usage.ts` in `store.history.dailyUsage` on every successful refresh. Adding a provider = an adapter in `gocore/internal/` (registered in `provider.Default()`, fixtures, docs/CORE-CLI.md) + a branch in every function of `main/providers.ts` (exhaustive switches make tsc fail if one is forgotten) and in `main/coreRequests.ts` + a detail template in `settings.html` + dictionary keys.
 
 ### Error handling
 - Every network call has an explicit timeout (max 10 seconds) — use `services/_http.ts`.
@@ -214,7 +228,7 @@ Implemented in `budget.ts` (do not duplicate it here: update this section only i
 - Adaptive pace (`main/refreshPolicy.ts`): after a refresh where a freshly fetched window rose, the next one comes after **5 minutes**; the first one without a rise goes back to the interval. Per-account backoff: every consecutive failed fetch doubles that account's minimum gap (5 → 10 → 20 min, capped at the interval), a scheduled tick skips it meanwhile and shows its last data as stale with the error. Refresh modes: `scheduled` (timer, backoff applies), `manual` (button, tray, widget opening: reuses a fetch less than 1 minute old), `forced` (login, disconnect, account changes: always fetches). Only freshly fetched values are recorded as samples.
 
 ### Update check
-- At startup (packaged app only) and every 24h: GitHub Releases list (not `/releases/latest`, which skips pre-releases), one notification per version, download opens in the browser. No electron-updater (unsigned packages).
+- At startup (packaged app only) and every 24h: GitHub Releases list (not `/releases/latest`, which skips pre-releases; pre-releases are offered only to whoever runs one), one notification per version, download opens in the browser. No electron-updater (unsigned packages).
 
 ---
 
@@ -222,10 +236,11 @@ Implemented in `budget.ts` (do not duplicate it here: update this section only i
 
 - Do not invent API endpoints not documented in `docs/RESEARCH.md`.
 - Do not sign in to claude.ai or collect, store or forward claude.ai credentials or session tokens (#140): Anthropic forbids it for third-party apps ([Claude Code legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)). Claude data may come only through Anthropic's own binaries and sign-in (#139).
+- Do not sign in to chatgpt.com or store ChatGPT cookies or tokens: Codex is read only through the user's own unmodified `codex` binary and sign-in, by the Go core (#142, #178). Never read or copy `auth.json` or anything under `CODEX_HOME`.
 - Animations are allowed but must be switchable off in Settings, low-key, carry state, and off with `prefers-reduced-motion`. Keep them in the visible widget renderer only (never the tray), animate only `opacity`/`transform`, and stop timers when hidden. With animations disabled, only the refresh icon rotates during refresh; reduced motion uses a static refresh state. Not an animation: the tray badge's critical alert (#122) alternates the normal frame with the alert frame every 2 s while another view is over the threshold. It carries information that would otherwise stay hidden, changes state far below the WCAG flash limit (3/s), and does not follow `ui.animations` or reduced motion.
 - Do not expose secrets or credentials in any git-tracked file.
 - Do not use `any`. If a type is really dynamic use `unknown` with explicit narrowing.
-- Do not paste real credentials (sessionKey, PAT/token) in chat, commits, issues or logs — not even for tests. See "Integration tests" below.
+- Do not paste real credentials (sessionKey, PAT/token) in chat, commits, issues or logs — not even for tests.
 - Do not fix pacing numbers in isolation until the refactoring (#75) is done: a wrong value found in use becomes an issue and a case in `docs/PACING.md` (with its expected value).
 - Do not make unrequested architectural refactors: if you see a structural problem, report it before fixing it.
 - Do not write user-visible text outside the i18n dictionaries, and do not write code comments in Italian.
@@ -269,24 +284,24 @@ from the spec may fail on a known deviation (`PACING.md` §9): say so in the PR,
 ## Build and test
 
 - `npm run build` — compiles the three TS configs and copies html/css into `dist/renderer/` (`scripts/copy-assets.js`). Output always in `dist/`, never committed.
-- `npm start` — build + `electron .`
+- `npm start` — build + Go core (`scripts/build-core.js --dev`, needs Go, skipped when `AIPERMILER_CORE_BIN` points to a core) + `electron .`
 - `npm run lint` — ESLint, must be zero findings.
 - `npm run typecheck` — `tsc --noEmit` on every config.
 - `npm test` — build + `cd dist && node --env-file-if-exists=../.env.test --test`. **Not** `node --test dist` from the root: on Node 22 a bare directory argument fails with MODULE_NOT_FOUND. Unit tests mock `fetch`/SDK and never touch the network; renderer tests run as ES modules thanks to `dist/renderer/package.json`.
 - `npm run coverage` — tests with Node's built-in coverage (counts only files imported by at least one test).
-- `npm run package` — build + electron-builder (installers in `release/`, **not** `dist/`).
+- `npm run package` — build + Go core (`npm run build:core`) + electron-builder (installers in `release/`, **not** `dist/`). The core ships in `<resources>/core/` (`extraResources`).
 - `npm run package:test` — LOCAL test build (`scripts/test-build.js`): lint + tests like CI, then `.deb` and Windows packages in `release/test/`, version `<version>.dev.<timestamp>`, never published. Windows: NSIS `.exe` only with Wine (or on Windows), otherwise a ready-to-run `.zip`. The preferred way to try changes: no pipeline run; the user shares the files over the local network.
 
 ### CI — cross-platform build (GitHub Actions)
 `.github/workflows/build.yml` builds on macos/windows/ubuntu in parallel:
 - **Trigger:** a pushed tag starting with `v` (e.g. `v0.4.0-beta`) → **release** (`-rc` tags excluded); a manual run (`gh workflow run build.yml`, or Actions → Run workflow) → **test build**: version `<package.json version>.dev.<run number>`, packages only as run artifacts (`-test` suffix, 14 days), `--publish=never`, so no release and no update notification. No packaging on every push/PR: `.github/workflows/ci.yml` runs only lint + tests on Linux for every PR to `next` and every push to it. Workflow: work lands on `next` (staging), try test builds on the real machines (preferably local, `npm run package:test`), release `next` → `main` with agent-ops `release` once verified, then tag `main` (see *Branches*).
-- **Each job:** `npm ci` → `npm run lint` → `npm test` → `npx electron-builder --<mac|win|linux> --publish=always`.
+- **Each job:** setup Go → `npm ci` → `npm run lint` → `npm test` → `npm run build:core` (native, for the runner's OS/arch) → `npx electron-builder --<mac|win|linux> --publish=always`.
 - **Output:** packages attached to the GitHub Release of the tag (`contents: write` permission) and uploaded as run artifacts (14 days). Release notes are written by hand (EN + IT) after the run.
 - **No code signing** (`CSC_IDENTITY_AUTO_DISCOVERY: false`): Gatekeeper/SmartScreen warn at install time.
 - `package.json` `author` must carry an email (Debian "Maintainer"): the GitHub noreply address is used, never a real one.
 
-### Integration tests (real credentials)
-`tests/integration/*.integration.test.ts` call the real Copilot/Codex APIs but **skip themselves** without credentials. To enable them **locally**: copy `.env.test.example` to `.env.test` (gitignored), fill the variables, run `npm test`. **Never provide these credentials in chat**: the assisted environment does not need them.
+### Integration tests
+None since #179: the provider reads moved to the Go core, whose adapters are tested against fakes. Real accounts are checked by hand with the core binary (`aipermiler usage <provider>`); **never provide credentials in chat**: the assisted environment does not need them.
 
 ---
 
@@ -322,10 +337,11 @@ Condensed history; the full session-by-session log is in the git history (CLAUDE
 | 2026-10-22 | v0.4.16-beta | Compact widget view: percentage and instant gauge only, toggle in the title bar (#60); pacing fixes: today's usage against the baseline at the same precision, reset only on a real drop (#64); Codex accounts without the useless manual renewal day (#95); slimmer packages, only en/it Chromium locales and no unused Anthropic SDK (#35); hardware acceleration off, tray-only PSS ~378 → ~295 MB on Linux (#99); CI lint + tests on every PR to `next`, rc tags never publish (#97, #100); pacing model written down in docs/PACING.md (#74) |
 | 2026-10-24 | v0.4.17-beta | Usage badge on the tray icon with an Auto/Manual view shared with the panel and a critical alert (#33, #122); optional window animations: alarm pulse, odometer, neon refresh border (#119); animated push/slow-down arrows on the instant bar pointing to the target (#66, #125); alarm glow and blink on red values (#125); animated collapsible sections and compact/full switch, compact label (#121); renewal day 29-31 clamped to the last day of shorter months (#111); tests guard the IPC contract and channel wiring (#71) |
 | 2026-10-25 | v0.4.18-beta | Hotfix: no claude.ai sign-in and stored sessions deleted, Anthropic forbids third-party apps from storing claude.ai session tokens; Claude accounts keep the local insights, quotas return with the Go core (#140, #139) |
+| 2026-11-01 | v0.5.0-beta | Renamed to AIpermiler: userData and keyring migrations, in-place upgrade of the Windows installer and the .deb, repository renamed, public roadmap board (#9, #200, #201, #48); Go core CLI with a versioned JSON contract, bundled in the packages, reads Codex (`codex app-server`, no chatgpt.com cookies) and Copilot (token in the OS keyring) (#145, #159, #26, #148, #149, #177, #178, #179); Claude PTY spikes on Linux, Windows, macOS (#141, #183); tray badge cycles every alert (#131), solid skins with visible title bar and styled scrollbar (#133), Electron 45 (#136). macOS package not yet verified (#212) |
 
 ### Lessons learned (still relevant)
-- **Codex login User-Agent**: Google refuses embedded login when a rewritten User-Agent contradicts the client hints. Never change the UA of the Codex login window or its partition.
-- **ChatGPT usage authentication**: cookies alone get 401 on `wham/usage`; the Bearer from `/api/auth/session` is required. Node `fetch` works with the partition cookies + UA (probe #86, docs/RESEARCH.md §6); `session.fetch` is the fallback.
+- **Codex login User-Agent** (historical: the chatgpt.com login route was removed in #178): Google refuses embedded login when a rewritten User-Agent contradicts the client hints. Never change the UA of the Codex login window or its partition.
+- **ChatGPT usage authentication** (historical, #178): cookies alone get 401 on `wham/usage`; the Bearer from `/api/auth/session` is required. Node `fetch` works with the partition cookies + UA (probe #86, docs/RESEARCH.md §6); `session.fetch` is the fallback.
 - **electron-store shallow merge**: new nested fields were `undefined` on existing stores → solved by `store/normalize.ts`.
 - **ESM-only SDK in a CommonJS main process**: `require()` and even a TS-compiled `import()` fail with ERR_REQUIRE_ESM inside Electron → `new Function('s', 'return import(s)')` in `services/claudeLocalSessions.ts`.
 - **claude.ai behind Cloudflare**: `sessionKey` alone gets a 403 challenge; the full cookie header (incl. `cf_clearance`) + a browser User-Agent are needed. Usage field names are obfuscated and rotate → windows are recognized by value shape.
@@ -342,8 +358,8 @@ Condensed history; the full session-by-session log is in the git history (CLAUDE
 
 ### Open items
 - Claude quotas are not read since #140; they return through an allowed source with the standalone core in Go (#139, milestone v0.6.0).
-- The testable core is extracted (`core/usage.ts`, #23). Next: the headless CLI on top of it (docs/EVOLUTION.md 2b); new orchestration/snapshot logic goes in `core/`, test-first, not in `main.ts`.
-- **Milestone v0.5.0** (GitHub): rename to "AIpermiler" (#9 — userData path, appId, repo, update-check prefix), AppStream metadata for Linux packages (#10), architecture review and simplifications (#12, includes the IPC contract and core extraction below). **Milestone v1.0.0** (out of beta): signed Windows/macOS installers (#11).
+- Provider reads live in the Go core (`gocore/`, CLI and JSON contract in docs/CORE-CLI.md); `core/usage.ts` (#23) still owns orchestration and snapshots until pacing moves to Go (#75, #160). New orchestration/snapshot logic goes test-first in `core/` or the Go core, not in `main.ts`.
+- **Milestone v0.6.0** (GitHub): Claude quotas through the Go core (#147, #180), migrations of the rename removed (#204), macOS package verified (#212). **Milestone v1.0.0** (out of beta): signed Windows/macOS installers (#11).
 - `agents/advisor.ts` is a stub.
 - Copilot tab occasionally not clickable right after login (not reproduced; if it happens, open the widget DevTools and check the console).
 - Verify with real use the pacing constants (`PACE_ALERT_RATIO` 1.5×, 2h minimum of observed work, 50/50 recent-pace blend, preliminary below 2 working units, redistribution verdict bands 0.5× / ±5%, `NEGLIGIBLE_UTILIZATION` 0.1%) and the `consumptionCause` thresholds, and with the next release the packaged icon and the update notification end to end.

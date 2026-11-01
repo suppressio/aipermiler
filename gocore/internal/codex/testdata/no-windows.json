@@ -1,0 +1,9 @@
+{
+  "rateLimits": {
+    "planType": "plus",
+    "primary": null,
+    "secondary": null,
+    "credits": null,
+    "individualLimit": null
+  }
+}

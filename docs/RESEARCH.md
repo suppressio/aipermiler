@@ -177,6 +177,8 @@ Prompt: an "Account & Usage" panel in VS Code (Claude Code extension) shows, bes
 ### 6.1 Where the data comes from
 The Codex CLI app-server method `account/rateLimits/read` (the first attempt in #17) is only a proxy: the CLI binary calls `GET https://chatgpt.com/backend-api/wham/usage` with the ChatGPT OAuth token of its own login. The same endpoint answers to the access token of an ordinary chatgpt.com **web session**.
 
+Spike #142 (2026-10-27) ran `account/rateLimits/read` for real and sets it as the Codex source for the Go core, without the cookie: see [SPIKE-CODEX-APP-SERVER.md](SPIKE-CODEX-APP-SERVER.md).
+
 ### 6.2 Flow (verified)
 1. Login window on `https://chatgpt.com/auth/login` in a dedicated partition, **stock Electron User-Agent**. Google login works. Rewriting the User-Agent (removing `Electron/x`) makes Google refuse it ("This browser or app may not be secure"): a User-Agent that contradicts the client hints is exactly what Google flags. Never touch it.
    After login chatgpt.com lands on the chat: the window must close on the first navigation back to `chatgpt.com` where the session check succeeds (as `main/claude-auth.ts` does), not on a timer.
