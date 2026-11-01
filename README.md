@@ -16,7 +16,7 @@ A small always-on-top widget for Windows, macOS and Linux that tells you how fas
 - **Notifications** when a quota passes your alert threshold, or when today's use goes well over today's budget.
 - English and Italian interface.
 
-> Personal project in active development (`v0.x-beta`).
+> Personal project in active development (`v0.x-beta`). What is planned and in progress: [roadmap](https://github.com/users/suppressio/projects/5).
 
 ---
 
