@@ -13,7 +13,7 @@ import (
 
 	"github.com/zalando/go-keyring"
 
-	"github.com/suppressio/ia-hypermiler/gocore/internal/buildinfo"
+	"github.com/suppressio/aipermiler/gocore/internal/buildinfo"
 )
 
 // ErrNotFound means no secret is stored under the key (account not connected).
@@ -83,12 +83,32 @@ func within(ctx context.Context, call func() error) error {
 	}
 }
 
-// OSKeyring is the real store, under the service name of the binary.
+// LegacyService is the keyring service of the core before the AIpermiler rename
+// (#200); Migrating moves its entries to the current service on first read.
+const LegacyService = "hypermiler"
+
+// OSKeyring is the real store, under the service name of the binary, migrating
+// entries left under LegacyService.
 type OSKeyring struct{}
 
+func (OSKeyring) store() Migrating {
+	return Migrating{Current: serviceKeyring(buildinfo.Name), Legacy: serviceKeyring(LegacyService)}
+}
+
 // Get reads a secret; ErrNotFound when there is none.
-func (OSKeyring) Get(key string) (string, error) {
-	value, err := keyring.Get(buildinfo.Name, key)
+func (k OSKeyring) Get(key string) (string, error) { return k.store().Get(key) }
+
+// Set stores a secret, replacing any previous value.
+func (k OSKeyring) Set(key, value string) error { return k.store().Set(key, value) }
+
+// Delete removes a secret; a missing one is fine.
+func (k OSKeyring) Delete(key string) error { return k.store().Delete(key) }
+
+// serviceKeyring is the OS keyring under one service name.
+type serviceKeyring string
+
+func (s serviceKeyring) Get(key string) (string, error) {
+	value, err := keyring.Get(string(s), key)
 	if errors.Is(err, keyring.ErrNotFound) {
 		return "", ErrNotFound
 	}
@@ -98,21 +118,55 @@ func (OSKeyring) Get(key string) (string, error) {
 	return value, nil
 }
 
-// Set stores a secret, replacing any previous value.
-func (OSKeyring) Set(key, value string) error {
-	if err := keyring.Set(buildinfo.Name, key, value); err != nil {
+func (s serviceKeyring) Set(key, value string) error {
+	if err := keyring.Set(string(s), key, value); err != nil {
 		return fmt.Errorf("OS keyring: %w", err)
 	}
 	return nil
 }
 
-// Delete removes a secret; a missing one is fine.
-func (OSKeyring) Delete(key string) error {
-	err := keyring.Delete(buildinfo.Name, key)
+func (s serviceKeyring) Delete(key string) error {
+	err := keyring.Delete(string(s), key)
 	if err != nil && !errors.Is(err, keyring.ErrNotFound) {
 		return fmt.Errorf("OS keyring: %w", err)
 	}
 	return nil
+}
+
+// Migrating reads and writes Current. A secret found only in Legacy is copied to
+// Current and then removed from Legacy, both best-effort: the value is returned even
+// when the copy fails (it stays in Legacy and the next read tries again). Delete
+// removes the secret from both, so disconnecting leaves no copy behind.
+type Migrating struct {
+	Current Store
+	Legacy  Store
+}
+
+// Get reads Current, then Legacy (moving the secret when found there).
+func (m Migrating) Get(key string) (string, error) {
+	value, err := m.Current.Get(key)
+	if !errors.Is(err, ErrNotFound) {
+		return value, err
+	}
+	value, err = m.Legacy.Get(key)
+	if err != nil {
+		return "", err
+	}
+	if m.Current.Set(key, value) == nil {
+		_ = m.Legacy.Delete(key) // best-effort: a leftover is read from Current from now on
+	}
+	return value, nil
+}
+
+// Set writes Current only.
+func (m Migrating) Set(key, value string) error { return m.Current.Set(key, value) }
+
+// Delete removes key from Current and Legacy.
+func (m Migrating) Delete(key string) error {
+	if err := m.Current.Delete(key); err != nil {
+		return err
+	}
+	return m.Legacy.Delete(key)
 }
 
 // Memory is an in-process store for tests.
