@@ -357,9 +357,9 @@ Condensed history; the full session-by-session log is in the git history (CLAUDE
 - **UTC day keys**: `toISOString().slice(0, 10)` is the UTC day, `new Date('YYYY-MM-DD')` is UTC midnight — both wrong for local working days → `localDateKey`/`parseDateKey`.
 
 ### Open items
-- Claude quotas are not read since #140; they return through an allowed source with the standalone core in Go (#139, milestone v0.6.0).
+- Claude quotas are not read since #140; they return through an allowed source, the Go core's `claude /usage` adapter (#147, #180, milestone v0.6.0); the standalone core in Go (#139) is milestone v0.7.0.
 - Provider reads live in the Go core (`gocore/`, CLI and JSON contract in docs/CORE-CLI.md); `core/usage.ts` (#23) still owns orchestration and snapshots until pacing moves to Go (#75, #160). New orchestration/snapshot logic goes test-first in `core/` or the Go core, not in `main.ts`.
-- **Milestone v0.6.0** (GitHub): Claude quotas through the Go core (#147, #180), migrations of the rename removed (#204), macOS package verified (#212). **Milestone v1.0.0** (out of beta): signed Windows/macOS installers (#11).
+- **Milestone v0.6.0** (GitHub): Claude quotas through the Go core (#147, #180), migrations of the rename removed (#204), macOS package verified (#212). **Milestone v0.7.0**: standalone core in Go with the Electron UI as optional client (#139), budget logic in Go (#75), pace-based indicators (#63). **Milestone v1.0.0** (out of beta): signed Windows/macOS installers (#11).
 - `agents/advisor.ts` is a stub.
 - Copilot tab occasionally not clickable right after login (not reproduced; if it happens, open the widget DevTools and check the console).
 - Verify with real use the pacing constants (`PACE_ALERT_RATIO` 1.5×, 2h minimum of observed work, 50/50 recent-pace blend, preliminary below 2 working units, redistribution verdict bands 0.5× / ±5%, `NEGLIGIBLE_UTILIZATION` 0.1%) and the `consumptionCause` thresholds, and with the next release the packaged icon and the update notification end to end.
