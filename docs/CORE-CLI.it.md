@@ -7,16 +7,16 @@
 ## Comandi e ambito
 
 ```text
-hypermiler usage <provider> [--json] [--timeout <duration>] [--secret-stdin] [provider flags]
-hypermiler token set <provider> [--json] [provider flags]      # token su stdin
-hypermiler token delete <provider> [--json] [provider flags]
-hypermiler login <provider> [--json] [--timeout 5m] [provider flags] [login flags]   # client secret su stdin
-hypermiler raw <provider> [provider flags]
-hypermiler version [--json]
-hypermiler help
+aipermiler usage <provider> [--json] [--timeout <duration>] [--secret-stdin] [provider flags]
+aipermiler token set <provider> [--json] [provider flags]      # token su stdin
+aipermiler token delete <provider> [--json] [provider flags]
+aipermiler login <provider> [--json] [--timeout 5m] [provider flags] [login flags]   # client secret su stdin
+aipermiler raw <provider> [provider flags]
+aipermiler version [--json]
+aipermiler help
 ```
 
-La CLI recupera i dati su richiesta e termina. Non ci sono server, porte, daemon, store condiviso o snapshot del pacing. #31 servirà gli stessi documenti via HTTP; #177 aggiunge il client TypeScript. Codex (#148) e Copilot (#149) sono registrati; `token`, `login` e `raw` sono di Copilot (comandi per l'account, sotto). Un provider sconosciuto come `hypermiler usage nope` fallisce con exit 2, `Unknown provider: nope`. I test registrano un provider sintetico chiamato `fake`.
+La CLI recupera i dati su richiesta e termina. Non ci sono server, porte, daemon, store condiviso o snapshot del pacing. #31 servirà gli stessi documenti via HTTP; #177 aggiunge il client TypeScript. Codex (#148) e Copilot (#149) sono registrati; `token`, `login` e `raw` sono di Copilot (comandi per l'account, sotto). Un provider sconosciuto come `aipermiler usage nope` fallisce con exit 2, `Unknown provider: nope`. I test registrano un provider sintetico chiamato `fake`.
 
 Mettere il provider prima dei suoi flag. Argomenti posizionali inattesi e flag sconosciuti sono errori di utilizzo.
 
@@ -33,10 +33,10 @@ I secret sono accettati solo su stdin, mai come flag: argv è visibile nell'elen
 ### Codex
 
 ```text
-hypermiler usage codex [--json] [--codex-bin /percorso/assoluto/a/codex]
+aipermiler usage codex [--json] [--codex-bin /percorso/assoluto/a/codex]
 ```
 
-`--codex-bin` seleziona un binario nativo esplicito; un percorso relativo o un binario assente/non eseguibile restituisce `unavailable`, senza fallback. Codex non accetta `--secret-stdin`: usa il login dell'utente nella CLI o nell'estensione. Il core esegue solo `codex app-server`, una volta per fetch, senza shell. Eredita l'ambiente invariato (incluso `CODEX_HOME`); Hypermiler non legge nulla sotto `CODEX_HOME`, nemmeno `auth.json`. Su Windows gira nella sessione di login dell'utente senza finestra console, per mantenere accessibili le credenziali nel keyring.
+`--codex-bin` seleziona un binario nativo esplicito; un percorso relativo o un binario assente/non eseguibile restituisce `unavailable`, senza fallback. Codex non accetta `--secret-stdin`: usa il login dell'utente nella CLI o nell'estensione. Il core esegue solo `codex app-server`, una volta per fetch, senza shell. Eredita l'ambiente invariato (incluso `CODEX_HOME`); Aipermiler non legge nulla sotto `CODEX_HOME`, nemmeno `auth.json`. Su Windows gira nella sessione di login dell'utente senza finestra console, per mantenere accessibili le credenziali nel keyring.
 
 Ordine di discovery:
 
@@ -66,9 +66,9 @@ Le finestre sono riconosciute dalla durata in `primary` o `secondary`; in caso d
 
 ### Copilot
 
-`hypermiler usage copilot --account <id> [--host github.com|<tenant>.ghe.com] [--scope personal|organization] [--manual-quota <crediti>]`, port di `services/copilot.ts` (#149).
+`aipermiler usage copilot --account <id> [--host github.com|<tenant>.ghe.com] [--scope personal|organization] [--manual-quota <crediti>]`, port di `services/copilot.ts` (#149).
 
-- **Il token sta nel keyring dell'OS** (deciso su #179; libreria `github.com/zalando/go-keyring`): Gestione credenziali di Windows, Portachiavi di macOS (tramite `/usr/bin/security` con il segreto sul suo stdin), Secret Service su Linux. Servizio `hypermiler`, voce `copilot/<id account>`. Non passa mai da argv, dallo stdin di `usage` o da un documento JSON. Non c'è ripiego su file: un keyring irraggiungibile (per esempio una sessione Linux senza Secret Service, o un logon SSH su Windows senza la sessione di logon dell'utente, come per Codex in #158) è `unavailable` con reason `keyring_unavailable`.
+- **Il token sta nel keyring dell'OS** (deciso su #179; libreria `github.com/zalando/go-keyring`): Gestione credenziali di Windows, Portachiavi di macOS (tramite `/usr/bin/security` con il segreto sul suo stdin), Secret Service su Linux. Servizio `aipermiler`, voce `copilot/<id account>`. Non passa mai da argv, dallo stdin di `usage` o da un documento JSON. Non c'è ripiego su file: un keyring irraggiungibile (per esempio una sessione Linux senza Secret Service, o un logon SSH su Windows senza la sessione di logon dell'utente, come per Codex in #158) è `unavailable` con reason `keyring_unavailable`.
 - `--account` è obbligatorio (lettere, cifre, `.`, `_`, `-`, al massimo 128): dà il nome alla voce del keyring. `--host` deve normalizzarsi in `github.com` o `<tenant>.ghe.com` (il token va solo lì: API su `api.<host>`, OAuth su `<host>/login/oauth`). Flag non validi sono errori di uso (exit 2), prima di qualsiasi accesso a keyring o rete.
 - **Fonti**, come nel servizio TypeScript: `copilot_internal/user` (l'endpoint non documentato dietro l'indicatore di quota di VS Code) per entrambi gli ambiti; per l'ambito personale, quando non ha quote, il report di billing (`ai_credit/usage`, poi `premium_request/usage` su un 404 o un 400 "Unable to get billing usage data") con `--manual-quota` come totale. Ogni richiesta ha un timeout di 10 s.
 - **Finestre**: una per categoria di `quota_snapshots`, nell'ordine delle chiavi della risposta, id = la chiave della categoria, etichetta `Copilot — <chiave>`, `billing-cycle` di 1 mese, regole di VS Code (illimitata → crediti usati senza totale, niente se sono zero; entitlement > 0 → entitlement − rimanenti sull'entitlement; entitlement 0 → niente; altrimenti la percentuale). Report di billing → `ai_credits` / `AI credits`, conteggio, reset e rinnovo il 1° del mese UTC successivo. Stessi id di prima, così lo storico salvato continua a combaciare.
@@ -188,7 +188,7 @@ Sono le fixture normative su singola riga in `gocore/contract/v1/`; quella direc
 #### Versione
 
 ```json
-{"schemaVersion":1,"name":"hypermiler","version":"dev","os":"linux","arch":"amd64"}
+{"schemaVersion":1,"name":"aipermiler","version":"dev","os":"linux","arch":"amd64"}
 ```
 
 ### Codici di errore e comportamento del client
@@ -216,10 +216,10 @@ Con `--json`, gli errori di utilizzo non hanno la chiave provider. L'help è sol
 
 ## Client Electron
 
-`main/coreClient.ts` (#177) è il lato app di questo contratto. Per ogni lettura esegue il binario con `execFile`: niente shell, `windowsHide` (nessuna finestra di console su Windows), `--json`, `--timeout 25s` e un timeout del client di 30 s, stdin sempre chiuso (con il segreto scritto prima, con `--secret-stdin`, quando c'è), al massimo 1 MiB di output. Il binario è `HYPERMILER_CORE_BIN` se impostato (assoluto), altrimenti `<resources>/core/hypermiler[.exe]` nel pacchetto o `core-bin/` del repository in sviluppo. Errori: binario assente o non avviabile → `CoreBinaryError`; ucciso al timeout del client → `CoreTimeoutError`; output che non è un documento v1, che contraddice il proprio exit code, o un errore di uso (exit 2, un bug negli argomenti) → `CoreOutputError`, senza mai citare l'output; `format_drift` → lo stesso `FormatDriftError` dei servizi TypeScript, così la segnalazione di drift funziona senza modifiche; gli altri codici → `CoreProviderError` con il codice. `version --json` alimenta Impostazioni → Diagnostica e il report di diagnosi. Codex legge da qui da #178 (`main/core.ts`, `main/providers.ts`); Copilot segue in #179.
+`main/coreClient.ts` (#177) è il lato app di questo contratto. Per ogni lettura esegue il binario con `execFile`: niente shell, `windowsHide` (nessuna finestra di console su Windows), `--json`, `--timeout 25s` e un timeout del client di 30 s, stdin sempre chiuso (con il segreto scritto prima, con `--secret-stdin`, quando c'è), al massimo 1 MiB di output. Il binario è `AIPERMILER_CORE_BIN` se impostato (assoluto), altrimenti `<resources>/core/aipermiler[.exe]` nel pacchetto o `core-bin/` del repository in sviluppo. Errori: binario assente o non avviabile → `CoreBinaryError`; ucciso al timeout del client → `CoreTimeoutError`; output che non è un documento v1, che contraddice il proprio exit code, o un errore di uso (exit 2, un bug negli argomenti) → `CoreOutputError`, senza mai citare l'output; `format_drift` → lo stesso `FormatDriftError` dei servizi TypeScript, così la segnalazione di drift funziona senza modifiche; gli altri codici → `CoreProviderError` con il codice. `version --json` alimenta Impostazioni → Diagnostica e il report di diagnosi. Codex legge da qui da #178 (`main/core.ts`, `main/providers.ts`); Copilot segue in #179.
 
 ## Versionamento e fixture condivise
 
 I campi aggiuntivi mantengono `schemaVersion: 1`; i client devono ignorare i campi sconosciuti. Rimuovere o rinominare un campo, o cambiarne il significato, incrementa la versione dello schema. Un client che vede una versione dello schema non supportata deve rifiutare esplicitamente il documento. Un codice di errore sconosciuto viene trattato come `unavailable`, conservando gli ultimi valori come stale.
 
-I file indipendenti dalla lingua in `gocore/contract/v1/` sono esempi normativi. I test black-box Go della CLI riproducono ogni fixture byte per byte attraverso `RunWith`, un provider fake e un orologio fisso. I test del client TypeScript (`main/coreClient.test.ts`, #177) leggono gli stessi file. `version.json` usa `hypermiler`, `dev`, `linux`, `amd64`; il suo test Go sostituisce `buildinfo.Name`, `buildinfo.Version`, `runtime.GOOS` e `runtime.GOARCH` prima del confronto byte per byte per supportare versioni impostate in build ed esecuzioni multipiattaforma. Ogni fixture viene anche verificata come JSON compatto valido con `schemaVersion: 1` ed esattamente un newline finale. I documenti per l'account (`account-connected`, `account-deleted`, `login-authorize`, `raw`) ed `error-unavailable-reason` sono arrivati con #149; il client TypeScript li legge da #179. I documenti sono scritti senza escape HTML (un URL mantiene una `&` letterale).
+I file indipendenti dalla lingua in `gocore/contract/v1/` sono esempi normativi. I test black-box Go della CLI riproducono ogni fixture byte per byte attraverso `RunWith`, un provider fake e un orologio fisso. I test del client TypeScript (`main/coreClient.test.ts`, #177) leggono gli stessi file. `version.json` usa `aipermiler`, `dev`, `linux`, `amd64`; il suo test Go sostituisce `buildinfo.Name`, `buildinfo.Version`, `runtime.GOOS` e `runtime.GOARCH` prima del confronto byte per byte per supportare versioni impostate in build ed esecuzioni multipiattaforma. Ogni fixture viene anche verificata come JSON compatto valido con `schemaVersion: 1` ed esattamente un newline finale. I documenti per l'account (`account-connected`, `account-deleted`, `login-authorize`, `raw`) ed `error-unavailable-reason` sono arrivati con #149; il client TypeScript li legge da #179. I documenti sono scritti senza escape HTML (un URL mantiene una `&` letterale).
