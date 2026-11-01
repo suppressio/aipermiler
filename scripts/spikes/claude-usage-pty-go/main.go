@@ -84,6 +84,7 @@ func main() {
 	flag.BoolVar(&useStatusLine, "statusline", false, "read the windows from the rate_limits our own statusLine command receives after /usage")
 	sink := flag.String("sl-sink", "", "internal: statusLine command mode, append stdin to FILE")
 	flag.BoolVar(&graceful, "graceful", false, "leave through /exit before the kill")
+	flag.BoolVar(&cleanup, "cleanup", false, "with -statusline: delete the probe's own transcript afterwards")
 	flag.BoolVar(&acceptTrust, "accept-trust", false, "answer \"Yes, I trust this folder\" once (only for the probe's own empty folder)")
 	flag.Parse()
 	if *sink != "" {
@@ -335,6 +336,19 @@ loop:
 		}
 	}()
 	cpu, note := s.Close()
+	// -cleanup: remove the probe's own transcript (path from the status line JSON), so the
+	// probe does not show up in session lists (Agent SDK listSessions, /resume).
+	if cleanup && slFile != "" {
+		if t := probeTranscript(slFile, cwd); t == "" {
+			note += "; cleanup: no transcript reported"
+		} else if err := os.Remove(t); err == nil {
+			note += "; cleanup: transcript removed"
+		} else if os.IsNotExist(err) {
+			note += "; cleanup: no transcript written"
+		} else {
+			note += "; cleanup: " + err.Error()
+		}
+	}
 	res.WallMs = time.Since(t0).Milliseconds()
 	res.CPUMs = cpu.Milliseconds()
 	if res.ExitNote != "" {
@@ -354,6 +368,7 @@ var (
 	acceptTrust   bool
 	useStatusLine bool
 	graceful      bool
+	cleanup       bool
 )
 
 var reVersion = regexp.MustCompile(`Claude\s*Code\s*v?\d+\.\d+\.\d+`)
