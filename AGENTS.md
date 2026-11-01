@@ -1,4 +1,4 @@
-# AGENTS.md — IA Hypermiler
+# AGENTS.md — AIpermiler
 
 Instructions for every coding agent (Claude Code, Codex, pi, Copilot). Read it in full before touching the code.
 
@@ -6,7 +6,7 @@ Instructions for every coding agent (Claude Code, Codex, pi, Copilot). Read it i
 
 ## What this project is
 
-**IA Hypermiler** is an Electron desktop app that monitors AI token usage (Claude, GitHub Copilot and Codex) and computes an optimal daily budget so the quota lasts until renewal. It shows an always-visible widget with daily consumption against the ideal budget, end-of-period projection, efficiency metrics and tips derived from real data. UI in English and Italian.
+**AIpermiler** is an Electron desktop app that monitors AI token usage (Claude, GitHub Copilot and Codex) and computes an optimal daily budget so the quota lasts until renewal. It shows an always-visible widget with daily consumption against the ideal budget, end-of-period projection, efficiency metrics and tips derived from real data. UI in English and Italian.
 
 **Languages:** the conversation with the user is in **Italian**. All **code** (identifiers, comments, test names, logs, internal error messages) is in **English**. Human-facing **documents** exist in English (`X.md`, primary) and Italian (`X.it.md`, secondary) with a language switcher at the top; this file is English only.
 
@@ -36,7 +36,7 @@ Instructions for every coding agent (Claude Code, Codex, pi, Copilot). Read it i
 ## Project structure
 
 ```
-ia-hypermiler/
+aipermiler/
 ├── AGENTS.md                    ← this file (English only)
 ├── CLAUDE.md                    ← only `@AGENTS.md`, so Claude Code reads the same file
 ├── LICENSE                      ← MIT
@@ -55,16 +55,16 @@ ia-hypermiler/
 ├── tsconfig.renderer.test.json  ← renderer unit tests (adds Node types; emitted as ES modules)
 ├── eslint.config.mjs            ← type-aware lint, all three TS projects
 ├── types/index.ts               ← shared types (AppSettings, AccountConfig, AccountSnapshot, …), runtime-free
-├── types/ipc.ts                 ← IPC contract: every channel with its argument/result types + HypermilerBridge (runtime-free)
+├── types/ipc.ts                 ← IPC contract: every channel with its argument/result types + AipermilerBridge (runtime-free)
 ├── scripts/
 │   ├── copy-assets.js           ← copies renderer html/css into dist/renderer/ + writes dist/renderer/package.json {type: module}
-│   ├── build-core.js            ← builds the Go core CLI into core-bin/ (gitignored; electron-builder extraResources → <resources>/core/), --target to cross-compile, --dev honours HYPERMILER_CORE_BIN
+│   ├── build-core.js            ← builds the Go core CLI into core-bin/ (gitignored; electron-builder extraResources → <resources>/core/), --target to cross-compile, --dev honours AIPERMILER_CORE_BIN
 │   └── generate-icons.js        ← one-off "gauge" icon generator (build/icon.png, build/icons/*, renderer/assets/*.png)
 ├── build/                       ← electron-builder resources (icons) — TRACKED, not an output (packages go to release/)
 ├── main.ts                      ← Electron main process: wiring only (lifecycle, windows, tray, IPC, timers, notifications, update checks)
 ├── preload.ts                   ← contextBridge renderer ↔ main
 ├── gocore/                      ← Go core module (#145), strict lint + depguard; CI job `go-checks`
-│   ├── cmd/hypermiler/          ← one binary, subcommand entry point
+│   ├── cmd/aipermiler/          ← one binary, subcommand entry point
 │   ├── contract/v1/             ← shared normative JSON fixtures (Go + future TypeScript client)
 │   └── internal/
 │       ├── buildinfo/           ← binary name and build-time version
@@ -72,7 +72,7 @@ ia-hypermiler/
 │       ├── codex/               ← native binary discovery, one-shot app-server probe and quota mapping
 │       ├── copilot/             ← Copilot usage (port of services/copilot.ts), token set/delete, OAuth PKCE login, raw response
 │       ├── github/              ← allowed GitHub hosts (github.com, <tenant>.ghe.com) and JSON client with a 10 s timeout
-│       ├── secrets/             ← OS keyring (go-keyring): the Copilot token, never in argv or documents
+│       ├── secrets/             ← OS keyring (go-keyring): the Copilot token, never in argv or documents; moves entries of the pre-rename service `hypermiler` (#200)
 │       ├── config/              ← OS config directory and development override
 │       ├── logging/             ← stderr text logger and level selection
 │       ├── pacing/              ← pure pacing model
@@ -91,6 +91,8 @@ ia-hypermiler/
 │   ├── claude-auth.ts           ← cleanup of claude.ai sessions stored by earlier versions (no Claude sign-in since #140)
 │   ├── providers.ts             ← provider-specific part of the account registry (connection, fetch, disconnect, secret redaction)
 │   ├── refreshPolicy.ts         ← adaptive refresh pace, per-account backoff, manual-refresh cache (+ test)
+│   ├── userDataMigration.ts     ← moves the store from the pre-rename userData folder `ia-hypermiler` (#200, + test)
+│   ├── userDataBootstrap.ts     ← runs that migration at import: the FIRST import of main.ts, before the store exists
 │   └── i18n/                    ← main-process strings (tray, notifications, dialogs, OAuth page): en.ts, it.ts, index.ts (+ test)
 ├── renderer/
 │   ├── index.html, style.css, app.ts           ← widget
@@ -143,7 +145,7 @@ ia-hypermiler/
 - Think through every path on Windows, macOS and Linux before writing it.
 
 ### Service interface
-Every provider is read by the Go core CLI since #179 (no TypeScript usage service left): `main/core.ts` runs `hypermiler usage <provider> --json` and gets `RawAccountUsage` (contract v1, docs/CORE-CLI.md; full types in `types/index.ts`, multi-window rationale in docs/ARCHITECTURE.md §0):
+Every provider is read by the Go core CLI since #179 (no TypeScript usage service left): `main/core.ts` runs `aipermiler usage <provider> --json` and gets `RawAccountUsage` (contract v1, docs/CORE-CLI.md; full types in `types/index.ts`, multi-window rationale in docs/ARCHITECTURE.md §0):
 
 ```ts
 // RawAccountUsage = { planTier, subscriptionRenewsAt, quotaWindows: QuotaWindow[] }
@@ -281,7 +283,7 @@ from the spec may fail on a known deviation (`PACING.md` §9): say so in the PR,
 ## Build and test
 
 - `npm run build` — compiles the three TS configs and copies html/css into `dist/renderer/` (`scripts/copy-assets.js`). Output always in `dist/`, never committed.
-- `npm start` — build + Go core (`scripts/build-core.js --dev`, needs Go, skipped when `HYPERMILER_CORE_BIN` points to a core) + `electron .`
+- `npm start` — build + Go core (`scripts/build-core.js --dev`, needs Go, skipped when `AIPERMILER_CORE_BIN` points to a core) + `electron .`
 - `npm run lint` — ESLint, must be zero findings.
 - `npm run typecheck` — `tsc --noEmit` on every config.
 - `npm test` — build + `cd dist && node --env-file-if-exists=../.env.test --test`. **Not** `node --test dist` from the root: on Node 22 a bare directory argument fails with MODULE_NOT_FOUND. Unit tests mock `fetch`/SDK and never touch the network; renderer tests run as ES modules thanks to `dist/renderer/package.json`.
@@ -298,7 +300,7 @@ from the spec may fail on a known deviation (`PACING.md` §9): say so in the PR,
 - `package.json` `author` must carry an email (Debian "Maintainer"): the GitHub noreply address is used, never a real one.
 
 ### Integration tests
-None since #179: the provider reads moved to the Go core, whose adapters are tested against fakes. Real accounts are checked by hand with the core binary (`hypermiler usage <provider>`); **never provide credentials in chat**: the assisted environment does not need them.
+None since #179: the provider reads moved to the Go core, whose adapters are tested against fakes. Real accounts are checked by hand with the core binary (`aipermiler usage <provider>`); **never provide credentials in chat**: the assisted environment does not need them.
 
 ---
 

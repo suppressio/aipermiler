@@ -2,7 +2,7 @@
 
 # Development
 
-> How to build IA Hypermiler from source, test it and package it. For what the app does and how to read it, see the [README](../README.md).
+> How to build AIpermiler from source, test it and package it. For what the app does and how to read it, see the [README](../README.md).
 
 ## Requirements
 
@@ -13,13 +13,15 @@
 ## Run from source
 
 ```bash
-git clone https://github.com/suppressio/ia-hypermiler.git
-cd ia-hypermiler
+git clone https://github.com/suppressio/aipermiler.git
+cd aipermiler
 npm install
 npm start
 ```
 
-`npm start` compiles TypeScript (main process + renderer), builds the Go core into `core-bin/` (`scripts/build-core.js`) and starts Electron. To use a core built elsewhere, set `HYPERMILER_CORE_BIN` to its absolute path: `npm start` then skips the Go build and the app runs that binary. Settings → Diagnostics shows the core version, or why it cannot run. On first start there are no accounts: open Settings and add one.
+`npm start` compiles TypeScript (main process + renderer), builds the Go core into `core-bin/` (`scripts/build-core.js`) and starts Electron. To use a core built elsewhere, set `AIPERMILER_CORE_BIN` to its absolute path: `npm start` then skips the Go build and the app runs that binary. Settings → Diagnostics shows the core version, or why it cannot run. On first start there are no accounts: open Settings and add one.
+
+Running from source uses the same userData folder as the installed app, so the first start on a machine with IA Hypermiler (≤ v0.4.18) installed moves its settings and deletes its old folder ([ARCHITECTURE §1](ARCHITECTURE.md#1-settings--data-schema)). To keep an installed copy untouched, start with another config home, e.g. `XDG_CONFIG_HOME=$(mktemp -d) npm start` on Linux.
 
 ## Build, lint and test
 
@@ -32,7 +34,7 @@ npm run coverage   # tests with Node's built-in coverage
 ```
 
 - **Unit tests** always run and never touch the network (`fetch` and the SDK are mocked). Test data is synthetic only.
-- **No integration tests** since #179: the provider reads moved to the Go core, whose adapters are tested against fakes (`httptest`, a fake `codex app-server`). Real accounts are checked by hand with the core binary (`hypermiler usage <provider>`, see [CORE-CLI](CORE-CLI.md)), never with credentials pasted in chat or commits.
+- **No integration tests** since #179: the provider reads moved to the Go core, whose adapters are tested against fakes (`httptest`, a fake `codex app-server`). Real accounts are checked by hand with the core binary (`aipermiler usage <provider>`, see [CORE-CLI](CORE-CLI.md)), never with credentials pasted in chat or commits.
 
 ## Go core checks
 
@@ -45,20 +47,20 @@ go test -race ./...
 golangci-lint run    # strict config in .golangci.yml, includes the depguard import rules
 ```
 
-The `go-checks` job in `.github/workflows/ci.yml` runs the same checks on every PR to `next` and fails the PR like `lint-test`. After the tests, its `cross-compile` step builds `./cmd/hypermiler` for Linux amd64/arm64, Windows amd64 and macOS arm64/amd64 with `CGO_ENABLED=0`, `-trimpath` and `-ldflags "-s -w"`, printing each size from a temporary directory. Import rules (which package may import which) are the `depguard` section of `gocore/.golangci.yml`; a violation is a lint failure.
+The `go-checks` job in `.github/workflows/ci.yml` runs the same checks on every PR to `next` and fails the PR like `lint-test`. After the tests, its `cross-compile` step builds `./cmd/aipermiler` for Linux amd64/arm64, Windows amd64 and macOS arm64/amd64 with `CGO_ENABLED=0`, `-trimpath` and `-ldflags "-s -w"`, printing each size from a temporary directory. Import rules (which package may import which) are the `depguard` section of `gocore/.golangci.yml`; a violation is a lint failure.
 
-`cmd/hypermiler/main.go` only calls `internal/cli.Run`: one binary with `usage`, `version` and `help` (`-h`/`--help` also work). `usage <provider>` supports readable text and the versioned `--json` contract; `version --json` reports the core build and platform. Codex is registered (#148); Copilot follows in #149; `serve` remains future work (#31). Exit codes are 0 for success (including stale usage), 1 for provider errors and 2 for invalid arguments. `internal/usage` owns the provider-neutral model, JSON documents, error codes, structure-only diagnostics and text rendering; `internal/provider` owns the provider interface and factories. Shared normative JSON fixtures live in `gocore/contract/v1/`, verified byte for byte by Go tests and read by the TypeScript client tests (`main/coreClient.test.ts`). See [CORE-CLI](CORE-CLI.md) for the full contract and secret handling.
+`cmd/aipermiler/main.go` only calls `internal/cli.Run`: one binary with `usage`, `version` and `help` (`-h`/`--help` also work). `usage <provider>` supports readable text and the versioned `--json` contract; `version --json` reports the core build and platform. Codex is registered (#148); Copilot follows in #149; `serve` remains future work (#31). Exit codes are 0 for success (including stale usage), 1 for provider errors and 2 for invalid arguments. `internal/usage` owns the provider-neutral model, JSON documents, error codes, structure-only diagnostics and text rendering; `internal/provider` owns the provider interface and factories. Shared normative JSON fixtures live in `gocore/contract/v1/`, verified byte for byte by Go tests and read by the TypeScript client tests (`main/coreClient.test.ts`). See [CORE-CLI](CORE-CLI.md) for the full contract and secret handling.
 
 `internal/codex` owns native binary discovery, the one-shot app-server probe and quota mapping, with synthetic schema fixtures and process lifecycle tests (#148). `internal/copilot` is the Copilot adapter, its `token`/`login`/`raw` commands and the OAuth PKCE loopback (#149), tested against a fake GitHub (`httptest`); `internal/github` holds the allowed hosts and the JSON client (10 s per call); `internal/secrets` the OS keyring (`github.com/zalando/go-keyring`, the core's only dependency) and an in-memory store for tests. On Linux the keyring is the Secret Service of the desktop session (GNOME Keyring, KWallet): without one, Copilot reports `keyring_unavailable`.
 
-`internal/buildinfo` owns the single `Name` constant (currently `hypermiler`, pending #9) and the build-time `Version` (default `dev`). `internal/config` locates/creates the config directory, `internal/logging` builds the logger, and `internal/pacing` holds the pure pacing model. Build and run from `gocore/`:
+`internal/buildinfo` owns the single `Name` constant (currently `aipermiler`, pending #9) and the build-time `Version` (default `dev`). `internal/config` locates/creates the config directory, `internal/logging` builds the logger, and `internal/pacing` holds the pure pacing model. Build and run from `gocore/`:
 
 ```bash
-go build -trimpath -ldflags "-s -w -X github.com/suppressio/ia-hypermiler/gocore/internal/buildinfo.Version=dev" ./cmd/hypermiler
-./hypermiler version
+go build -trimpath -ldflags "-s -w -X github.com/suppressio/aipermiler/gocore/internal/buildinfo.Version=dev" ./cmd/aipermiler
+./aipermiler version
 ```
 
-`config.Dir()` joins `os.UserConfigDir()` with `buildinfo.Name`; `config.Ensure()` creates it with mode `0o700` (owner-only on Unix), writing no files. `HYPERMILER_CONFIG_DIR` overrides the directory for tests/development and must be an absolute path when nonempty. `HYPERMILER_LOG_LEVEL` accepts `debug`, `info`, `warn` or `error`, defaulting to `warn`; an invalid value falls back to `warn` and emits one warning. Logs go to stderr; stdout is reserved for command output and the JSON contract (#26). Help/version do not create a config directory. Resource measurements are in [EVOLUTION](EVOLUTION.md#update-2026-10-31-go-core-resource-budget-145).
+`config.Dir()` joins `os.UserConfigDir()` with `buildinfo.Name`; `config.Ensure()` creates it with mode `0o700` (owner-only on Unix), writing no files. `AIPERMILER_CONFIG_DIR` overrides the directory for tests/development and must be an absolute path when nonempty. `AIPERMILER_LOG_LEVEL` accepts `debug`, `info`, `warn` or `error`, defaulting to `warn`; an invalid value falls back to `warn` and emits one warning. Logs go to stderr; stdout is reserved for command output and the JSON contract (#26). Help/version do not create a config directory. Resource measurements are in [EVOLUTION](EVOLUTION.md#update-2026-10-31-go-core-resource-budget-145).
 
 ## Packaging
 
@@ -67,10 +69,10 @@ npm run package       # installer for the current platform in release/
 npm run package:test  # local test build: lint + tests, then .deb and Windows packages in release/test/
 ```
 
-- The packages carry the Go core CLI: `npm run build:core` (`scripts/build-core.js`, cgo-free, version from `package.json` or `HYPERMILER_CORE_VERSION`; `--target win32-x64` and the like cross-compile) writes `core-bin/hypermiler[.exe]`, and electron-builder `extraResources` copies it to `<resources>/core/`. The app runs it with `execFile` (`main/coreClient.ts`, see [CORE-CLI](CORE-CLI.md)). `core-bin/` holds one binary at a time, so a Linux core never ships in a Windows package.
+- The packages carry the Go core CLI: `npm run build:core` (`scripts/build-core.js`, cgo-free, version from `package.json` or `AIPERMILER_CORE_VERSION`; `--target win32-x64` and the like cross-compile) writes `core-bin/aipermiler[.exe]`, and electron-builder `extraResources` copies it to `<resources>/core/`. The app runs it with `execFile` (`main/coreClient.ts`, see [CORE-CLI](CORE-CLI.md)). `core-bin/` holds one binary at a time, so a Linux core never ships in a Windows package.
 - `npm run package`: build + core + `electron-builder` → `.dmg` on macOS, `.exe`/NSIS on Windows, `.AppImage` and `.deb` on Linux, in `release/`.
 - `npm run package:test`: version `<version>.dev.<timestamp>` (the core gets the same), never published; the core is cross-compiled for each package right before it. The Windows NSIS `.exe` needs Wine (or Windows); without it, a ready-to-run `.zip`. This is the preferred way to try a change on a real machine.
-- Linux: software centers read AppStream metadata, not the `.deb` control file. `build/linux/com.suppressio.ia-hypermiler.metainfo.xml` (license, author, EN + IT description, releases) is installed to `/usr/share/metainfo/` by the `deb.fpm` config in `package.json`; the `.desktop` entry has `Name=IA Hypermiler`. Update the file's `<release>` on every version and validate it with `appstreamcli validate`.
+- Linux: software centers read AppStream metadata, not the `.deb` control file. `build/linux/com.suppressio.aipermiler.metainfo.xml` (license, author, EN + IT description, releases) is installed to `/usr/share/metainfo/` by the `deb.fpm` config in `package.json`; the `.desktop` entry has `Name=AIpermiler`. Update the file's `<release>` on every version and validate it with `appstreamcli validate`.
 
 ### Cross-platform build (GitHub Actions)
 
@@ -89,7 +91,7 @@ Packages are not signed: macOS Gatekeeper and Windows SmartScreen show a warning
 ## Project structure
 
 ```
-ia-hypermiler/
+aipermiler/
 ├── main.ts, preload.ts        ← Electron main process + secure bridge to the renderer
 ├── core/                      ← fetch orchestration and snapshot computation, store injected, no Electron (+ tests)
 ├── main/                      ← windows, tray, Copilot OAuth, per-provider logic, core CLI client, refresh pace, main-process i18n

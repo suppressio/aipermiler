@@ -1,12 +1,12 @@
 🌐 **English** | [Italiano](README.it.md)
 
-# IA Hypermiler
+# AIpermiler
 
 A small always-on-top widget for Windows, macOS and Linux that tells you how fast you are using your **Claude**, **GitHub Copilot** and **Codex** (ChatGPT subscription) quotas, and how much you can still use today so the quota lasts until it renews.
 
-> **Claude quotas are not available in this version.** Anthropic does not allow third-party apps to sign in to claude.ai or to store its session ([Claude Code legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)), which was the only way this app could read them. A Claude account now shows only the local insights from Claude Code. The quotas will return through an allowed source ([#139](https://github.com/suppressio/ia-hypermiler/issues/139)).
+> **Claude quotas are not available in this version.** Anthropic does not allow third-party apps to sign in to claude.ai or to store its session ([Claude Code legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)), which was the only way this app could read them. A Claude account now shows only the local insights from Claude Code. The quotas will return through an allowed source ([#139](https://github.com/suppressio/aipermiler/issues/139)).
 
-<p align="center"><img src="docs/screenshots/widget-en.png" alt="The IA Hypermiler widget with example data" width="406"></p>
+<p align="center"><img src="docs/screenshots/widget-en.png" alt="The AIpermiler widget with example data" width="406"></p>
 
 <sub>Example data, not a real account.</sub>
 
@@ -22,18 +22,20 @@ A small always-on-top widget for Windows, macOS and Linux that tells you how fas
 
 ## Install
 
-Open the **[latest release](https://github.com/suppressio/ia-hypermiler/releases/latest)** and download, under *Assets*, the file for your system:
+Open the **[latest release](https://github.com/suppressio/aipermiler/releases/latest)** and download, under *Assets*, the file for your system:
 
 | System | File |
 |---|---|
-| Windows | `ia-hypermiler-Setup-<version>.exe` |
-| macOS (Apple Silicon) | `ia-hypermiler-<version>-arm64.dmg` |
-| Linux, any distribution | `ia-hypermiler-<version>.AppImage` |
-| Debian, Ubuntu | `ia-hypermiler_<version>_amd64.deb` |
+| Windows | `AIpermiler-Setup-<version>.exe` |
+| macOS (Apple Silicon) | `AIpermiler-<version>-arm64.dmg` |
+| Linux, any distribution | `AIpermiler-<version>.AppImage` |
+| Debian, Ubuntu | `aipermiler_<version>_amd64.deb` |
 
-Other versions, including pre-releases for testing, are on the [Releases](https://github.com/suppressio/ia-hypermiler/releases) page.
+Other versions, including pre-releases for testing, are on the [Releases](https://github.com/suppressio/aipermiler/releases) page.
 
 The packages are not signed: Windows SmartScreen and macOS Gatekeeper show a warning the first time. The app checks for new versions at startup and every 24 hours and opens the right download in your browser.
+
+**Coming from IA Hypermiler (v0.4.x)?** The app was renamed to AIpermiler in v0.5.0. Versions up to 0.4.18 announce the update but cannot open its download: get it from the [latest release](https://github.com/suppressio/aipermiler/releases/latest) by hand. Install it as usual: it replaces IA Hypermiler on Windows and on Debian/Ubuntu, while on macOS and with the AppImage you can delete the old app afterwards. On the first start your settings, accounts and history are moved over, and connected Copilot accounts stay connected.
 
 ## First start
 
