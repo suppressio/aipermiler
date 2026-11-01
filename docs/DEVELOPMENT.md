@@ -38,7 +38,7 @@ npm run coverage   # tests with Node's built-in coverage
 
 ## Go core checks
 
-The Go core lives in `gocore/` (its own module, `go.mod` pins the Go version; nothing in the Electron build depends on it yet). Needs Go 1.24+ and [golangci-lint](https://golangci-lint.run/) v2. From `gocore/`:
+The Go core lives in `gocore/` (its own module, `go.mod` pins the Go version; the packages ship its binary, see *Packaging*). Needs Go 1.24+ and [golangci-lint](https://golangci-lint.run/) v2. From `gocore/`:
 
 ```bash
 gofmt -l .           # must print nothing
