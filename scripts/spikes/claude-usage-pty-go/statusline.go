@@ -46,6 +46,38 @@ type rateWindow struct {
 	ResetsAt       *int64   `json:"resets_at"`
 }
 
+// probeTranscript returns the transcript path the status line reported for the probe's own
+// session, only when it lies in Claude's project folder named after workdir.
+func probeTranscript(file, workdir string) string {
+	f, err := os.Open(file)
+	if err != nil {
+		return ""
+	}
+	defer f.Close()
+	path := ""
+	sc := bufio.NewScanner(f)
+	sc.Buffer(make([]byte, 1<<20), 1<<20)
+	for sc.Scan() {
+		var d struct {
+			TranscriptPath string `json:"transcript_path"`
+			Cwd            string `json:"cwd"`
+		}
+		if json.Unmarshal(sc.Bytes(), &d) == nil && d.TranscriptPath != "" && sameDir(d.Cwd, workdir) {
+			path = d.TranscriptPath
+		}
+	}
+	if filepath.Ext(path) != ".jsonl" || filepath.Base(filepath.Dir(filepath.Dir(path))) != "projects" {
+		return ""
+	}
+	return path
+}
+
+func sameDir(a, b string) bool {
+	ra, err1 := filepath.EvalSymlinks(a)
+	rb, err2 := filepath.EvalSymlinks(b)
+	return err1 == nil && err2 == nil && ra == rb
+}
+
 // readStatusLine returns the windows of the last status line run that carried rate_limits.
 func readStatusLine(file string) []window {
 	f, err := os.Open(file)
