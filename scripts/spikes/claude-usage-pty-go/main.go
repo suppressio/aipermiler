@@ -196,6 +196,7 @@ func probe(res *result, timeout time.Duration, launchdPath, raw bool) {
 	trustSent := false
 	var escAt time.Time
 	var screenWs []window
+	screenStale := false
 	phase := "start"
 	finish := func(state, reason string) {
 		res.State, res.Reason = state, reason
@@ -256,7 +257,7 @@ loop:
 						}
 						res.ScreenMatch = &m
 					}
-					if reStale.MatchString(text) {
+					if screenStale || reStale.MatchString(text) {
 						finish("stale", "could not refresh")
 					} else {
 						finish("ok", res.Reason)
@@ -265,23 +266,37 @@ loop:
 				}
 			}
 			ws := parse(text)
+			stale := reStale.MatchString(text)
+			settled := lastData.After(sentAt) && time.Since(lastData) > 700*time.Millisecond
 			// The status line is hidden while the panel is open: close it once the panel has
-			// loaded, then give the status line a few seconds; the screen is the fallback.
-			if slFile != "" && len(ws) > 0 {
+			// loaded, then give the status line a few seconds. Esc clears the panel, so keep its
+			// windows and stale banner now: they are the fallback.
+			if slFile != "" {
 				if escAt.IsZero() {
+					if len(ws) == 0 || !settled {
+						if time.Since(sentAt) > 12*time.Second {
+							finish("not_ready", "no usage windows on screen")
+						}
+						break
+					}
 					_, _ = s.Write([]byte("\x1b"))
-					escAt = time.Now()
-					screenWs = ws
+					escAt, screenWs, screenStale = time.Now(), ws, stale
+					break
 				}
 				if time.Since(escAt) < 5*time.Second {
 					break
 				}
-				ws = screenWs
+				res.Windows, res.Source = screenWs, "screen"
+				if screenStale {
+					finish("stale", "could not refresh")
+				} else {
+					finish("ok", res.Reason)
+				}
+				break
 			}
-			settled := lastData.After(sentAt) && time.Since(lastData) > 700*time.Millisecond
 			if len(ws) > 0 && settled {
 				res.Windows, res.Source = ws, "screen"
-				if reStale.MatchString(text) {
+				if stale {
 					finish("stale", "could not refresh")
 				} else {
 					finish("ok", res.Reason)
