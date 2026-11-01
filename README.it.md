@@ -2,6 +2,8 @@
 
 # AIpermiler
 
+**Vai più lontano con meno token.** L'hypermiling, per la tua quota AI.
+
 Un piccolo widget sempre in primo piano, per Windows, macOS e Linux, che ti dice a che ritmo stai usando le quote di **Claude**, **GitHub Copilot** e **Codex** (abbonamento ChatGPT) e quanto puoi ancora usare oggi perché la quota arrivi al rinnovo.
 
 > **Le quote di Claude non sono disponibili in questa versione.** Anthropic non consente alle app di terzi di accedere a claude.ai né di salvarne la sessione ([Claude Code legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)), ed era l'unico modo con cui questa app poteva leggerle. Un account Claude ora mostra solo gli insight locali di Claude Code. Le quote torneranno con una fonte consentita ([#139](https://github.com/suppressio/aipermiler/issues/139)).
