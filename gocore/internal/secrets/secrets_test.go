@@ -51,7 +51,7 @@ func (*failingDelete) Delete(string) error { return errors.New("delete refused")
 func TestMigratingGet(t *testing.T) {
 	t.Parallel()
 
-	t.Run("current wins, legacy untouched", func(t *testing.T) {
+	t.Run("current wins", func(t *testing.T) {
 		t.Parallel()
 		current, legacy := &secrets.Memory{}, &secrets.Memory{}
 		mustSet(t, current, "new")
@@ -59,23 +59,20 @@ func TestMigratingGet(t *testing.T) {
 		if v, err := (secrets.Migrating{Current: current, Legacy: legacy}).Get("k"); err != nil || v != "new" {
 			t.Fatalf("Get = %q, %v; want new", v, err)
 		}
-		if v, _ := legacy.Get("k"); v != "old" {
-			t.Fatalf("legacy = %q; want it untouched", v)
-		}
 	})
 
-	t.Run("only in legacy: moved", func(t *testing.T) {
+	t.Run("only in legacy: read, never written by the read", func(t *testing.T) {
 		t.Parallel()
 		current, legacy := &secrets.Memory{}, &secrets.Memory{}
 		mustSet(t, legacy, "old")
 		if v, err := (secrets.Migrating{Current: current, Legacy: legacy}).Get("k"); err != nil || v != "old" {
 			t.Fatalf("Get = %q, %v; want old", v, err)
 		}
-		if v, err := current.Get("k"); err != nil || v != "old" {
-			t.Fatalf("current = %q, %v; want the moved value", v, err)
+		if _, err := current.Get("k"); !errors.Is(err, secrets.ErrNotFound) {
+			t.Fatalf("current Get = %v; a read must not write", err)
 		}
-		if _, err := legacy.Get("k"); !errors.Is(err, secrets.ErrNotFound) {
-			t.Fatalf("legacy Get = %v; want ErrNotFound after the move", err)
+		if v, _ := legacy.Get("k"); v != "old" {
+			t.Fatalf("legacy = %q; a read must not delete", v)
 		}
 	})
 
@@ -87,44 +84,54 @@ func TestMigratingGet(t *testing.T) {
 		}
 	})
 
-	t.Run("legacy delete fails: value returned, copy kept", func(t *testing.T) {
+	t.Run("current unavailable: error, no fallback", func(t *testing.T) {
 		t.Parallel()
-		current, legacy := &secrets.Memory{}, &failingDelete{}
-		mustSet(t, &legacy.Memory, "old")
-		if v, err := (secrets.Migrating{Current: current, Legacy: legacy}).Get("k"); err != nil || v != "old" {
-			t.Fatalf("Get = %q, %v; want old", v, err)
-		}
-		if v, _ := current.Get("k"); v != "old" {
-			t.Fatalf("current = %q; want old", v)
-		}
-	})
-
-	t.Run("current set fails: value returned, legacy kept", func(t *testing.T) {
-		t.Parallel()
-		current, legacy := &secrets.Memory{}, &secrets.Memory{}
+		current, legacy := &secrets.Memory{Err: errors.New("locked")}, &secrets.Memory{}
 		mustSet(t, legacy, "old")
-		current.Err = secrets.ErrNotFound // Get says "not found", Set fails
-		if v, err := (secrets.Migrating{Current: current, Legacy: legacy}).Get("k"); err != nil || v != "old" {
-			t.Fatalf("Get = %q, %v; want old", v, err)
-		}
-		if v, _ := legacy.Get("k"); v != "old" {
-			t.Fatalf("legacy = %q; want it kept for the next try", v)
+		if _, err := (secrets.Migrating{Current: current, Legacy: legacy}).Get("k"); err == nil {
+			t.Fatal("Get with an unavailable keyring returned nil")
 		}
 	})
 }
 
-func TestMigratingSetAndDelete(t *testing.T) {
+func TestMigratingSet(t *testing.T) {
+	t.Parallel()
+
+	t.Run("moves: current written, legacy cleared", func(t *testing.T) {
+		t.Parallel()
+		current, legacy := &secrets.Memory{}, &secrets.Memory{}
+		mustSet(t, legacy, "old")
+		if err := (secrets.Migrating{Current: current, Legacy: legacy}).Set("k", "new"); err != nil {
+			t.Fatal(err)
+		}
+		if v, _ := current.Get("k"); v != "new" {
+			t.Fatalf("current = %q; want new", v)
+		}
+		if _, err := legacy.Get("k"); !errors.Is(err, secrets.ErrNotFound) {
+			t.Fatalf("legacy Get = %v; want ErrNotFound", err)
+		}
+	})
+
+	t.Run("legacy delete fails: set still succeeds", func(t *testing.T) {
+		t.Parallel()
+		current, legacy := &secrets.Memory{}, &failingDelete{}
+		mustSet(t, &legacy.Memory, "old")
+		m := secrets.Migrating{Current: current, Legacy: legacy}
+		if err := m.Set("k", "new"); err != nil {
+			t.Fatal(err)
+		}
+		if v, _ := m.Get("k"); v != "new" {
+			t.Fatalf("Get = %q; want new (current wins)", v)
+		}
+	})
+}
+
+func TestMigratingDelete(t *testing.T) {
 	t.Parallel()
 	current, legacy := &secrets.Memory{}, &secrets.Memory{}
-	m := secrets.Migrating{Current: current, Legacy: legacy}
+	mustSet(t, current, "new")
 	mustSet(t, legacy, "old")
-	if err := m.Set("k", "new"); err != nil {
-		t.Fatal(err)
-	}
-	if v, _ := legacy.Get("k"); v != "old" {
-		t.Fatalf("Set touched legacy: %q", v)
-	}
-	if err := m.Delete("k"); err != nil {
+	if err := (secrets.Migrating{Current: current, Legacy: legacy}).Delete("k"); err != nil {
 		t.Fatal(err)
 	}
 	for name, s := range map[string]*secrets.Memory{"current": current, "legacy": legacy} {

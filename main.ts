@@ -3,7 +3,7 @@
 // When a fetch fails, the last known data is shown with its timestamp (never a blank
 // screen, see AGENTS.md).
 
-// First import, before the store: moves the store of the old app name (#200).
+// Loaded by entry.ts only after the userData migration succeeded (#200).
 import { userDataMigration } from './main/userDataBootstrap';
 import { app, dialog, BrowserWindow, Notification, shell, Menu, screen, session, utilityProcess } from 'electron';
 import store, { DEFAULTS } from './store/index';
@@ -514,14 +514,6 @@ const usageCore = createUsageCore({
 let refreshRunning: Promise<void> | null = null;
 let refreshQueued: RefreshMode | null = null;
 
-// Waits for the refresh in flight, whatever its outcome. Disconnect and removal call it
-// first: a refresh reading a Copilot token while the core deletes it could write the
-// token back (the core moves it from the pre-rename keyring service on first read, #200).
-async function settleRefresh(): Promise<void> {
-  // A loop: a queued refresh starts as soon as the running one ends.
-  while (refreshRunning) await refreshRunning.catch(() => undefined);
-}
-
 function refreshAndBroadcast(mode: RefreshMode): Promise<void> {
   if (refreshRunning) {
     refreshQueued = refreshQueued ? refreshPolicy.strongerMode(refreshQueued, mode) : mode;
@@ -870,7 +862,6 @@ function registerIpcHandlers(): void {
     if (!cfg) return;
     // Full disconnect before removing the row: for Claude it also clears the partition,
     // otherwise the cookies would stay on disk with no owner.
-    await settleRefresh();
     await providers.disconnect(cfg);
     store.set('accounts', getAccounts().filter((a) => a.id !== id));
     broadcastSettings();
@@ -1045,7 +1036,6 @@ function registerIpcHandlers(): void {
     const id = requireString(rawId, 'Account');
     const cfg = findAccount(id);
     if (!cfg) return;
-    await settleRefresh();
     const cleared = await providers.disconnect(cfg);
     updateAccount(id, () => cleared);
     broadcastSettings();
