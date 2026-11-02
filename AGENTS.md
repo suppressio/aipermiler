@@ -70,6 +70,7 @@ aipermiler/
 │   └── internal/
 │       ├── buildinfo/           ← binary name and build-time version
 │       ├── cli/                 ← command dispatch and exit codes
+│       ├── claude/              ← Claude adapter (#147): binary discovery so far (#219)
 │       ├── codex/               ← native binary discovery, one-shot app-server probe and quota mapping
 │       ├── copilot/             ← Copilot usage (port of services/copilot.ts), token set/delete, OAuth PKCE login, raw response
 │       ├── github/              ← allowed GitHub hosts (github.com, <tenant>.ghe.com) and JSON client with a 10 s timeout
@@ -77,6 +78,7 @@ aipermiler/
 │       ├── config/              ← OS config directory and development override
 │       ├── logging/             ← stderr text logger and level selection
 │       ├── pacing/              ← pure pacing model
+│       ├── pathlist/            ← PATH splitting for a given OS (shared by the binary discoveries)
 │       ├── provider/            ← provider interface and per-run registry factories
 │       └── usage/               ← usage model, JSON contract, errors and text rendering
 ├── core/
