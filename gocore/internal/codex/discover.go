@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+
+	"github.com/suppressio/aipermiler/gocore/internal/pathlist"
 )
 
 type discovery struct {
@@ -126,7 +128,7 @@ func (d discovery) discover(explicit string) (string, error) {
 		}
 		return "", unavailable("Codex binary not found or not executable at --codex-bin")
 	}
-	for _, dir := range splitPathList(d.Getenv("PATH"), d.GOOS) {
+	for _, dir := range pathlist.Split(d.Getenv("PATH"), d.GOOS) {
 		// Never execute from an implicit current directory or a relative PATH entry.
 		if !filepath.IsAbs(dir) {
 			continue
@@ -254,32 +256,4 @@ func (d discovery) extension(home string) string {
 		}
 	}
 	return ""
-}
-
-// splitPathList splits PATH for the given OS. filepath.SplitList would follow the
-// host OS, while discovery is tested for every OS on one host. On Windows an entry
-// may be quoted ("D:\Tools\Codex") and may then contain the separator; the quotes
-// are removed, as cmd.exe and filepath.SplitList on Windows do.
-func splitPathList(value, goos string) []string {
-	if value == "" {
-		return nil
-	}
-	if goos != "windows" {
-		return strings.Split(value, ":")
-	}
-	var entries []string
-	var current strings.Builder
-	quoted := false
-	for _, r := range value {
-		switch {
-		case r == '"':
-			quoted = !quoted
-		case r == ';' && !quoted:
-			entries = append(entries, current.String())
-			current.Reset()
-		default:
-			current.WriteRune(r)
-		}
-	}
-	return append(entries, current.String())
 }
