@@ -286,6 +286,9 @@ func (d *driver) run(ctx context.Context, afterEsc func(context.Context) error) 
 	trusted := false
 	for ready := false; !ready; {
 		if err := d.wait(ctx); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				return notReady("claude did not reach its prompt (an unknown screen?)")
+			}
 			return d.failure(err, "before the prompt")
 		}
 		switch {

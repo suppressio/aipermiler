@@ -201,14 +201,33 @@ func TestDriveEarlyExit(t *testing.T) {
 
 func TestDriveTimeout(t *testing.T) {
 	t.Parallel()
-	// No output at all: never quiet, so never ready; the probe deadline ends it.
+	// No output at all: never quiet, so never ready; the probe deadline ends it as an
+	// unknown blocking screen.
 	f := newFake("", nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
 	defer cancel()
-	assertCode(t, claude.DriveForTest(ctx, f, nil), usage.CodeTimeout)
+	assertCode(t, claude.DriveForTest(ctx, f, nil), usage.CodeNotReady)
 	if !f.killed {
 		t.Fatal("process not killed")
 	}
+}
+
+func TestDriveTimeoutInThePanel(t *testing.T) {
+	t.Parallel()
+	// A panel that never settles: output keeps coming until the probe deadline.
+	f := newFake(screenPrompt, func(f *fake, key string) {
+		if key == "\r" {
+			go func() {
+				for range 100 {
+					f.print("\x1b[H" + screenPanel)
+					time.Sleep(5 * time.Millisecond)
+				}
+			}()
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	defer cancel()
+	assertCode(t, claude.DriveForTest(ctx, f, nil), usage.CodeTimeout)
 }
 
 func TestDriveKillsWhenExitIsIgnored(t *testing.T) {

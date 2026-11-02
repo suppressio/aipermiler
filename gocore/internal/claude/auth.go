@@ -17,6 +17,8 @@ func runAuthStatus(ctx context.Context, bin, dir string, env []string) []byte {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, "auth", "status", "--json")
 	cmd.Dir, cmd.Env = dir, env
+	// A helper that inherits stdout would keep Output waiting after the kill.
+	cmd.WaitDelay = time.Second
 	configureProcess(cmd)
 	out, err := cmd.Output()
 	if err != nil && len(out) == 0 {
