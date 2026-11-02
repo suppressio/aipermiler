@@ -21,7 +21,7 @@ npm start
 
 `npm start` compila TypeScript (main process + renderer), compila il core Go in `core-bin/` (`scripts/build-core.js`) e avvia Electron. Per usare un core compilato altrove imposta `AIPERMILER_CORE_BIN` al suo percorso assoluto: `npm start` salta la build Go e l'app esegue quel binario. Impostazioni → Diagnostica mostra la versione del core, o perché non può essere eseguito. Al primo avvio non ci sono account: apri le Impostazioni e aggiungine uno.
 
-L'esecuzione dai sorgenti usa la stessa cartella userData dell'app installata, quindi il primo avvio su una macchina con IA Hypermiler (≤ v0.4.18) installato ne sposta le impostazioni e ne cancella la vecchia cartella ([ARCHITETTURA §1](ARCHITECTURE.it.md#1-impostazioni-settings--schema-dati)). Per lasciare intatta una copia installata, avvia con un'altra cartella di configurazione, per esempio `XDG_CONFIG_HOME=$(mktemp -d) npm start` su Linux.
+L'esecuzione dai sorgenti usa la stessa cartella userData dell'app installata, quindi legge e scrive le impostazioni dell'app installata. Per lasciare intatta una copia installata, avvia con un'altra cartella di configurazione, per esempio `XDG_CONFIG_HOME=$(mktemp -d) npm start` su Linux.
 
 ## Build, lint e test
 

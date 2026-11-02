@@ -21,9 +21,10 @@ import Store from 'electron-store';
 import type { AppSettings } from '../types/index';
 import { normalizeSettings } from './normalize';
 import { DEFAULTS } from './defaults';
-import { STORE_NAME } from '../main/userDataMigration';
 
 export { DEFAULTS };
+
+const STORE_NAME = 'aipermiler-config';
 
 const store = new Store<AppSettings>({
   name: STORE_NAME,

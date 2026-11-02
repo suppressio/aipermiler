@@ -19,9 +19,6 @@
   <url type="homepage">https://github.com/suppressio/aipermiler</url>
   <url type="bugtracker">https://github.com/suppressio/aipermiler/issues</url>
   <launchable type="desktop-id">aipermiler.desktop</launchable>
-  <replaces>
-    <id>com.suppressio.ia-hypermiler</id>
-  </replaces>
   <provides>
     <binary>aipermiler</binary>
   </provides>

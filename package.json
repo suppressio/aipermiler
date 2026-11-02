@@ -3,7 +3,7 @@
   "productName": "AIpermiler",
   "version": "0.5.0-beta",
   "description": "Desktop widget that monitors AI token usage (Claude, GitHub Copilot and Codex) and computes an optimal daily budget.",
-  "main": "dist/entry.js",
+  "main": "dist/main.js",
   "type": "commonjs",
   "scripts": {
     "build:main": "tsc -p tsconfig.json",
@@ -96,8 +96,6 @@
     },
     "deb": {
       "fpm": [
-        "--replaces=ia-hypermiler",
-        "--deb-field=Breaks: ia-hypermiler",
         "build/linux/com.suppressio.aipermiler.metainfo.xml=/usr/share/metainfo/com.suppressio.aipermiler.metainfo.xml"
       ]
     }
