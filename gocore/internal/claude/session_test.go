@@ -268,6 +268,8 @@ func TestProbe(t *testing.T) {
 	}{
 		{"signed in", `{"loggedIn":true,"authMethod":"claude.ai"}`, true, ""},
 		{"signed out", `{"loggedIn":false}`, false, usage.CodeSignedOut},
+		{"API key", `{"loggedIn":true,"authMethod":"api_key"}`, false, usage.CodeUnavailable},
+		{"cloud provider", `{"loggedIn":true,"authMethod":"third_party","apiProvider":"vertex"}`, false, usage.CodeUnavailable},
 		{"auth status unusable", "not json", true, ""},
 	}
 	for _, tt := range tests {
@@ -345,20 +347,26 @@ func TestChildEnv(t *testing.T) {
 func TestParseAuthStatus(t *testing.T) {
 	t.Parallel()
 	tests := []struct {
-		in              string
-		loggedIn, known bool
-		projects        string
+		in                       string
+		loggedIn, known, noQuota bool
+		projects                 string
 	}{
-		{`{"loggedIn":true,"authMethod":"claude.ai","email":"synthetic@example.invalid","projectsDirectory":"/home/synthetic/.claude/projects"}`, true, true, "/home/synthetic/.claude/projects"},
-		{`{"loggedIn":true,"projectsDirectory":"relative/projects"}`, true, true, ""},
-		{`{"loggedIn":false}`, false, true, ""},
-		{`{"authMethod":"claude.ai","projectsDirectory":"/synthetic"}`, false, false, ""},
-		{``, false, false, ""},
-		{`Logged in`, false, false, ""},
+		{`{"loggedIn":true,"authMethod":"claude.ai","email":"synthetic@example.invalid","projectsDirectory":"/home/synthetic/.claude/projects"}`, true, true, false, "/home/synthetic/.claude/projects"},
+		{`{"loggedIn":true,"authMethod":"oauth_token","apiProvider":"firstParty"}`, true, true, false, ""},
+		{`{"loggedIn":true,"authMethod":"api_key","apiProvider":"firstParty"}`, true, true, true, ""},
+		{`{"loggedIn":true,"authMethod":"third_party","apiProvider":"bedrock"}`, true, true, true, ""},
+		{`{"loggedIn":true,"authMethod":"something_new"}`, true, true, false, ""},
+		{`{"loggedIn":false,"authMethod":"api_key"}`, false, true, false, ""},
+		{`{"loggedIn":true,"projectsDirectory":"relative/projects"}`, true, true, false, ""},
+		{`{"loggedIn":false}`, false, true, false, ""},
+		{`{"authMethod":"claude.ai","projectsDirectory":"/synthetic"}`, false, false, false, ""},
+		{``, false, false, false, ""},
+		{`Logged in`, false, false, false, ""},
 	}
 	for _, tt := range tests {
-		if loggedIn, known, projects := claude.ParseAuthStatusForTest([]byte(tt.in)); loggedIn != tt.loggedIn || known != tt.known || projects != tt.projects {
-			t.Errorf("parseAuthStatus(%q) = %v, %v, %q; want %v, %v, %q", tt.in, loggedIn, known, projects, tt.loggedIn, tt.known, tt.projects)
+		loggedIn, known, noQuota, projects := claude.ParseAuthStatusForTest([]byte(tt.in))
+		if loggedIn != tt.loggedIn || known != tt.known || noQuota != tt.noQuota || projects != tt.projects {
+			t.Errorf("parseAuthStatus(%q) = %v, %v, %v, %q; want %v, %v, %v, %q", tt.in, loggedIn, known, noQuota, projects, tt.loggedIn, tt.known, tt.noQuota, tt.projects)
 		}
 	}
 }

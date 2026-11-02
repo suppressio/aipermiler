@@ -109,6 +109,9 @@ func (p prober) probe(ctx context.Context, bin, dir, statusLine string, afterEsc
 	if status.known && !status.loggedIn {
 		return status.projects, signedOut()
 	}
+	if status.noQuota {
+		return status.projects, unavailable("Claude Code is signed in with an API key or a cloud provider, which has no subscription quota")
+	}
 	term, err := p.start(bin, claudeArgs(statusLine), env, dir)
 	if err != nil {
 		return status.projects, unavailable("cannot start claude: " + err.Error())
@@ -157,22 +160,29 @@ func childEnv(environ []string) []string {
 }
 
 // authStatus is what the probe reads from `claude auth status`: whether it is signed
-// in and where its transcripts live. Email and organisation are never read.
+// in, how, and where its transcripts live. Email and organisation are never read.
 type authStatus struct {
 	loggedIn bool
 	known    bool   // false when the output is not usable: the PTY markers then decide
+	noQuota  bool   // signed in without a subscription: no rate_limits to read
 	projects string // absolute projects folder, "" when not reported
 }
+
+// noQuotaMethods are the authMethod values without subscription quotas (verified on
+// 2.1.316, #228). claude.ai, oauth_token (`claude setup-token`) and any unknown
+// value run the probe.
+var noQuotaMethods = map[string]bool{"api_key": true, "third_party": true}
 
 func parseAuthStatus(out []byte) authStatus {
 	var status struct {
 		LoggedIn *bool  `json:"loggedIn"`
+		Method   string `json:"authMethod"`
 		Projects string `json:"projectsDirectory"`
 	}
 	if json.Unmarshal(out, &status) != nil || status.LoggedIn == nil {
 		return authStatus{}
 	}
-	result := authStatus{loggedIn: *status.LoggedIn, known: true}
+	result := authStatus{loggedIn: *status.LoggedIn, known: true, noQuota: *status.LoggedIn && noQuotaMethods[status.Method]}
 	if filepath.IsAbs(status.Projects) {
 		result.projects = status.Projects
 	}
