@@ -5,6 +5,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -124,6 +125,15 @@ func assertDiscover(t *testing.T, tr *tree, explicit, want string) {
 	}
 }
 
+// posixOnly skips a simulated Linux/macOS layout on a Windows host: a POSIX PATH
+// (":"-separated) cannot hold host paths with a drive letter.
+func posixOnly(t *testing.T, goos string) {
+	t.Helper()
+	if goos != "windows" && runtime.GOOS == "windows" {
+		t.Skip("simulated POSIX PATH on a Windows host")
+	}
+}
+
 func npmBinary(modules string) string {
 	return filepath.Join(modules, "@anthropic-ai", "claude-code", "bin", "claude.exe")
 }
@@ -163,6 +173,7 @@ func TestDiscoveryOrder(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.goos, func(t *testing.T) {
 			t.Parallel()
+			posixOnly(t, tt.goos)
 			tr := newTree(t, tt.goos, "amd64")
 			tt.env(tr)
 			explicit := tr.native(t, filepath.Join(tr.root, "explicit", tt.filename))
@@ -209,6 +220,7 @@ func TestDiscoveryExplicit(t *testing.T) {
 
 func TestDiscoverySkipsShimsAndStubs(t *testing.T) {
 	t.Parallel()
+	posixOnly(t, "linux")
 	tr := newTree(t, "linux", "amd64")
 	dir := filepath.Join(tr.root, "bin")
 	tr.env["PATH"] = dir
@@ -247,6 +259,7 @@ func TestDiscoveryWindowsShims(t *testing.T) {
 
 func TestDiscoveryDeduplicates(t *testing.T) {
 	t.Parallel()
+	posixOnly(t, "linux")
 	tr := newTree(t, "linux", "amd64")
 	sys := string(filepath.Separator)
 	npm := tr.native(t, npmBinary(filepath.Join(sys, "usr", "local", "lib", "node_modules")))
