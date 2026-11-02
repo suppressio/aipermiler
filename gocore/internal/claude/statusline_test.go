@@ -69,6 +69,7 @@ func TestMapStatusLine(t *testing.T) {
 		{"no rate_limits", []string{"statusline-2.1.316-start"}, nil, "no rate_limits"},
 		{"never ran", nil, nil, "never ran"},
 		{"unknown windows", []string{"unknown-shape"}, nil, "no quota window"},
+		{"malformed window", []string{"malformed-window"}, nil, "no quota window"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -83,6 +84,9 @@ func TestMapStatusLine(t *testing.T) {
 				var e *usage.Error
 				if !errors.As(err, &e) || !strings.Contains(e.Message, tt.drift) {
 					t.Fatalf("message = %q; want %q", e.Message, tt.drift)
+				}
+				if _, object := e.Shape.(map[string]any); object == (tt.name == "never ran") || e.Endpoint == "" {
+					t.Fatalf("shape = %v, endpoint = %q", e.Shape, e.Endpoint)
 				}
 				return
 			}
@@ -228,6 +232,20 @@ func TestRemoveTranscripts(t *testing.T) {
 		claude.CleanupForTest(sink, l.probe, l.projects)
 		if exists(l.transcript) || exists(l.folder) || !exists(l.projects) {
 			t.Fatal("transcript or folder kept, or projects removed")
+		}
+	})
+	t.Run("a malformed quota field does not hide the transcript", func(t *testing.T) {
+		t.Parallel()
+		l := newLayout(t)
+		doc, err := json.Marshal(map[string]any{"transcript_path": l.transcript, "cwd": l.probe, "rate_limits": map[string]any{"five_hour": map[string]any{"used_percentage": "12"}}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		sink := newSink(t)
+		runStatusLine(t, sink, doc)
+		claude.CleanupForTest(sink, l.probe, l.projects)
+		if exists(l.transcript) {
+			t.Fatal("transcript kept")
 		}
 	})
 	t.Run("folder with other files is kept", func(t *testing.T) {
