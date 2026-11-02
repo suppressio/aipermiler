@@ -82,6 +82,24 @@ func validSink(path string) (os.FileInfo, bool) {
 	return info, true
 }
 
+// staleSink is the age after which a sink file belongs to no running fetch (a fetch
+// lasts under a minute): one left by a killed core (#229).
+const staleSink = 10 * time.Minute
+
+// removeStaleSinks deletes the sink files of earlier fetches that were cut short:
+// regular files named like a sink, directly in base, untouched for staleSink.
+func removeStaleSinks(base string, now time.Time) {
+	paths, err := filepath.Glob(filepath.Join(base, sinkPattern))
+	if err != nil {
+		return
+	}
+	for _, path := range paths {
+		if info, err := os.Lstat(path); err == nil && info.Mode().IsRegular() && now.Sub(info.ModTime()) > staleSink {
+			_ = os.Remove(path)
+		}
+	}
+}
+
 // shellQuote quotes for the POSIX shell Claude runs the status line command with.
 // Windows runs it through another shell: #223.
 func shellQuote(s string) string {

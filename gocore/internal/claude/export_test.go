@@ -68,9 +68,9 @@ func RealProbeForTest(ctx context.Context, bin, dir string, extraEnv []string) e
 }
 
 // ParseAuthStatusForTest returns what the probe reads from `auth status`.
-func ParseAuthStatusForTest(out []byte) (loggedIn, known bool, projects string) {
+func ParseAuthStatusForTest(out []byte) (loggedIn, known, noQuota bool, projects string) {
 	s := parseAuthStatus(out)
-	return s.loggedIn, s.known, s.projects
+	return s.loggedIn, s.known, s.noQuota, s.projects
 }
 
 // TestStatusWait is the providers' wait for the status line in tests.
@@ -116,3 +116,6 @@ func MapSinkForTest(path string) (usage.Usage, error) { return mapUsage(readStat
 func CleanupForTest(sink, dir, projects string) {
 	removeTranscripts(readStatus(sink).transcripts, dir, projects)
 }
+
+// RemoveStaleSinksForTest cleans base as a fetch does when it starts.
+func RemoveStaleSinksForTest(base string, now time.Time) { removeStaleSinks(base, now) }

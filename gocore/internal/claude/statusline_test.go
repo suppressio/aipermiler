@@ -332,3 +332,48 @@ func TestContractFixture(t *testing.T) {
 		t.Fatalf("document = %s\nwant = %s", out.String(), want)
 	}
 }
+
+func TestRemoveStaleSinks(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	now := time.Date(2026, time.November, 2, 12, 0, 0, 0, time.UTC)
+	create := func(name string, age time.Duration) string {
+		path := filepath.Join(base, name)
+		if err := os.WriteFile(path, []byte("{}\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(path, now.Add(-age), now.Add(-age)); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	stale := create("claude-status-1.jsonl", 11*time.Minute)
+	running := create("claude-status-2.jsonl", time.Minute)
+	other := create("notes.jsonl", time.Hour)
+	folder := filepath.Join(base, "claude-status-3.jsonl")
+	if err := os.Mkdir(folder, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(folder, now.Add(-time.Hour), now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	nested := filepath.Join(base, "claude-probe", "claude-status-4.jsonl")
+	if err := os.MkdirAll(filepath.Dir(nested), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(nested, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(nested, now.Add(-time.Hour), now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	claude.RemoveStaleSinksForTest(base, now)
+	if exists(stale) {
+		t.Error("stale sink kept")
+	}
+	for _, kept := range []string{running, other, folder, nested} {
+		if !exists(kept) {
+			t.Errorf("%s removed", kept)
+		}
+	}
+}
