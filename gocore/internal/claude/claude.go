@@ -61,6 +61,7 @@ func (p *Provider) Fetch(ctx context.Context, _ string) (usage.Usage, error) {
 	if err != nil {
 		return usage.Usage{}, unavailable("locate the core binary: " + err.Error())
 	}
+	removeStaleSinks(base, time.Now())
 	sink, err := os.CreateTemp(base, sinkPattern)
 	if err != nil {
 		return usage.Usage{}, unavailable("create the status line file: " + err.Error())
