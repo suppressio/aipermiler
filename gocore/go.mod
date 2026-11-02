@@ -2,7 +2,10 @@ module github.com/suppressio/aipermiler/gocore
 
 go 1.24
 
-require github.com/zalando/go-keyring v0.2.8
+require (
+	github.com/creack/pty v1.1.24
+	github.com/zalando/go-keyring v0.2.8
+)
 
 require (
 	github.com/danieljoos/wincred v1.2.3 // indirect
