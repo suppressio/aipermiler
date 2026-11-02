@@ -29,8 +29,8 @@ const (
 
 // Markers are matched on the output since the last key, with escape sequences and
 // all white space removed and lower-cased: cursor moves can drop every space
-// (`Currentsession`, `12%used`). Verified on Linux and macOS (#141, #183); whether
-// ConPTY keeps them contiguous is checked on Windows (#223).
+// (`Currentsession`, `12%used`). Verified on Linux and macOS (#141, #183) and under
+// ConPTY on Windows 11 (#223: trust prompt answered, panel found).
 var (
 	markersSignedOut = []string{"notloggedin", "selectloginmethod", "choosethetextstyle"}
 	markersTrust     = []string{"quicksafetycheck", "itrustthisfolder"}

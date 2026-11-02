@@ -103,6 +103,12 @@ func (d discovery) candidates() []string {
 		// Never execute from an implicit current directory or a relative PATH entry:
 		// native rejects relative paths.
 		add(filepath.Join(dir, d.filename()))
+		if d.GOOS == "windows" {
+			// An npm prefix in PATH holds only the claude.cmd shim; the native binary
+			// it runs sits in the prefix's node_modules (the prefix is not always
+			// %APPDATA%\npm: Node from winget uses its own folder, verified on #223).
+			add(npmBinary(filepath.Join(dir, "node_modules")))
+		}
 	}
 	home, err := d.UserHomeDir()
 	if err != nil || !filepath.IsAbs(home) {
@@ -124,16 +130,18 @@ func (d discovery) candidates() []string {
 
 // fixedPrefixes are searched whatever PATH says: on macOS the launchd PATH of a GUI
 // app has neither /opt/homebrew/bin nor /usr/local/bin.
+// npmBinary is the native binary npm's postinstall links into the package.
+func npmBinary(modules string) string {
+	return filepath.Join(modules, "@anthropic-ai", "claude-code", "bin", "claude.exe")
+}
+
 func (d discovery) fixedPrefixes() []string {
 	root := string(filepath.Separator)
-	npm := func(modules string) string {
-		return filepath.Join(modules, "@anthropic-ai", "claude-code", "bin", "claude.exe")
-	}
 	switch d.GOOS {
 	case "windows":
 		var out []string
 		if appdata := d.Getenv("APPDATA"); filepath.IsAbs(appdata) {
-			out = append(out, npm(filepath.Join(appdata, "npm", "node_modules")))
+			out = append(out, npmBinary(filepath.Join(appdata, "npm", "node_modules")))
 		}
 		if local := d.Getenv("LOCALAPPDATA"); filepath.IsAbs(local) {
 			out = append(out, d.winget(filepath.Join(local, "Microsoft", "WinGet", "Packages"))...)
@@ -143,13 +151,13 @@ func (d discovery) fixedPrefixes() []string {
 		return []string{
 			filepath.Join(root, "opt", "homebrew", "bin", "claude"),
 			filepath.Join(root, "usr", "local", "bin", "claude"),
-			npm(filepath.Join(root, "usr", "local", "lib", "node_modules")),
-			npm(filepath.Join(root, "opt", "homebrew", "lib", "node_modules")),
+			npmBinary(filepath.Join(root, "usr", "local", "lib", "node_modules")),
+			npmBinary(filepath.Join(root, "opt", "homebrew", "lib", "node_modules")),
 		}
 	case "linux":
 		return []string{
-			npm(filepath.Join(root, "usr", "local", "lib", "node_modules")),
-			npm(filepath.Join(root, "usr", "lib", "node_modules")),
+			npmBinary(filepath.Join(root, "usr", "local", "lib", "node_modules")),
+			npmBinary(filepath.Join(root, "usr", "lib", "node_modules")),
 		}
 	}
 	return nil

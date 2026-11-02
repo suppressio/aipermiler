@@ -2,7 +2,7 @@
 
 # Go core CLI
 
-> Implemented in #26: transport-neutral JSON contract v1 and terminal output for layer 1 of #139. Codex adapter implemented in #148; Copilot adapter in #149; Claude adapter in #147 (#219-#221; Windows: #223).
+> Implemented in #26: transport-neutral JSON contract v1 and terminal output for layer 1 of #139. Codex adapter implemented in #148; Copilot adapter in #149; Claude adapter in #147 (#219-#221, Windows #223).
 
 ## Commands and scope
 
@@ -36,26 +36,26 @@ Secrets are accepted only on stdin, never as flags: argv is visible in the proce
 aipermiler usage claude [--json] [--claude-bin /absolute/path/to/claude]
 ```
 
-Quotas come only through the user's own, unmodified `claude` binary and sign-in (#139, #140): the core never reads Claude's credentials and never signs in. The approach was decided on #183 and #218 ([spike](SPIKE-CLAUDE-USAGE-PTY.md)). Linux and macOS; on Windows the fetch is `unavailable` until #223. Claude accepts no `--secret-stdin`.
+Quotas come only through the user's own, unmodified `claude` binary and sign-in (#139, #140): the core never reads Claude's credentials and never signs in. The approach was decided on #183 and #218 ([spike](SPIKE-CLAUDE-USAGE-PTY.md)). Linux, macOS and Windows (#223). Claude accepts no `--secret-stdin`.
 
 One fetch:
 
 1. `claude auth status --json` (5 s). Only `loggedIn`, `authMethod` and `projectsDirectory` are read, never email or organisation. `loggedIn: false` is `signed_out` and `authMethod` `api_key` or `third_party` (an API key, Bedrock, Vertex: no subscription quota) is `unavailable`, both without starting a session (#228); `claude.ai`, `oauth_token` (`claude setup-token`) and unknown values go on; unusable output leaves the check to the screen.
-2. `claude` starts in a pseudo-terminal (50×140, `TERM=xterm-256color`) inside the core's probe folder `<user cache>/aipermiler/claude-probe`, which must be empty. The flags are `--settings` with our own status line command, `--strict-mcp-config` and `--setting-sources local`. Nothing is written to the user's settings, and MCP servers, user hooks and plugins stay out. The environment markers of a parent Claude Code session are removed.
+2. `claude` starts in a pseudo-terminal (50×140, `TERM=xterm-256color`; on Windows a ConPTY on `golang.org/x/sys/windows`, the native `claude.exe` started directly, suspended, put in a job object with `KILL_ON_JOB_CLOSE`, then resumed, never with `CREATE_NO_WINDOW`, which breaks ConPTY) inside the core's probe folder `<user cache>/aipermiler/claude-probe`, which must be empty. The flags are `--settings` with our own status line command, `--strict-mcp-config` and `--setting-sources local`. Nothing is written to the user's settings, and MCP servers, user hooks and plugins stay out. The environment markers of a parent Claude Code session are removed.
 3. The folder trust prompt is answered once, only for that empty folder. The core types only `/usage`, Esc and `/exit`, never a prompt, so no model request is made on the user's plan.
-4. Claude runs the status line command. It is the hidden subcommand `aipermiler claude-statusline <file>`, which appends the JSON it receives on stdin as one line to a file `<user cache>/aipermiler/claude-status-*.jsonl` created for this fetch. It never creates a file and prints nothing. Once the panel is closed with Esc, the core waits up to 3 s for a run carrying `rate_limits`.
-5. `/exit` gets 5 s, then the whole process tree is killed. The probe is bounded by 25 s.
+4. Claude runs the status line command. It is the hidden subcommand `aipermiler claude-statusline <file>`, which appends the JSON it receives on stdin as one line to a file `<user cache>/aipermiler/claude-status-*.jsonl` created for this fetch. It never creates a file and prints nothing. On Linux and macOS Claude runs the command with `sh`, so both paths are single-quoted. On Windows it runs it with Windows PowerShell, or with Git Bash when Git for Windows is installed (both verified on Windows 11 with 2.1.302 and 2.1.316), and the two quote differently: the paths go unquoted, their folders as 8.3 short names with forward slashes (`C:/Users/MARIOR~1/…/aipermiler.exe`), which PowerShell, bash and cmd all read as the same word. A path that still holds a character other than ASCII letters, digits and `:/._-~` (a volume without short names) is `unavailable`. Once the panel is closed with Esc, the core waits up to 3 s for a run carrying `rate_limits`.
+5. `/exit` gets 5 s, then the whole process tree is killed (the process group on POSIX, the job on Windows). The probe is bounded by 25 s.
 6. Cleanup, also after a failed probe: the sink file is deleted, and so is the probe's own transcript. That is the `transcript_path` of a status line run whose `cwd` is the probe folder, only a `.jsonl` directly inside a folder of `projectsDirectory` (paths compared as files, not as spellings). The folder is removed too when nothing else is left in it. Without `projectsDirectory` nothing is deleted. A fetch also deletes the sink files of earlier fetches cut short (a killed core), when untouched for 10 min (#229). Nothing else of Claude's is touched: the `/usage` line in `history.jsonl` stays.
 
 Discovery order (#219):
 
 1. Explicit `--claude-bin`: absolute and native, otherwise `unavailable`, without fallback.
-2. `claude` (`claude.exe` on Windows) in the PATH entries, in order.
+2. `claude` (`claude.exe` on Windows) in the PATH entries, in order. On Windows each entry is also looked into as an npm prefix: `<entry>\node_modules\@anthropic-ai\claude-code\bin\claude.exe`, the binary its `claude.cmd` shim runs (with Node from winget the prefix is Node's own folder, not `%APPDATA%\npm`; verified).
 3. `~/.local/bin/claude`.
 4. Fixed prefixes: on macOS `/opt/homebrew/bin/claude`, `/usr/local/bin/claude`, then the npm package under `/usr/local` and `/opt/homebrew`; on Linux the npm package under `/usr/local/lib` and `/usr/lib`; on Windows the npm package under `%APPDATA%\npm` and the winget package under `%LOCALAPPDATA%`.
 5. The native binary of the Claude Code extension of VS Code, VS Code Insiders, Cursor, Windsurf and VS Code Server, newest version first.
 
-Only native binaries qualify: at least 1 MB, never `.js`/`.cjs` (Node is never run), `.exe` on Windows, executable elsewhere. Symlinks are resolved and duplicates skipped.
+Only native binaries qualify: at least 1 MB, never `.js`/`.cjs` (Node is never run), `.exe` on Windows, executable elsewhere. Symlinks are resolved and duplicates skipped. npm 11 no longer runs install scripts by default: without `--allow-scripts=@anthropic-ai/claude-code` the package keeps its small stub instead of the native binary, and that install is skipped (verified on Windows with npm 11.19). On Windows 11 the four layouts were found side by side and each one read both windows: winget, npm, native installer, VS Code extension.
 
 | Condition | Code | Meaning/message |
 |---|---|---|
@@ -66,10 +66,11 @@ Only native binaries qualify: at least 1 MB, never `.js`/`.cjs` (Node is never r
 | Deadline after the prompt | `timeout` | `claude probe timed out <where>` |
 | Status line never ran, no `rate_limits`, or no recognized window | `format_drift` | `Claude: …`, endpoint `claude status line rate_limits`, shape only |
 | `claude` cannot start, exits early, probe folder not empty | `unavailable` | the reason, never the screen |
+| Windows: a core or cache path the status line cannot name without quoting | `unavailable` | `the status line command cannot name this path without quoting (no 8.3 short name?): <path>` |
 
 Mapping reads the last status line run that carried `rate_limits`. `five_hour` maps to `claude-5h` / `5-hour limit` / `rolling-hours` 5 and `seven_day` to `claude-7d` / `7-day limit` / `rolling-days` 7. A missing or negative `used_percentage` skips the window; the value is never clamped; unit `percentage`, total 100. A positive Unix-second `resets_at` becomes a UTC date, anything else is null. `planTier` and `subscriptionRenewsAt` are always null: the status line carries neither. The synthetic fixtures in `internal/claude/testdata/` are named after the Claude Code version whose shape they follow; the behaviour was seen on 2.1.314-2.1.316.
 
-**Polling.** Every fetch starts a Claude Code session (about 5 s, measured on Linux with 2.1.316) and adds a line to Claude's `history.jsonl`. The client polls every 30 min by default and never below 5 min on a timer (the adaptive 5 min pace is the floor); a manual refresh reuses a fetch less than 1 min old (`main/refreshPolicy.ts`). The CLI's 25 s default deadline covers the whole fetch; the client keeps its own timeout above it (#180).
+**Polling.** Every fetch starts a Claude Code session (about 5 s measured on Linux, 6-9 s on a Windows 11 VM, 2.1.302-2.1.316) and adds a line to Claude's `history.jsonl`. The client polls every 30 min by default and never below 5 min on a timer (the adaptive 5 min pace is the floor); a manual refresh reuses a fetch less than 1 min old (`main/refreshPolicy.ts`). The CLI's 25 s default deadline covers the whole fetch; the client keeps its own timeout above it (#180). On Windows the core started by Node's `execFile` with `windowsHide` (as `main/coreClient.ts` does) in the desktop session read both windows and showed no window over 14 s of screenshots taken every ~40 ms (a visible console in a control run was caught in 148 of 189 frames).
 
 ### Codex
 

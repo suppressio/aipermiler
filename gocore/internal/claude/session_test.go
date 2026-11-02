@@ -346,12 +346,18 @@ func TestChildEnv(t *testing.T) {
 
 func TestParseAuthStatus(t *testing.T) {
 	t.Parallel()
+	// An absolute path on the host running the test.
+	projects := filepath.Join(t.TempDir(), "synthetic", ".claude", "projects")
+	quoted, err := json.Marshal(projects)
+	if err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
 		in                       string
 		loggedIn, known, noQuota bool
 		projects                 string
 	}{
-		{`{"loggedIn":true,"authMethod":"claude.ai","email":"synthetic@example.invalid","projectsDirectory":"/home/synthetic/.claude/projects"}`, true, true, false, "/home/synthetic/.claude/projects"},
+		{`{"loggedIn":true,"authMethod":"claude.ai","email":"synthetic@example.invalid","projectsDirectory":` + string(quoted) + `}`, true, true, false, projects},
 		{`{"loggedIn":true,"authMethod":"oauth_token","apiProvider":"firstParty"}`, true, true, false, ""},
 		{`{"loggedIn":true,"authMethod":"api_key","apiProvider":"firstParty"}`, true, true, true, ""},
 		{`{"loggedIn":true,"authMethod":"third_party","apiProvider":"bedrock"}`, true, true, true, ""},

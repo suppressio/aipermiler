@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
@@ -105,10 +106,50 @@ func removeStaleSinks(base string, now time.Time) {
 	}
 }
 
-// shellQuote quotes for the POSIX shell Claude runs the status line command with.
-// Windows runs it through another shell: #223.
+// statusCommand is the status line command running this core's sink. POSIX: Claude
+// runs it with sh, so the paths are single-quoted. Windows: Claude runs it with
+// PowerShell, or with Git Bash when installed (PowerShell verified on 2.1.302, #223),
+// and the two quote differently. So the paths go unquoted, as 8.3 short names with
+// forward slashes, which all of PowerShell, bash and cmd read as the same words; a
+// path still holding any other character is refused.
+func statusCommand(self, sink, goos string, shortPath func(string) (string, error)) (string, error) {
+	if goos != "windows" {
+		return shellQuote(self) + " " + SinkCommand + " " + shellQuote(sink), nil
+	}
+	words := make([]string, 0, 2)
+	for _, path := range []string{self, sink} {
+		word, err := windowsWord(path, shortPath)
+		if err != nil {
+			return "", err
+		}
+		words = append(words, word)
+	}
+	return words[0] + " " + SinkCommand + " " + words[1], nil
+}
+
+// shellQuote quotes for the POSIX shell.
 func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
+// windowsWord shortens only the folder: the sink checks the file's own name.
+func windowsWord(path string, shortPath func(string) (string, error)) (string, error) {
+	// Split by hand: the tests run the Windows layout on any host.
+	cut := strings.LastIndexAny(path, `\/`) + 1
+	dir, name := path[:cut], path[cut:]
+	if short, err := shortPath(dir); err == nil && short != "" {
+		dir = short
+	}
+	word := strings.ReplaceAll(strings.TrimRight(dir, `\/`)+"/"+name, `\`, "/")
+	if word == "" || word[0] == '-' || strings.IndexFunc(word, func(r rune) bool { return !safeRune(r) }) >= 0 {
+		return "", unavailable("the status line command cannot name this path without quoting (no 8.3 short name?): " + path)
+	}
+	return word, nil
+}
+
+// safeRune is a character every Windows shell Claude may use takes literally.
+func safeRune(r rune) bool {
+	return r < 0x80 && (unicode.IsLetter(r) || unicode.IsDigit(r) || strings.ContainsRune(":/._-~", r))
 }
 
 type statusWindow struct {
