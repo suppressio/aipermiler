@@ -4,6 +4,7 @@ import (
 	"context"
 	"flag"
 	"os"
+	"runtime"
 	"time"
 
 	"github.com/suppressio/aipermiler/gocore/internal/usage"
@@ -69,7 +70,10 @@ func (p *Provider) Fetch(ctx context.Context, _ string) (usage.Usage, error) {
 	path := sink.Name()
 	_ = sink.Close()
 	defer func() { _ = os.Remove(path) }()
-	command := shellQuote(self) + " " + SinkCommand + " " + shellQuote(path)
+	command, err := statusCommand(self, path, runtime.GOOS, shortPath)
+	if err != nil {
+		return usage.Usage{}, err
+	}
 	projects, err := p.prober.probe(ctx, bin, dir, command, func(ctx context.Context) error {
 		waitForRateLimits(ctx.Done(), path, p.statusWait)
 		return nil

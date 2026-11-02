@@ -255,6 +255,15 @@ func TestDiscoveryWindowsShims(t *testing.T) {
 	tr.links[link] = target
 	tr.env["PATH"] = dir + ";" + filepath.Dir(link)
 	assertDiscover(t, tr, "", target)
+
+	// npm with its prefix in PATH (Node from winget): the shim's own package.
+	prefix := filepath.Join(tr.root, "node")
+	tr.native(t, filepath.Join(prefix, "claude.cmd"))
+	tr.env["PATH"] = prefix
+	stub := tr.file(t, npmBinary(filepath.Join(prefix, "node_modules")), 4<<10)
+	assertDiscover(t, tr, "", "")
+	tr.remove(t, stub)
+	assertDiscover(t, tr, "", tr.native(t, npmBinary(filepath.Join(prefix, "node_modules"))))
 }
 
 func TestDiscoveryDeduplicates(t *testing.T) {

@@ -49,14 +49,21 @@ func statusLineCommand(t *testing.T, args []string) string {
 	return settings.StatusLine.Command
 }
 
-// sinkPath reads the file argument of the status line command.
+// sinkPath reads the file argument of the status line command: single-quoted on
+// POSIX, a bare word on Windows.
 func sinkPath(t *testing.T, command string) string {
 	t.Helper()
-	_, quoted, ok := strings.Cut(command, " "+claude.SinkCommand+" ")
-	if !ok || len(quoted) < 2 || quoted[0] != '\'' || quoted[len(quoted)-1] != '\'' {
+	_, word, ok := strings.Cut(command, " "+claude.SinkCommand+" ")
+	if runtime.GOOS == "windows" {
+		if !ok || strings.ContainsAny(word, " '\"") {
+			t.Fatalf("command = %q", command)
+		}
+		return word
+	}
+	if !ok || len(word) < 2 || word[0] != '\'' || word[len(word)-1] != '\'' {
 		t.Fatalf("command = %q", command)
 	}
-	return quoted[1 : len(quoted)-1]
+	return word[1 : len(word)-1]
 }
 
 func withStatus(t *testing.T, doc []byte, cwd, transcript string) []byte {
@@ -99,7 +106,11 @@ func TestFetch(t *testing.T) {
 			start := func(_ string, args, _ []string, dir string) (claude.Terminal, error) {
 				started = true
 				command := statusLineCommand(t, args)
-				if !strings.HasPrefix(command, "'/synthetic/core' "+claude.SinkCommand+" ") {
+				self := "'/synthetic/core'"
+				if runtime.GOOS == "windows" {
+					self = "/synthetic/core"
+				}
+				if !strings.HasPrefix(command, self+" "+claude.SinkCommand+" ") {
 					t.Errorf("command = %q", command)
 				}
 				sink := sinkPath(t, command)

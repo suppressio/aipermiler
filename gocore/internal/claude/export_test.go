@@ -105,8 +105,8 @@ func RealProviderForTest(base string, extraEnv []string) *Provider {
 }
 
 var (
-	ShellQuoteForTest  = shellQuote
-	SinkPatternForTest = sinkPattern
+	StatusCommandForTest = statusCommand
+	SinkPatternForTest   = sinkPattern
 )
 
 // MapSinkForTest maps what a sink file holds.

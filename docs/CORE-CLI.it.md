@@ -2,7 +2,7 @@
 
 # CLI del core Go
 
-> Implementato in #26: contratto JSON v1 indipendente dal trasporto e output per terminale del livello 1 di #139. Adapter Codex implementato in #148, Copilot in #149, Claude in #147 (#219-#221; Windows: #223).
+> Implementato in #26: contratto JSON v1 indipendente dal trasporto e output per terminale del livello 1 di #139. Adapter Codex implementato in #148, Copilot in #149, Claude in #147 (#219-#221, Windows #223).
 
 ## Comandi e ambito
 
@@ -36,26 +36,26 @@ I secret sono accettati solo su stdin, mai come flag: argv è visibile nell'elen
 aipermiler usage claude [--json] [--claude-bin /percorso/assoluto/di/claude]
 ```
 
-Le quote arrivano solo attraverso il binario `claude` dell'utente, non modificato, e il suo login (#139, #140): il core non legge mai le credenziali di Claude e non fa mai login. L'approccio è stato deciso in #183 e #218 ([spike](SPIKE-CLAUDE-USAGE-PTY.it.md)). Linux e macOS; su Windows la lettura è `unavailable` fino a #223. Claude non accetta `--secret-stdin`.
+Le quote arrivano solo attraverso il binario `claude` dell'utente, non modificato, e il suo login (#139, #140): il core non legge mai le credenziali di Claude e non fa mai login. L'approccio è stato deciso in #183 e #218 ([spike](SPIKE-CLAUDE-USAGE-PTY.it.md)). Linux, macOS e Windows (#223). Claude non accetta `--secret-stdin`.
 
 Una lettura:
 
 1. `claude auth status --json` (5 s). Si leggono solo `loggedIn`, `authMethod` e `projectsDirectory`, mai email od organizzazione. `loggedIn: false` è `signed_out` e `authMethod` `api_key` o `third_party` (una API key, Bedrock, Vertex: nessuna quota di abbonamento) è `unavailable`, entrambi senza avviare una sessione (#228); `claude.ai`, `oauth_token` (`claude setup-token`) e valori sconosciuti proseguono; un output inutilizzabile lascia il controllo allo schermo.
-2. `claude` parte in uno pseudo-terminale (50×140, `TERM=xterm-256color`) dentro la cartella di probe del core, `<user cache>/aipermiler/claude-probe`, che deve essere vuota. I flag sono `--settings` con il nostro comando di status line, `--strict-mcp-config` e `--setting-sources local`. Nelle impostazioni dell'utente non viene scritto niente, e server MCP, hook e plugin dell'utente restano fuori. Le variabili d'ambiente lasciate da una sessione Claude Code genitore vengono rimosse.
+2. `claude` parte in uno pseudo-terminale (50×140, `TERM=xterm-256color`; su Windows una ConPTY su `golang.org/x/sys/windows`, il `claude.exe` nativo avviato direttamente, sospeso, messo in un job object con `KILL_ON_JOB_CLOSE`, poi ripreso, mai con `CREATE_NO_WINDOW`, che rompe la ConPTY) dentro la cartella di probe del core, `<user cache>/aipermiler/claude-probe`, che deve essere vuota. I flag sono `--settings` con il nostro comando di status line, `--strict-mcp-config` e `--setting-sources local`. Nelle impostazioni dell'utente non viene scritto niente, e server MCP, hook e plugin dell'utente restano fuori. Le variabili d'ambiente lasciate da una sessione Claude Code genitore vengono rimosse.
 3. Al prompt di fiducia della cartella si risponde una volta sola, e solo per quella cartella vuota. Il core digita solo `/usage`, Esc e `/exit`, mai un prompt, quindi nessuna richiesta al modello sul piano dell'utente.
-4. Claude esegue il comando di status line. È il sottocomando nascosto `aipermiler claude-statusline <file>`, che aggiunge come una riga il JSON ricevuto su stdin a un file `<user cache>/aipermiler/claude-status-*.jsonl` creato per questa lettura. Non crea mai un file e non stampa niente. Chiuso il pannello con Esc, il core aspetta fino a 3 s un'esecuzione che porti `rate_limits`.
-5. `/exit` ha 5 s, poi viene ucciso l'intero albero di processi. Il probe ha un limite di 25 s.
+4. Claude esegue il comando di status line. È il sottocomando nascosto `aipermiler claude-statusline <file>`, che aggiunge come una riga il JSON ricevuto su stdin a un file `<user cache>/aipermiler/claude-status-*.jsonl` creato per questa lettura. Non crea mai un file e non stampa niente. Su Linux e macOS Claude esegue il comando con `sh`, quindi i due percorsi sono tra apici singoli. Su Windows lo esegue con Windows PowerShell, oppure con Git Bash quando è installato Git for Windows (entrambi verificati su Windows 11 con 2.1.302 e 2.1.316), e i due quotano in modo diverso: i percorsi vanno senza virgolette, le cartelle come nomi brevi 8.3 con slash in avanti (`C:/Users/MARIOR~1/…/aipermiler.exe`), che PowerShell, bash e cmd leggono tutti come la stessa parola. Un percorso che contiene ancora un carattere diverso da lettere e cifre ASCII e `:/._-~` (un volume senza nomi brevi) è `unavailable`. Chiuso il pannello con Esc, il core aspetta fino a 3 s un'esecuzione che porti `rate_limits`.
+5. `/exit` ha 5 s, poi viene ucciso l'intero albero di processi (il process group su POSIX, il job su Windows). Il probe ha un limite di 25 s.
 6. Pulizia, anche dopo un probe fallito: si cancella il file del sink e anche il transcript del probe stesso. È il `transcript_path` di un'esecuzione del status line il cui `cwd` è la cartella di probe, solo un `.jsonl` direttamente dentro una cartella di `projectsDirectory` (percorsi confrontati come file, non come stringhe). Si rimuove anche la cartella, se non resta altro dentro. Senza `projectsDirectory` non si cancella niente. Una lettura cancella anche i file del sink di letture precedenti interrotte (un core ucciso), se fermi da 10 min (#229). Nient'altro di Claude viene toccato: la riga di `/usage` in `history.jsonl` resta.
 
 Ordine di ricerca (#219):
 
 1. `--claude-bin` esplicito: assoluto e nativo, altrimenti `unavailable`, senza fallback.
-2. `claude` (`claude.exe` su Windows) nelle voci del PATH, in ordine.
+2. `claude` (`claude.exe` su Windows) nelle voci del PATH, in ordine. Su Windows ogni voce viene guardata anche come prefisso npm: `<voce>\node_modules\@anthropic-ai\claude-code\bin\claude.exe`, il binario che esegue il suo shim `claude.cmd` (con Node da winget il prefisso è la cartella di Node stessa, non `%APPDATA%\npm`; verificato).
 3. `~/.local/bin/claude`.
 4. Prefissi fissi: su macOS `/opt/homebrew/bin/claude`, `/usr/local/bin/claude`, poi il pacchetto npm sotto `/usr/local` e `/opt/homebrew`; su Linux il pacchetto npm sotto `/usr/local/lib` e `/usr/lib`; su Windows il pacchetto npm sotto `%APPDATA%\npm` e il pacchetto winget sotto `%LOCALAPPDATA%`.
 5. Il binario nativo dell'estensione Claude Code di VS Code, VS Code Insiders, Cursor, Windsurf e VS Code Server, dalla versione più recente.
 
-Valgono solo binari nativi: almeno 1 MB, mai `.js`/`.cjs` (Node non viene mai eseguito), `.exe` su Windows, eseguibili altrove. I symlink vengono risolti e i duplicati saltati.
+Valgono solo binari nativi: almeno 1 MB, mai `.js`/`.cjs` (Node non viene mai eseguito), `.exe` su Windows, eseguibili altrove. I symlink vengono risolti e i duplicati saltati. npm 11 non esegue più gli script di installazione di default: senza `--allow-scripts=@anthropic-ai/claude-code` il pacchetto resta con il suo piccolo stub al posto del binario nativo, e quell'installazione viene saltata (verificato su Windows con npm 11.19). Su Windows 11 le quattro installazioni sono state trovate insieme e ognuna ha letto entrambe le finestre: winget, npm, native installer, estensione VS Code.
 
 | Condizione | Codice | Significato/messaggio |
 |---|---|---|
@@ -66,10 +66,11 @@ Valgono solo binari nativi: almeno 1 MB, mai `.js`/`.cjs` (Node non viene mai es
 | Scadenza dopo il prompt | `timeout` | `claude probe timed out <where>` |
 | Status line mai eseguito, nessun `rate_limits` o nessuna finestra riconosciuta | `format_drift` | `Claude: …`, endpoint `claude status line rate_limits`, solo la forma |
 | `claude` non parte, esce prima, cartella di probe non vuota | `unavailable` | il motivo, mai lo schermo |
+| Windows: un percorso del core o della cache che lo status line non può nominare senza virgolette | `unavailable` | `the status line command cannot name this path without quoting (no 8.3 short name?): <path>` |
 
 Il mapping legge l'ultima esecuzione del status line che portava `rate_limits`. `five_hour` diventa `claude-5h` / `5-hour limit` / `rolling-hours` 5 e `seven_day` diventa `claude-7d` / `7-day limit` / `rolling-days` 7. Un `used_percentage` mancante o negativo salta la finestra; il valore non viene mai limitato; unità `percentage`, totale 100. Un `resets_at` positivo in secondi Unix diventa una data UTC, altrimenti null. `planTier` e `subscriptionRenewsAt` sono sempre null: lo status line non porta nessuno dei due. Le fixture sintetiche in `internal/claude/testdata/` portano il nome della versione di Claude Code di cui seguono la forma; il comportamento è stato visto su 2.1.314-2.1.316.
 
-**Polling.** Ogni lettura avvia una sessione Claude Code (circa 5 s, misurati su Linux con 2.1.316) e aggiunge una riga a `history.jsonl` di Claude. Il client legge ogni 30 min di default e mai sotto i 5 min col timer (il ritmo adattivo di 5 min è il minimo); un aggiornamento manuale riusa una lettura di meno di 1 min (`main/refreshPolicy.ts`). La scadenza di default della CLI, 25 s, copre l'intera lettura; il client tiene il proprio timeout sopra (#180).
+**Polling.** Ogni lettura avvia una sessione Claude Code (circa 5 s misurati su Linux, 6-9 s su una VM Windows 11, 2.1.302-2.1.316) e aggiunge una riga a `history.jsonl` di Claude. Il client legge ogni 30 min di default e mai sotto i 5 min col timer (il ritmo adattivo di 5 min è il minimo); un aggiornamento manuale riusa una lettura di meno di 1 min (`main/refreshPolicy.ts`). La scadenza di default della CLI, 25 s, copre l'intera lettura; il client tiene il proprio timeout sopra (#180). Su Windows il core avviato da `execFile` di Node con `windowsHide` (come fa `main/coreClient.ts`) nella sessione desktop ha letto entrambe le finestre e non ha mostrato nessuna finestra in 14 s di screenshot presi ogni ~40 ms (una console visibile, in una prova di controllo, è stata vista in 148 frame su 189).
 
 ### Codex
 

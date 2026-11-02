@@ -179,10 +179,39 @@ func TestSink(t *testing.T) {
 	}
 }
 
-func TestShellQuote(t *testing.T) {
+func TestStatusCommand(t *testing.T) {
 	t.Parallel()
-	if got := claude.ShellQuoteForTest(`/a b/it's`); got != `'/a b/it'\''s'` {
-		t.Fatalf("quote = %s", got)
+	short := map[string]string{
+		`C:\Users\Mario Rossi\AppData\Local\Programs\AIpermiler\resources\core\`: `C:\Users\MARIOR~1\AppData\Local\Programs\AIPERM~1\RESOUR~1\core\`,
+		`C:\Users\Mario Rossi\AppData\Local\aipermiler\`:                         `C:\Users\MARIOR~1\AppData\Local\AIPERM~1\`,
+		`C:\Users\danie\core\`: `C:\Users\danie\core\`,
+	}
+	shortPath := func(p string) (string, error) {
+		if s, ok := short[p]; ok {
+			return s, nil
+		}
+		return "", errors.New("no short name")
+	}
+	tests := []struct {
+		name, goos, self, sink, want string
+	}{
+		{"posix", "linux", `/opt/it's/core`, "/home/a b/claude-status-1.jsonl", `'/opt/it'\''s/core' claude-statusline '/home/a b/claude-status-1.jsonl'`},
+		{"windows without spaces", "windows", `C:\Users\danie\core\aipermiler.exe`, `C:\Users\danie\AppData\Local\aipermiler\claude-status-1.jsonl`, "C:/Users/danie/core/aipermiler.exe claude-statusline C:/Users/danie/AppData/Local/aipermiler/claude-status-1.jsonl"},
+		{"windows short names", "windows", `C:\Users\Mario Rossi\AppData\Local\Programs\AIpermiler\resources\core\aipermiler.exe`, `C:\Users\Mario Rossi\AppData\Local\aipermiler\claude-status-1.jsonl`, "C:/Users/MARIOR~1/AppData/Local/Programs/AIPERM~1/RESOUR~1/core/aipermiler.exe claude-statusline C:/Users/MARIOR~1/AppData/Local/AIPERM~1/claude-status-1.jsonl"},
+		{"windows space without a short name", "windows", `D:\My Apps\aipermiler.exe`, `C:\x\claude-status-1.jsonl`, ""},
+		{"windows shell character", "windows", `C:\Users\a$b\aipermiler.exe`, `C:\x\claude-status-1.jsonl`, ""},
+		{"windows unsafe file name", "windows", `C:\Users\danie\core\aipermiler (2).exe`, `C:\x\claude-status-1.jsonl`, ""},
+		{"windows non-ASCII", "windows", `C:\Users\Niccolò\aipermiler.exe`, `C:\x\claude-status-1.jsonl`, ""},
+	}
+	for _, tt := range tests {
+		got, err := claude.StatusCommandForTest(tt.self, tt.sink, tt.goos, shortPath)
+		if tt.want == "" {
+			assertCode(t, err, usage.CodeUnavailable)
+			continue
+		}
+		if err != nil || got != tt.want {
+			t.Errorf("%s: command = %q, %v; want %q", tt.name, got, err, tt.want)
+		}
 	}
 }
 
