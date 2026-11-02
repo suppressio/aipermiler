@@ -2,7 +2,7 @@
 
 # Go core CLI
 
-> Implemented in #26: transport-neutral JSON contract v1 and terminal output for layer 1 of #139. Codex adapter implemented in #148; Copilot adapter in #149.
+> Implemented in #26: transport-neutral JSON contract v1 and terminal output for layer 1 of #139. Codex adapter implemented in #148; Copilot adapter in #149; Claude adapter in #147 (#219-#221; Windows: #223).
 
 ## Commands and scope
 
@@ -16,7 +16,7 @@ aipermiler version [--json]
 aipermiler help
 ```
 
-The CLI fetches on demand and exits. There is no server, port, daemon, shared store or pacing snapshot. #31 will serve the same documents over HTTP; #177 adds the TypeScript client. Codex (#148) and Copilot (#149) are registered; `token`, `login` and `raw` are Copilot's (account commands below). An unknown provider such as `aipermiler usage nope` fails with exit 2, `Unknown provider: nope`. Tests register a synthetic provider named `fake`.
+The CLI fetches on demand and exits. There is no server, port, daemon, shared store or pacing snapshot. #31 will serve the same documents over HTTP; #177 adds the TypeScript client. Claude (#147), Codex (#148) and Copilot (#149) are registered; `token`, `login` and `raw` are Copilot's (account commands below). An unknown provider such as `aipermiler usage nope` fails with exit 2, `Unknown provider: nope`. Tests register a synthetic provider named `fake`.
 
 Put the provider before its flags. Unexpected positional arguments and unknown flags are usage errors.
 
@@ -29,6 +29,46 @@ Put the provider before its flags. Unexpected positional arguments and unknown f
 Secrets are accepted only on stdin, never as flags: argv is visible in the process list. Account parameters belong in provider flags, credentials do not. Without `--secret-stdin`, stdin is not read and Fetch receives an empty secret. The CLI redacts the supplied secret from provider error messages and stale reasons; providers must keep credentials out of all returned usage fields, diagnostic endpoint labels and messages.
 
 ## Providers
+
+### Claude
+
+```text
+aipermiler usage claude [--json] [--claude-bin /absolute/path/to/claude]
+```
+
+Quotas come only through the user's own, unmodified `claude` binary and sign-in (#139, #140): the core never reads Claude's credentials and never signs in. The approach was decided on #183 and #218 ([spike](SPIKE-CLAUDE-USAGE-PTY.md)). Linux and macOS; on Windows the fetch is `unavailable` until #223. Claude accepts no `--secret-stdin`.
+
+One fetch:
+
+1. `claude auth status --json` (5 s). Only `loggedIn` and `projectsDirectory` are read, never email or organisation. `loggedIn: false` is `signed_out` without starting a session; unusable output leaves the check to the screen.
+2. `claude` starts in a pseudo-terminal (50×140, `TERM=xterm-256color`) inside the core's probe folder `<user cache>/aipermiler/claude-probe`, which must be empty. The flags are `--settings` with our own status line command, `--strict-mcp-config` and `--setting-sources local`. Nothing is written to the user's settings, and MCP servers, user hooks and plugins stay out. The environment markers of a parent Claude Code session are removed.
+3. The folder trust prompt is answered once, only for that empty folder. The core types only `/usage`, Esc and `/exit`, never a prompt, so no model request is made on the user's plan.
+4. Claude runs the status line command. It is the hidden subcommand `aipermiler claude-statusline <file>`, which appends the JSON it receives on stdin as one line to a file `<user cache>/aipermiler/claude-status-*.jsonl` created for this fetch. It never creates a file and prints nothing. Once the panel is closed with Esc, the core waits up to 3 s for a run carrying `rate_limits`.
+5. `/exit` gets 5 s, then the whole process tree is killed. The probe is bounded by 25 s.
+6. Cleanup, also after a failed probe: the sink file is deleted, and so is the probe's own transcript. That is the `transcript_path` of a status line run whose `cwd` is the probe folder, only a `.jsonl` directly inside a folder of `projectsDirectory` (paths compared as files, not as spellings). The folder is removed too when nothing else is left in it. Without `projectsDirectory` nothing is deleted. Nothing else of Claude's is touched: the `/usage` line in `history.jsonl` stays.
+
+Discovery order (#219):
+
+1. Explicit `--claude-bin`: absolute and native, otherwise `unavailable`, without fallback.
+2. `claude` (`claude.exe` on Windows) in the PATH entries, in order.
+3. `~/.local/bin/claude`.
+4. Fixed prefixes: on macOS `/opt/homebrew/bin/claude`, `/usr/local/bin/claude`, then the npm package under `/usr/local` and `/opt/homebrew`; on Linux the npm package under `/usr/local/lib` and `/usr/lib`; on Windows the npm package under `%APPDATA%\npm` and the winget package under `%LOCALAPPDATA%`.
+5. The native binary of the Claude Code extension of VS Code, VS Code Insiders, Cursor, Windsurf and VS Code Server, newest version first.
+
+Only native binaries qualify: at least 1 MB, never `.js`/`.cjs` (Node is never run), `.exe` on Windows, executable elsewhere. Symlinks are resolved and duplicates skipped.
+
+| Condition | Code | Meaning/message |
+|---|---|---|
+| Binary not found | `unavailable` | `Claude Code not found; install it or set --claude-bin` |
+| Signed out (`auth status`, or the login/theme screen) | `signed_out` | ``Claude Code is not signed in; run `claude` and sign in`` |
+| No prompt reached (an unknown screen), or no panel 12 s after `/usage` | `not_ready` | `claude did not reach its prompt (an unknown screen?)` / `no usage panel after /usage` |
+| Deadline after the prompt | `timeout` | `claude probe timed out <where>` |
+| Status line never ran, no `rate_limits`, or no recognized window | `format_drift` | `Claude: …`, endpoint `claude status line rate_limits`, shape only |
+| `claude` cannot start, exits early, probe folder not empty | `unavailable` | the reason, never the screen |
+
+Mapping reads the last status line run that carried `rate_limits`. `five_hour` maps to `claude-5h` / `5-hour limit` / `rolling-hours` 5 and `seven_day` to `claude-7d` / `7-day limit` / `rolling-days` 7. A missing or negative `used_percentage` skips the window; the value is never clamped; unit `percentage`, total 100. A positive Unix-second `resets_at` becomes a UTC date, anything else is null. `planTier` and `subscriptionRenewsAt` are always null: the status line carries neither. The synthetic fixtures in `internal/claude/testdata/` are named after the Claude Code version whose shape they follow; the behaviour was seen on 2.1.314-2.1.316. Whether an account without a subscription (API key) gets `rate_limits` is not verified: today it would be `format_drift`.
+
+**Polling.** Every fetch starts a Claude Code session (about 5 s, measured on Linux with 2.1.316) and adds a line to Claude's `history.jsonl`. The client polls every 30 min by default and never below 5 min on a timer (the adaptive 5 min pace is the floor); a manual refresh reuses a fetch less than 1 min old (`main/refreshPolicy.ts`). The CLI's 25 s default deadline covers the whole fetch; the client keeps its own timeout above it (#180).
 
 ### Codex
 
@@ -222,4 +262,4 @@ With `--json`, usage errors have no provider key. Help is text-only; requesting 
 
 Additive fields keep `schemaVersion: 1`; clients must ignore unknown fields. Removing or renaming a field, or changing its meaning, bumps the schema version. A client seeing an unsupported schema version must reject the document explicitly. An unknown error code is treated as `unavailable`, preserving last values as stale.
 
-The language-neutral files in `gocore/contract/v1/` are normative examples. Go CLI black-box tests reproduce every fixture byte for byte through `RunWith`, a fake provider and a fixed clock. The TypeScript client tests (`main/coreClient.test.ts`, #177) read the same files. `version.json` uses `aipermiler`, `dev`, `linux`, `amd64`; its Go test substitutes `buildinfo.Name`, `buildinfo.Version`, `runtime.GOOS` and `runtime.GOARCH` before the byte comparison so build-time versions and cross-platform runs are supported. Every fixture is also checked as valid compact JSON with `schemaVersion: 1` and exactly one trailing newline. The account documents (`account-connected`, `account-deleted`, `login-authorize`, `raw`) and `error-unavailable-reason` came with #149; the TypeScript client reads them from #179. The documents are written without HTML escaping (a URL keeps a literal `&`).
+The language-neutral files in `gocore/contract/v1/` are normative examples. Go CLI black-box tests reproduce every provider-neutral fixture byte for byte through `RunWith`, a fake provider and a fixed clock. The TypeScript client tests (`main/coreClient.test.ts`, #177) read the same files. `version.json` uses `aipermiler`, `dev`, `linux`, `amd64`; its Go test substitutes `buildinfo.Name`, `buildinfo.Version`, `runtime.GOOS` and `runtime.GOARCH` before the byte comparison so build-time versions and cross-platform runs are supported. Every fixture is also checked as valid compact JSON with `schemaVersion: 1` and exactly one trailing newline. `usage-claude` is reproduced by the Claude adapter's own test (`internal/claude`), from its 2.1.316 status line fixture through the mapping. The account documents (`account-connected`, `account-deleted`, `login-authorize`, `raw`) and `error-unavailable-reason` came with #149; the TypeScript client reads them from #179. The documents are written without HTML escaping (a URL keeps a literal `&`).

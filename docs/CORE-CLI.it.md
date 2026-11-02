@@ -2,7 +2,7 @@
 
 # CLI del core Go
 
-> Implementato in #26: contratto JSON v1 indipendente dal trasporto e output per terminale del livello 1 di #139. Adapter Codex implementato in #148, Copilot in #149.
+> Implementato in #26: contratto JSON v1 indipendente dal trasporto e output per terminale del livello 1 di #139. Adapter Codex implementato in #148, Copilot in #149, Claude in #147 (#219-#221; Windows: #223).
 
 ## Comandi e ambito
 
@@ -16,7 +16,7 @@ aipermiler version [--json]
 aipermiler help
 ```
 
-La CLI recupera i dati su richiesta e termina. Non ci sono server, porte, daemon, store condiviso o snapshot del pacing. #31 servirà gli stessi documenti via HTTP; #177 aggiunge il client TypeScript. Codex (#148) e Copilot (#149) sono registrati; `token`, `login` e `raw` sono di Copilot (comandi per l'account, sotto). Un provider sconosciuto come `aipermiler usage nope` fallisce con exit 2, `Unknown provider: nope`. I test registrano un provider sintetico chiamato `fake`.
+La CLI recupera i dati su richiesta e termina. Non ci sono server, porte, daemon, store condiviso o snapshot del pacing. #31 servirà gli stessi documenti via HTTP; #177 aggiunge il client TypeScript. Claude (#147), Codex (#148) e Copilot (#149) sono registrati; `token`, `login` e `raw` sono di Copilot (comandi per l'account, sotto). Un provider sconosciuto come `aipermiler usage nope` fallisce con exit 2, `Unknown provider: nope`. I test registrano un provider sintetico chiamato `fake`.
 
 Mettere il provider prima dei suoi flag. Argomenti posizionali inattesi e flag sconosciuti sono errori di utilizzo.
 
@@ -29,6 +29,46 @@ Mettere il provider prima dei suoi flag. Argomenti posizionali inattesi e flag s
 I secret sono accettati solo su stdin, mai come flag: argv è visibile nell'elenco dei processi. I parametri dell'account vanno nei flag del provider, le credenziali no. Senza `--secret-stdin`, stdin non viene letto e Fetch riceve un secret vuoto. La CLI oscura il secret fornito nei messaggi di errore del provider e nelle motivazioni stale; i provider devono escludere le credenziali da tutti i campi di utilizzo restituiti, dalle etichette degli endpoint diagnostici e dai messaggi.
 
 ## Provider
+
+### Claude
+
+```text
+aipermiler usage claude [--json] [--claude-bin /percorso/assoluto/di/claude]
+```
+
+Le quote arrivano solo attraverso il binario `claude` dell'utente, non modificato, e il suo login (#139, #140): il core non legge mai le credenziali di Claude e non fa mai login. L'approccio è stato deciso in #183 e #218 ([spike](SPIKE-CLAUDE-USAGE-PTY.it.md)). Linux e macOS; su Windows la lettura è `unavailable` fino a #223. Claude non accetta `--secret-stdin`.
+
+Una lettura:
+
+1. `claude auth status --json` (5 s). Si leggono solo `loggedIn` e `projectsDirectory`, mai email od organizzazione. `loggedIn: false` è `signed_out` senza avviare una sessione; un output inutilizzabile lascia il controllo allo schermo.
+2. `claude` parte in uno pseudo-terminale (50×140, `TERM=xterm-256color`) dentro la cartella di probe del core, `<user cache>/aipermiler/claude-probe`, che deve essere vuota. I flag sono `--settings` con il nostro comando di status line, `--strict-mcp-config` e `--setting-sources local`. Nelle impostazioni dell'utente non viene scritto niente, e server MCP, hook e plugin dell'utente restano fuori. Le variabili d'ambiente lasciate da una sessione Claude Code genitore vengono rimosse.
+3. Al prompt di fiducia della cartella si risponde una volta sola, e solo per quella cartella vuota. Il core digita solo `/usage`, Esc e `/exit`, mai un prompt, quindi nessuna richiesta al modello sul piano dell'utente.
+4. Claude esegue il comando di status line. È il sottocomando nascosto `aipermiler claude-statusline <file>`, che aggiunge come una riga il JSON ricevuto su stdin a un file `<user cache>/aipermiler/claude-status-*.jsonl` creato per questa lettura. Non crea mai un file e non stampa niente. Chiuso il pannello con Esc, il core aspetta fino a 3 s un'esecuzione che porti `rate_limits`.
+5. `/exit` ha 5 s, poi viene ucciso l'intero albero di processi. Il probe ha un limite di 25 s.
+6. Pulizia, anche dopo un probe fallito: si cancella il file del sink e anche il transcript del probe stesso. È il `transcript_path` di un'esecuzione del status line il cui `cwd` è la cartella di probe, solo un `.jsonl` direttamente dentro una cartella di `projectsDirectory` (percorsi confrontati come file, non come stringhe). Si rimuove anche la cartella, se non resta altro dentro. Senza `projectsDirectory` non si cancella niente. Nient'altro di Claude viene toccato: la riga di `/usage` in `history.jsonl` resta.
+
+Ordine di ricerca (#219):
+
+1. `--claude-bin` esplicito: assoluto e nativo, altrimenti `unavailable`, senza fallback.
+2. `claude` (`claude.exe` su Windows) nelle voci del PATH, in ordine.
+3. `~/.local/bin/claude`.
+4. Prefissi fissi: su macOS `/opt/homebrew/bin/claude`, `/usr/local/bin/claude`, poi il pacchetto npm sotto `/usr/local` e `/opt/homebrew`; su Linux il pacchetto npm sotto `/usr/local/lib` e `/usr/lib`; su Windows il pacchetto npm sotto `%APPDATA%\npm` e il pacchetto winget sotto `%LOCALAPPDATA%`.
+5. Il binario nativo dell'estensione Claude Code di VS Code, VS Code Insiders, Cursor, Windsurf e VS Code Server, dalla versione più recente.
+
+Valgono solo binari nativi: almeno 1 MB, mai `.js`/`.cjs` (Node non viene mai eseguito), `.exe` su Windows, eseguibili altrove. I symlink vengono risolti e i duplicati saltati.
+
+| Condizione | Codice | Significato/messaggio |
+|---|---|---|
+| Binario non trovato | `unavailable` | `Claude Code not found; install it or set --claude-bin` |
+| Non connesso (`auth status`, o la schermata di login/tema) | `signed_out` | ``Claude Code is not signed in; run `claude` and sign in`` |
+| Prompt non raggiunto (schermata sconosciuta), o nessun pannello 12 s dopo `/usage` | `not_ready` | `claude did not reach its prompt (an unknown screen?)` / `no usage panel after /usage` |
+| Scadenza dopo il prompt | `timeout` | `claude probe timed out <where>` |
+| Status line mai eseguito, nessun `rate_limits` o nessuna finestra riconosciuta | `format_drift` | `Claude: …`, endpoint `claude status line rate_limits`, solo la forma |
+| `claude` non parte, esce prima, cartella di probe non vuota | `unavailable` | il motivo, mai lo schermo |
+
+Il mapping legge l'ultima esecuzione del status line che portava `rate_limits`. `five_hour` diventa `claude-5h` / `5-hour limit` / `rolling-hours` 5 e `seven_day` diventa `claude-7d` / `7-day limit` / `rolling-days` 7. Un `used_percentage` mancante o negativo salta la finestra; il valore non viene mai limitato; unità `percentage`, totale 100. Un `resets_at` positivo in secondi Unix diventa una data UTC, altrimenti null. `planTier` e `subscriptionRenewsAt` sono sempre null: lo status line non porta nessuno dei due. Le fixture sintetiche in `internal/claude/testdata/` portano il nome della versione di Claude Code di cui seguono la forma; il comportamento è stato visto su 2.1.314-2.1.316. Non è verificato se un account senza abbonamento (API key) riceva `rate_limits`: oggi sarebbe `format_drift`.
+
+**Polling.** Ogni lettura avvia una sessione Claude Code (circa 5 s, misurati su Linux con 2.1.316) e aggiunge una riga a `history.jsonl` di Claude. Il client legge ogni 30 min di default e mai sotto i 5 min col timer (il ritmo adattivo di 5 min è il minimo); un aggiornamento manuale riusa una lettura di meno di 1 min (`main/refreshPolicy.ts`). La scadenza di default della CLI, 25 s, copre l'intera lettura; il client tiene il proprio timeout sopra (#180).
 
 ### Codex
 
@@ -222,4 +262,4 @@ Con `--json`, gli errori di utilizzo non hanno la chiave provider. L'help è sol
 
 I campi aggiuntivi mantengono `schemaVersion: 1`; i client devono ignorare i campi sconosciuti. Rimuovere o rinominare un campo, o cambiarne il significato, incrementa la versione dello schema. Un client che vede una versione dello schema non supportata deve rifiutare esplicitamente il documento. Un codice di errore sconosciuto viene trattato come `unavailable`, conservando gli ultimi valori come stale.
 
-I file indipendenti dalla lingua in `gocore/contract/v1/` sono esempi normativi. I test black-box Go della CLI riproducono ogni fixture byte per byte attraverso `RunWith`, un provider fake e un orologio fisso. I test del client TypeScript (`main/coreClient.test.ts`, #177) leggono gli stessi file. `version.json` usa `aipermiler`, `dev`, `linux`, `amd64`; il suo test Go sostituisce `buildinfo.Name`, `buildinfo.Version`, `runtime.GOOS` e `runtime.GOARCH` prima del confronto byte per byte per supportare versioni impostate in build ed esecuzioni multipiattaforma. Ogni fixture viene anche verificata come JSON compatto valido con `schemaVersion: 1` ed esattamente un newline finale. I documenti per l'account (`account-connected`, `account-deleted`, `login-authorize`, `raw`) ed `error-unavailable-reason` sono arrivati con #149; il client TypeScript li legge da #179. I documenti sono scritti senza escape HTML (un URL mantiene una `&` letterale).
+I file indipendenti dalla lingua in `gocore/contract/v1/` sono esempi normativi. I test black-box Go della CLI riproducono ogni fixture indipendente dal provider byte per byte attraverso `RunWith`, un provider fake e un orologio fisso. I test del client TypeScript (`main/coreClient.test.ts`, #177) leggono gli stessi file. `version.json` usa `aipermiler`, `dev`, `linux`, `amd64`; il suo test Go sostituisce `buildinfo.Name`, `buildinfo.Version`, `runtime.GOOS` e `runtime.GOARCH` prima del confronto byte per byte per supportare versioni impostate in build ed esecuzioni multipiattaforma. Ogni fixture viene anche verificata come JSON compatto valido con `schemaVersion: 1` ed esattamente un newline finale. `usage-claude` è riprodotto dal test dell'adapter Claude (`internal/claude`), dalla sua fixture del status line 2.1.316 attraverso il mapping. I documenti per l'account (`account-connected`, `account-deleted`, `login-authorize`, `raw`) ed `error-unavailable-reason` sono arrivati con #149; il client TypeScript li legge da #179. I documenti sono scritti senza escape HTML (un URL mantiene una `&` letterale).

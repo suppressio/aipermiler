@@ -4,6 +4,8 @@ import (
 	"context"
 	"os"
 	"time"
+
+	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
 
 // Discovery exposes only the discovery seam to external tests.
@@ -42,14 +44,14 @@ func ProbeForTest(ctx context.Context, start func(bin string, args, env []string
 		environ: func() []string { return environ },
 		timing:  TestTiming,
 	}
-	return p.probe(ctx, "claude", dir, "statusline-sink", nil)
+	_, err := p.probe(ctx, "claude", dir, "statusline-sink", nil)
+	return err
 }
 
 var (
-	NormalizeForTest       = normalize
-	ChildEnvForTest        = childEnv
-	ParseAuthStatusForTest = parseAuthStatus
-	ClaudeArgsForTest      = claudeArgs
+	NormalizeForTest  = normalize
+	ChildEnvForTest   = childEnv
+	ClaudeArgsForTest = claudeArgs
 )
 
 // TestPanelTimeout is TestTiming's wait for the panel.
@@ -61,5 +63,56 @@ func RealProbeForTest(ctx context.Context, bin, dir string, extraEnv []string) e
 	p := systemProber()
 	p.timing = TestTiming
 	p.environ = func() []string { return append(os.Environ(), extraEnv...) }
-	return p.probe(ctx, bin, dir, "true", nil)
+	_, err := p.probe(ctx, bin, dir, "true", nil)
+	return err
+}
+
+// ParseAuthStatusForTest returns what the probe reads from `auth status`.
+func ParseAuthStatusForTest(out []byte) (loggedIn, known bool, projects string) {
+	s := parseAuthStatus(out)
+	return s.loggedIn, s.known, s.projects
+}
+
+// TestStatusWait is the providers' wait for the status line in tests.
+const TestStatusWait = 300 * time.Millisecond
+
+// ProviderForTest is a provider with a fake terminal and auth, real discovery (pass
+// the binary with --claude-bin), base as the core's cache folder and self as the
+// core binary path.
+func ProviderForTest(start func(bin string, args, env []string, dir string) (Terminal, error), auth func() []byte, base, self string) *Provider {
+	p := New()
+	p.prober = prober{
+		start:   start,
+		auth:    func(context.Context, string, string, []string) []byte { return auth() },
+		environ: func() []string { return nil },
+		timing:  TestTiming,
+	}
+	p.base = func() (string, error) { return base, nil }
+	p.self = func() (string, error) { return self, nil }
+	p.statusWait = TestStatusWait
+	return p
+}
+
+// RealProviderForTest is the real provider with TestTiming, base as the core's
+// cache folder and extra environment for the child.
+func RealProviderForTest(base string, extraEnv []string) *Provider {
+	p := New()
+	p.prober.timing = TestTiming
+	p.prober.environ = func() []string { return append(os.Environ(), extraEnv...) }
+	p.base = func() (string, error) { return base, nil }
+	p.statusWait = TestStatusWait
+	return p
+}
+
+var (
+	ShellQuoteForTest  = shellQuote
+	SinkPatternForTest = sinkPattern
+)
+
+// MapSinkForTest maps what a sink file holds.
+func MapSinkForTest(path string) (usage.Usage, error) { return mapUsage(readStatus(path)) }
+
+// CleanupForTest removes the transcripts a sink file reports.
+func CleanupForTest(sink, dir, projects string) {
+	removeTranscripts(readStatus(sink).transcripts, dir, projects)
 }

@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -20,7 +21,7 @@ import (
 const minNativeSize = 1 << 20
 
 // discovery holds the file system and environment seams, so every OS layout is
-// tested on one host. The real one is wired with the provider (#221).
+// tested on one host; systemDiscovery is the real one.
 type discovery struct {
 	Getenv       func(string) string
 	Stat         func(string) (fs.FileInfo, error)
@@ -28,6 +29,10 @@ type discovery struct {
 	ReadDir      func(string) ([]os.DirEntry, error)
 	UserHomeDir  func() (string, error)
 	GOOS, GOARCH string
+}
+
+func systemDiscovery() discovery {
+	return discovery{os.Getenv, os.Stat, filepath.EvalSymlinks, os.ReadDir, os.UserHomeDir, runtime.GOOS, runtime.GOARCH}
 }
 
 func unavailable(message string) *usage.Error {

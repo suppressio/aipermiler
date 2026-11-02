@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 
+	"github.com/suppressio/aipermiler/gocore/internal/claude"
 	"github.com/suppressio/aipermiler/gocore/internal/codex"
 	"github.com/suppressio/aipermiler/gocore/internal/copilot"
 	"github.com/suppressio/aipermiler/gocore/internal/secrets"
@@ -53,6 +54,7 @@ type Registry map[string]func() Provider
 // Default returns the real binary's providers.
 func Default() Registry {
 	return Registry{
+		"claude":  func() Provider { return claude.New() },
 		"codex":   func() Provider { return codex.New() },
 		"copilot": func() Provider { return copilot.New(secrets.OSKeyring{}) },
 	}

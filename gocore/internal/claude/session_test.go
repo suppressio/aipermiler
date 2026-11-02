@@ -347,16 +347,18 @@ func TestParseAuthStatus(t *testing.T) {
 	tests := []struct {
 		in              string
 		loggedIn, known bool
+		projects        string
 	}{
-		{`{"loggedIn":true,"authMethod":"claude.ai","email":"synthetic@example.invalid"}`, true, true},
-		{`{"loggedIn":false}`, false, true},
-		{`{"authMethod":"claude.ai"}`, false, false},
-		{``, false, false},
-		{`Logged in`, false, false},
+		{`{"loggedIn":true,"authMethod":"claude.ai","email":"synthetic@example.invalid","projectsDirectory":"/home/synthetic/.claude/projects"}`, true, true, "/home/synthetic/.claude/projects"},
+		{`{"loggedIn":true,"projectsDirectory":"relative/projects"}`, true, true, ""},
+		{`{"loggedIn":false}`, false, true, ""},
+		{`{"authMethod":"claude.ai","projectsDirectory":"/synthetic"}`, false, false, ""},
+		{``, false, false, ""},
+		{`Logged in`, false, false, ""},
 	}
 	for _, tt := range tests {
-		if loggedIn, known := claude.ParseAuthStatusForTest([]byte(tt.in)); loggedIn != tt.loggedIn || known != tt.known {
-			t.Errorf("parseAuthStatus(%q) = %v, %v; want %v, %v", tt.in, loggedIn, known, tt.loggedIn, tt.known)
+		if loggedIn, known, projects := claude.ParseAuthStatusForTest([]byte(tt.in)); loggedIn != tt.loggedIn || known != tt.known || projects != tt.projects {
+			t.Errorf("parseAuthStatus(%q) = %v, %v, %q; want %v, %v, %q", tt.in, loggedIn, known, projects, tt.loggedIn, tt.known, tt.projects)
 		}
 	}
 }
