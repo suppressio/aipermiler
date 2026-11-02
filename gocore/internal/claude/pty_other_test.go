@@ -130,9 +130,21 @@ func assertGone(t *testing.T, pidFile string) {
 		t.Fatal(err)
 	}
 	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
-		if errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) {
+		if errors.Is(syscall.Kill(pid, 0), syscall.ESRCH) || zombie(pid) {
 			return
 		}
 	}
 	t.Fatalf("helper %d still alive after the probe", pid)
+}
+
+// zombie reports a killed process not reaped yet (Linux /proc; elsewhere false):
+// the orphaned helper is reaped by init, which a container may never do.
+func zombie(pid int) bool {
+	stat, err := os.ReadFile(filepath.Join("/proc", strconv.Itoa(pid), "stat"))
+	if err != nil {
+		return false
+	}
+	// pid (comm) state ...: comm may hold spaces, the state follows the last ')'.
+	_, rest, ok := strings.Cut(string(stat[strings.LastIndexByte(string(stat), ')')+1:]), " ")
+	return ok && strings.HasPrefix(rest, "Z")
 }
