@@ -21,7 +21,7 @@ npm start
 
 `npm start` compiles TypeScript (main process + renderer), builds the Go core into `core-bin/` (`scripts/build-core.js`) and starts Electron. To use a core built elsewhere, set `AIPERMILER_CORE_BIN` to its absolute path: `npm start` then skips the Go build and the app runs that binary. Settings → Diagnostics shows the core version, or why it cannot run. On first start there are no accounts: open Settings and add one.
 
-Running from source uses the same userData folder as the installed app, so the first start on a machine with IA Hypermiler (≤ v0.4.18) installed moves its settings and deletes its old folder ([ARCHITECTURE §1](ARCHITECTURE.md#1-settings--data-schema)). To keep an installed copy untouched, start with another config home, e.g. `XDG_CONFIG_HOME=$(mktemp -d) npm start` on Linux.
+Running from source uses the same userData folder as the installed app, so it reads and writes the installed app's settings. To keep an installed copy untouched, start with another config home, e.g. `XDG_CONFIG_HOME=$(mktemp -d) npm start` on Linux.
 
 ## Build, lint and test
 

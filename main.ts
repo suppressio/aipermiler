@@ -3,8 +3,6 @@
 // When a fetch fails, the last known data is shown with its timestamp (never a blank
 // screen, see AGENTS.md).
 
-// Loaded by entry.ts only after the userData migration succeeded (#200).
-import { userDataMigration } from './main/userDataBootstrap';
 import { app, dialog, BrowserWindow, Notification, shell, Menu, screen, session, utilityProcess } from 'electron';
 import store, { DEFAULTS } from './store/index';
 import { normalizeSettings } from './store/normalize';
@@ -79,8 +77,6 @@ let lastSnapshot: UsageSnapshot | null = null;
 // installed app has no visible console (diagnostics/logBuffer.ts).
 const logBuffer = new LogBuffer(50);
 captureConsole(logBuffer);
-for (const warning of userDataMigration.warnings) console.warn(`[main] ${warning}`);
-if (userDataMigration.migrated) console.log('[main] settings moved from the folder of the old app name');
 
 
 // Durations of the last refresh and of the last local insights scan, for the

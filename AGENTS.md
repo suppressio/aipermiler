@@ -61,7 +61,6 @@ aipermiler/
 │   ├── build-core.js            ← builds the Go core CLI into core-bin/ (gitignored; electron-builder extraResources → <resources>/core/), --target to cross-compile, --dev honours AIPERMILER_CORE_BIN
 │   └── generate-icons.js        ← one-off "gauge" icon generator (build/icon.png, build/icons/*, renderer/assets/*.png)
 ├── build/                       ← electron-builder resources (icons) — TRACKED, not an output (packages go to release/)
-├── entry.ts                     ← Electron entry point (package.json main): userData migration (#200), then loads main.ts
 ├── main.ts                      ← Electron main process: wiring only (lifecycle, windows, tray, IPC, timers, notifications, update checks)
 ├── preload.ts                   ← contextBridge renderer ↔ main
 ├── gocore/                      ← Go core module (#145), strict lint + depguard; CI job `go-checks`
@@ -74,7 +73,7 @@ aipermiler/
 │       ├── codex/               ← native binary discovery, one-shot app-server probe and quota mapping
 │       ├── copilot/             ← Copilot usage (port of services/copilot.ts), token set/delete, OAuth PKCE login, raw response
 │       ├── github/              ← allowed GitHub hosts (github.com, <tenant>.ghe.com) and JSON client with a 10 s timeout
-│       ├── secrets/             ← OS keyring (go-keyring): the Copilot token, never in argv or documents; reads the pre-rename service `hypermiler` as a fallback, moves it on the next set (#200)
+│       ├── secrets/             ← OS keyring (go-keyring): the Copilot token, never in argv or documents
 │       ├── config/              ← OS config directory and development override
 │       ├── logging/             ← stderr text logger and level selection
 │       ├── pacing/              ← pure pacing model
@@ -94,8 +93,6 @@ aipermiler/
 │   ├── claude-auth.ts           ← cleanup of claude.ai sessions stored by earlier versions (no Claude sign-in since #140)
 │   ├── providers.ts             ← provider-specific part of the account registry (connection, fetch, disconnect, secret redaction)
 │   ├── refreshPolicy.ts         ← adaptive refresh pace, per-account backoff, manual-refresh cache (+ test)
-│   ├── userDataMigration.ts     ← moves the store from the pre-rename userData folder `ia-hypermiler` (#200, + test)
-│   ├── userDataBootstrap.ts     ← runs that migration once at import (entry.ts first, before the store exists)
 │   └── i18n/                    ← main-process strings (tray, notifications, dialogs, OAuth page): en.ts, it.ts, index.ts (+ test)
 ├── renderer/
 │   ├── index.html, style.css, app.ts           ← widget
@@ -361,7 +358,7 @@ Condensed history; the full session-by-session log is in the git history (CLAUDE
 ### Open items
 - Claude quotas are not read since #140; they return through an allowed source, the Go core's `claude /usage` adapter (#147, #180, milestone v0.6.0); the standalone core in Go (#139) is milestone v0.7.0.
 - Provider reads live in the Go core (`gocore/`, CLI and JSON contract in docs/CORE-CLI.md); `core/usage.ts` (#23) still owns orchestration and snapshots until pacing moves to Go (#75, #160). New orchestration/snapshot logic goes test-first in `core/` or the Go core, not in `main.ts`.
-- **Milestone v0.6.0** (GitHub): Claude quotas through the Go core (#147, #180), migrations of the rename removed (#204), macOS package verified (#212). **Milestone v0.7.0**: standalone core in Go with the Electron UI as optional client (#139), budget logic in Go (#75), pace-based indicators (#63). **Milestone v1.0.0** (out of beta): signed Windows/macOS installers (#11).
+- **Milestone v0.6.0** (GitHub): Claude quotas through the Go core (#147, #180), migrations of the rename removed (#204, done: upgrades from ≤ v0.4.x must go through v0.5.0), macOS package verified (#212). **Milestone v0.7.0**: standalone core in Go with the Electron UI as optional client (#139), budget logic in Go (#75), pace-based indicators (#63). **Milestone v1.0.0** (out of beta): signed Windows/macOS installers (#11).
 - `agents/advisor.ts` is a stub.
 - Copilot tab occasionally not clickable right after login (not reproduced; if it happens, open the widget DevTools and check the console).
 - Verify with real use the pacing constants (`PACE_ALERT_RATIO` 1.5×, 2h minimum of observed work, 50/50 recent-pace blend, preliminary below 2 working units, redistribution verdict bands 0.5× / ±5%, `NEGLIGIBLE_UTILIZATION` 0.1%) and the `consumptionCause` thresholds, and with the next release the packaged icon and the update notification end to end.

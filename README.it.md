@@ -37,7 +37,7 @@ Le altre versioni, comprese le pre-release di test, sono nella pagina [Releases]
 
 I pacchetti non sono firmati: Windows SmartScreen e macOS Gatekeeper mostrano un avviso la prima volta. L'app controlla le nuove versioni all'avvio e ogni 24 ore e apre nel browser il download giusto.
 
-**Arrivi da IA Hypermiler (v0.4.x)?** Dalla v0.5.0 l'app si chiama AIpermiler. Le versioni fino alla 0.4.18 annunciano l'aggiornamento ma non riescono ad aprirne il download: scaricalo a mano dall'[ultima release](https://github.com/suppressio/aipermiler/releases/latest). Installalo come al solito: su Windows e su Debian/Ubuntu sostituisce IA Hypermiler, mentre su macOS e con l'AppImage puoi cancellare la vecchia app dopo. Al primo avvio impostazioni, account e storico vengono spostati, e gli account Copilot collegati restano collegati.
+**Arrivi da IA Hypermiler (v0.4.x)?** Dalla v0.5.0 l'app si chiama AIpermiler. Le versioni fino alla 0.4.18 annunciano l'aggiornamento ma non riescono ad aprirne il download: scaricalo a mano dall'[ultima release](https://github.com/suppressio/aipermiler/releases/latest). Installalo come al solito: su Windows e su Debian/Ubuntu sostituisce IA Hypermiler, mentre su macOS e con l'AppImage puoi cancellare la vecchia app dopo. Al primo avvio impostazioni, account e storico vengono spostati, e gli account Copilot collegati restano collegati. Dalla v0.6.0 l'aggiornamento diretto dalla v0.4.x non è più supportato: installa prima la v0.5.0, avviala una volta, poi aggiorna.
 
 ## Primo avvio
 

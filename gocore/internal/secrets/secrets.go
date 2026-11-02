@@ -83,17 +83,10 @@ func within(ctx context.Context, call func() error) error {
 	}
 }
 
-// LegacyService is the keyring service of the core before the AIpermiler rename
-// (#200); Migrating still reads its entries and moves them on the next write.
-const LegacyService = "hypermiler"
-
-// OSKeyring is the real store, under the service name of the binary, migrating
-// entries left under LegacyService.
+// OSKeyring is the real store, under the service name of the binary.
 type OSKeyring struct{}
 
-func (OSKeyring) store() Migrating {
-	return Migrating{Current: serviceKeyring(buildinfo.Name), Legacy: serviceKeyring(LegacyService)}
-}
+func (OSKeyring) store() serviceKeyring { return serviceKeyring(buildinfo.Name) }
 
 // Get reads a secret; ErrNotFound when there is none.
 func (k OSKeyring) Get(key string) (string, error) { return k.store().Get(key) }
@@ -131,41 +124,6 @@ func (s serviceKeyring) Delete(key string) error {
 		return fmt.Errorf("OS keyring: %w", err)
 	}
 	return nil
-}
-
-// Migrating reads Current, falling back to Legacy, and never writes on a read: a read
-// running while the same secret is deleted (refresh or diagnostics against disconnect)
-// could otherwise write it back. A secret left in Legacy moves when it is next set
-// (reconnect: Set writes Current and clears Legacy) and goes when it is deleted.
-type Migrating struct {
-	Current Store
-	Legacy  Store
-}
-
-// Get reads Current, then Legacy.
-func (m Migrating) Get(key string) (string, error) {
-	value, err := m.Current.Get(key)
-	if !errors.Is(err, ErrNotFound) {
-		return value, err
-	}
-	return m.Legacy.Get(key)
-}
-
-// Set writes Current, then removes any Legacy copy (best-effort: Current wins on read).
-func (m Migrating) Set(key, value string) error {
-	if err := m.Current.Set(key, value); err != nil {
-		return err
-	}
-	_ = m.Legacy.Delete(key)
-	return nil
-}
-
-// Delete removes key from Current and Legacy.
-func (m Migrating) Delete(key string) error {
-	if err := m.Current.Delete(key); err != nil {
-		return err
-	}
-	return m.Legacy.Delete(key)
 }
 
 // Memory is an in-process store for tests.

@@ -41,7 +41,6 @@ export const en = {
   'notify.updateAvailable': 'Version {version} is available: open Settings → Updates to download it.',
 
   'startup.failedTitle': 'AIpermiler could not start',
-  'startup.migrationFailed': 'Your settings could not be moved from IA Hypermiler, so the app stops to keep them safe. Close IA Hypermiler if it is running and start AIpermiler again. ({detail})',
 
 
   'error.sessionExpired': 'Session expired or invalid — reconnect the account from Settings. ({detail})',

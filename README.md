@@ -37,7 +37,7 @@ Other versions, including pre-releases for testing, are on the [Releases](https:
 
 The packages are not signed: Windows SmartScreen and macOS Gatekeeper show a warning the first time. The app checks for new versions at startup and every 24 hours and opens the right download in your browser.
 
-**Coming from IA Hypermiler (v0.4.x)?** The app was renamed to AIpermiler in v0.5.0. Versions up to 0.4.18 announce the update but cannot open its download: get it from the [latest release](https://github.com/suppressio/aipermiler/releases/latest) by hand. Install it as usual: it replaces IA Hypermiler on Windows and on Debian/Ubuntu, while on macOS and with the AppImage you can delete the old app afterwards. On the first start your settings, accounts and history are moved over, and connected Copilot accounts stay connected.
+**Coming from IA Hypermiler (v0.4.x)?** The app was renamed to AIpermiler in v0.5.0. Versions up to 0.4.18 announce the update but cannot open its download: get it from the [latest release](https://github.com/suppressio/aipermiler/releases/latest) by hand. Install it as usual: it replaces IA Hypermiler on Windows and on Debian/Ubuntu, while on macOS and with the AppImage you can delete the old app afterwards. On the first start your settings, accounts and history are moved over, and connected Copilot accounts stay connected. From v0.6.0 upgrading directly from v0.4.x is no longer supported: install v0.5.0 first, start it once, then update.
 
 ## First start
 
