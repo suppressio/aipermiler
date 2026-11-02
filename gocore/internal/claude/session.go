@@ -90,47 +90,44 @@ func signedOut() *usage.Error {
 }
 
 // probe runs one `claude` session in dir up to the /usage panel and out again.
-// statusLine is the command Claude runs as its status line (#221); afterEsc runs
-// once the panel is closed, before /exit (the status line is read there, #221).
-func (p prober) probe(ctx context.Context, bin, dir, statusLine string, afterEsc func(context.Context) error) error {
+// statusLine is the command Claude runs as its status line; afterEsc runs once the
+// panel is closed, before /exit. It returns Claude's projects folder as `auth status`
+// reported it ("" when unknown), also with an error: the transcript cleanup needs it.
+func (p prober) probe(ctx context.Context, bin, dir, statusLine string, afterEsc func(context.Context) error) (string, error) {
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	// The trust prompt is answered only for this folder: it must hold nothing to trust.
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return unavailable("claude probe folder: " + err.Error())
+		return "", unavailable("claude probe folder: " + err.Error())
 	}
 	if len(entries) > 0 {
-		return unavailable("claude probe folder is not empty: " + dir)
+		return "", unavailable("claude probe folder is not empty: " + dir)
 	}
 	env := childEnv(p.environ())
-	if loggedIn, known := parseAuthStatus(p.auth(ctx, bin, dir, env)); known && !loggedIn {
-		return signedOut()
+	status := parseAuthStatus(p.auth(ctx, bin, dir, env))
+	if status.known && !status.loggedIn {
+		return status.projects, signedOut()
 	}
 	term, err := p.start(bin, claudeArgs(statusLine), env, dir)
 	if err != nil {
-		return unavailable("cannot start claude: " + err.Error())
+		return status.projects, unavailable("cannot start claude: " + err.Error())
 	}
-	return drive(ctx, term, p.timing, afterEsc)
+	return status.projects, drive(ctx, term, p.timing, afterEsc)
 }
 
-// Probe runs one probe of bin in the core's fixed probe folder. The provider (#221)
-// passes its status line command and reads what it received in afterEsc.
-func Probe(ctx context.Context, bin, statusLine string, afterEsc func(context.Context) error) error {
-	dir, err := probeDir()
-	if err != nil {
-		return err
-	}
-	return systemProber().probe(ctx, bin, dir, statusLine, afterEsc)
-}
-
-// probeDir is the fixed working folder of the probes, owned by the core.
-func probeDir() (string, error) {
+// cacheBase is the core's own cache folder, <UserCacheDir>/aipermiler.
+func cacheBase() (string, error) {
 	base, err := os.UserCacheDir()
 	if err != nil {
 		return "", unavailable("locate user cache directory: " + err.Error())
 	}
-	dir := filepath.Join(base, buildinfo.Name, "claude-probe")
+	return filepath.Join(base, buildinfo.Name), nil
+}
+
+// probeDir is the fixed working folder of the probes, inside base.
+func probeDir(base string) (string, error) {
+	dir := filepath.Join(base, "claude-probe")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", unavailable("create claude probe folder: " + err.Error())
 	}
@@ -159,17 +156,27 @@ func childEnv(environ []string) []string {
 	return append(env, "TERM=xterm-256color")
 }
 
-// parseAuthStatus reads only loggedIn from `claude auth status` (email and
-// organisation are never read). known is false when the output is not usable: the
-// PTY markers are then the only check.
-func parseAuthStatus(out []byte) (loggedIn, known bool) {
+// authStatus is what the probe reads from `claude auth status`: whether it is signed
+// in and where its transcripts live. Email and organisation are never read.
+type authStatus struct {
+	loggedIn bool
+	known    bool   // false when the output is not usable: the PTY markers then decide
+	projects string // absolute projects folder, "" when not reported
+}
+
+func parseAuthStatus(out []byte) authStatus {
 	var status struct {
-		LoggedIn *bool `json:"loggedIn"`
+		LoggedIn *bool  `json:"loggedIn"`
+		Projects string `json:"projectsDirectory"`
 	}
 	if json.Unmarshal(out, &status) != nil || status.LoggedIn == nil {
-		return false, false
+		return authStatus{}
 	}
-	return *status.LoggedIn, true
+	result := authStatus{loggedIn: *status.LoggedIn, known: true}
+	if filepath.IsAbs(status.Projects) {
+		result.projects = status.Projects
+	}
+	return result
 }
 
 var escapes = regexp.MustCompile(`\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[()][0-9A-Za-z]|\x1b.`)

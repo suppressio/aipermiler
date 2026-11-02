@@ -40,7 +40,7 @@ test('every shared fixture is read by this client (none left untested)', () => {
     'error-format-drift.json', 'error-not-ready.json', 'error-signed-out.json', 'error-timeout.json',
     'error-unavailable-reason.json', 'error-unavailable.json', 'error-usage.json',
     'login-authorize.json', 'raw.json',
-    'usage-count-window.json', 'usage-ok.json', 'usage-stale.json', 'version.json',
+    'usage-claude.json', 'usage-count-window.json', 'usage-ok.json', 'usage-stale.json', 'version.json',
   ]);
 });
 
@@ -57,6 +57,15 @@ test('usage-ok: RawAccountUsage with ISO strings, every window field', () => {
       { id: 'weekly', label: '7 days', periodType: 'rolling-days', periodLength: 7, unit: 'percentage', used: 42, total: 100, resetsAt: '2026-11-07T21:10:00Z' },
     ],
   });
+});
+
+test('usage-claude: the Claude windows from the status line, no plan tier', () => {
+  const { usage } = parseUsageRun(runOf('usage-claude', 0), 'claude');
+  assert.equal(usage.planTier, null);
+  assert.deepEqual(usage.quotaWindows.map((w) => [w.id, w.periodType, w.periodLength, w.used, w.resetsAt]), [
+    ['claude-5h', 'rolling-hours', 5, 23.5, '2026-11-01T22:00:00Z'],
+    ['claude-7d', 'rolling-days', 7, 41, '2026-11-07T17:00:00Z'],
+  ]);
 });
 
 test('usage-count-window: billing-cycle count window and renewal date', () => {
