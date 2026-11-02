@@ -40,12 +40,12 @@ Quotas come only through the user's own, unmodified `claude` binary and sign-in 
 
 One fetch:
 
-1. `claude auth status --json` (5 s). Only `loggedIn` and `projectsDirectory` are read, never email or organisation. `loggedIn: false` is `signed_out` without starting a session; unusable output leaves the check to the screen.
+1. `claude auth status --json` (5 s). Only `loggedIn`, `authMethod` and `projectsDirectory` are read, never email or organisation. `loggedIn: false` is `signed_out` and `authMethod` `api_key` or `third_party` (an API key, Bedrock, Vertex: no subscription quota) is `unavailable`, both without starting a session (#228); `claude.ai`, `oauth_token` (`claude setup-token`) and unknown values go on; unusable output leaves the check to the screen.
 2. `claude` starts in a pseudo-terminal (50×140, `TERM=xterm-256color`) inside the core's probe folder `<user cache>/aipermiler/claude-probe`, which must be empty. The flags are `--settings` with our own status line command, `--strict-mcp-config` and `--setting-sources local`. Nothing is written to the user's settings, and MCP servers, user hooks and plugins stay out. The environment markers of a parent Claude Code session are removed.
 3. The folder trust prompt is answered once, only for that empty folder. The core types only `/usage`, Esc and `/exit`, never a prompt, so no model request is made on the user's plan.
 4. Claude runs the status line command. It is the hidden subcommand `aipermiler claude-statusline <file>`, which appends the JSON it receives on stdin as one line to a file `<user cache>/aipermiler/claude-status-*.jsonl` created for this fetch. It never creates a file and prints nothing. Once the panel is closed with Esc, the core waits up to 3 s for a run carrying `rate_limits`.
 5. `/exit` gets 5 s, then the whole process tree is killed. The probe is bounded by 25 s.
-6. Cleanup, also after a failed probe: the sink file is deleted, and so is the probe's own transcript. That is the `transcript_path` of a status line run whose `cwd` is the probe folder, only a `.jsonl` directly inside a folder of `projectsDirectory` (paths compared as files, not as spellings). The folder is removed too when nothing else is left in it. Without `projectsDirectory` nothing is deleted. Nothing else of Claude's is touched: the `/usage` line in `history.jsonl` stays.
+6. Cleanup, also after a failed probe: the sink file is deleted, and so is the probe's own transcript. That is the `transcript_path` of a status line run whose `cwd` is the probe folder, only a `.jsonl` directly inside a folder of `projectsDirectory` (paths compared as files, not as spellings). The folder is removed too when nothing else is left in it. Without `projectsDirectory` nothing is deleted. A fetch also deletes the sink files of earlier fetches cut short (a killed core), when untouched for 10 min (#229). Nothing else of Claude's is touched: the `/usage` line in `history.jsonl` stays.
 
 Discovery order (#219):
 
@@ -60,13 +60,14 @@ Only native binaries qualify: at least 1 MB, never `.js`/`.cjs` (Node is never r
 | Condition | Code | Meaning/message |
 |---|---|---|
 | Binary not found | `unavailable` | `Claude Code not found; install it or set --claude-bin` |
+| Signed in with an API key or a cloud provider | `unavailable` | `Claude Code is signed in with an API key or a cloud provider, which has no subscription quota` |
 | Signed out (`auth status`, or the login/theme screen) | `signed_out` | ``Claude Code is not signed in; run `claude` and sign in`` |
 | No prompt reached (an unknown screen), or no panel 12 s after `/usage` | `not_ready` | `claude did not reach its prompt (an unknown screen?)` / `no usage panel after /usage` |
 | Deadline after the prompt | `timeout` | `claude probe timed out <where>` |
 | Status line never ran, no `rate_limits`, or no recognized window | `format_drift` | `Claude: …`, endpoint `claude status line rate_limits`, shape only |
 | `claude` cannot start, exits early, probe folder not empty | `unavailable` | the reason, never the screen |
 
-Mapping reads the last status line run that carried `rate_limits`. `five_hour` maps to `claude-5h` / `5-hour limit` / `rolling-hours` 5 and `seven_day` to `claude-7d` / `7-day limit` / `rolling-days` 7. A missing or negative `used_percentage` skips the window; the value is never clamped; unit `percentage`, total 100. A positive Unix-second `resets_at` becomes a UTC date, anything else is null. `planTier` and `subscriptionRenewsAt` are always null: the status line carries neither. The synthetic fixtures in `internal/claude/testdata/` are named after the Claude Code version whose shape they follow; the behaviour was seen on 2.1.314-2.1.316. Whether an account without a subscription (API key) gets `rate_limits` is not verified: today it would be `format_drift`.
+Mapping reads the last status line run that carried `rate_limits`. `five_hour` maps to `claude-5h` / `5-hour limit` / `rolling-hours` 5 and `seven_day` to `claude-7d` / `7-day limit` / `rolling-days` 7. A missing or negative `used_percentage` skips the window; the value is never clamped; unit `percentage`, total 100. A positive Unix-second `resets_at` becomes a UTC date, anything else is null. `planTier` and `subscriptionRenewsAt` are always null: the status line carries neither. The synthetic fixtures in `internal/claude/testdata/` are named after the Claude Code version whose shape they follow; the behaviour was seen on 2.1.314-2.1.316.
 
 **Polling.** Every fetch starts a Claude Code session (about 5 s, measured on Linux with 2.1.316) and adds a line to Claude's `history.jsonl`. The client polls every 30 min by default and never below 5 min on a timer (the adaptive 5 min pace is the floor); a manual refresh reuses a fetch less than 1 min old (`main/refreshPolicy.ts`). The CLI's 25 s default deadline covers the whole fetch; the client keeps its own timeout above it (#180).
 
