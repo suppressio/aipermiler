@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -28,7 +29,11 @@ const (
 // to an existing sink file the provider created. It prints nothing, so the probe's
 // status line stays empty.
 func Sink(args []string, stdin io.Reader) int {
-	if len(args) != 1 || !validSink(args[0]) {
+	if len(args) != 1 {
+		return 2
+	}
+	checked, ok := validSink(args[0])
+	if !ok {
 		return 2
 	}
 	data, err := io.ReadAll(io.LimitReader(stdin, maxStatusDoc+1))
@@ -49,7 +54,13 @@ func Sink(args []string, stdin io.Reader) int {
 	if err != nil {
 		return 1
 	}
-	_, err = file.Write(line.Bytes())
+	// The file opened must be the one checked: not swapped for a link meanwhile.
+	opened, err := file.Stat()
+	if err == nil && os.SameFile(checked, opened) {
+		_, err = file.Write(line.Bytes())
+	} else if err == nil {
+		err = errors.New("sink file changed")
+	}
 	if closeErr := file.Close(); err != nil || closeErr != nil {
 		return 1
 	}
@@ -57,15 +68,18 @@ func Sink(args []string, stdin io.Reader) int {
 }
 
 // validSink accepts only an absolute path to a regular file named like a sink.
-func validSink(path string) bool {
+func validSink(path string) (os.FileInfo, bool) {
 	if !filepath.IsAbs(path) {
-		return false
+		return nil, false
 	}
 	if ok, _ := filepath.Match(sinkPattern, filepath.Base(path)); !ok {
-		return false
+		return nil, false
 	}
 	info, err := os.Lstat(path)
-	return err == nil && info.Mode().IsRegular()
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, false
+	}
+	return info, true
 }
 
 // shellQuote quotes for the POSIX shell Claude runs the status line command with.
@@ -79,25 +93,24 @@ type statusWindow struct {
 	ResetsAt       *int64   `json:"resets_at"`
 }
 
-type statusDoc struct {
-	Cwd            string `json:"cwd"`
-	TranscriptPath string `json:"transcript_path"`
-	RateLimits     *struct {
-		FiveHour *statusWindow `json:"five_hour"`
-		SevenDay *statusWindow `json:"seven_day"`
-	} `json:"rate_limits"`
+type statusLimits struct {
+	FiveHour *statusWindow `json:"five_hour"`
+	SevenDay *statusWindow `json:"seven_day"`
 }
 
 // statusRead is what the sink file holds after a probe.
 type statusRead struct {
 	runs        int
-	latest      *statusDoc // last run that carried rate_limits
-	shape       any        // that run, or the last run when none did
+	latest      json.RawMessage // rate_limits of the last run that carried them
+	shape       any             // that run, or the last run when none did
 	transcripts []transcript
 }
 
 type transcript struct{ path, cwd string }
 
+// readStatus reads each run's transcript and rate_limits apart, so a malformed
+// quota field neither hides the transcript from the cleanup nor the shape from
+// the drift report.
 func readStatus(path string) statusRead {
 	var read statusRead
 	file, err := os.Open(path)
@@ -108,17 +121,23 @@ func readStatus(path string) statusRead {
 	lines := bufio.NewScanner(file)
 	lines.Buffer(make([]byte, 64*1024), maxStatusDoc+1)
 	for lines.Scan() {
-		var doc statusDoc
-		var decoded any
-		if json.Unmarshal(lines.Bytes(), &doc) != nil || json.Unmarshal(lines.Bytes(), &decoded) != nil {
+		var decoded map[string]any
+		if json.Unmarshal(lines.Bytes(), &decoded) != nil {
 			continue
 		}
 		read.runs++
-		if doc.TranscriptPath != "" {
-			read.transcripts = append(read.transcripts, transcript{doc.TranscriptPath, doc.Cwd})
+		var meta struct {
+			Cwd            string `json:"cwd"`
+			TranscriptPath string `json:"transcript_path"`
 		}
-		if doc.RateLimits != nil {
-			read.latest, read.shape = &doc, decoded
+		if json.Unmarshal(lines.Bytes(), &meta) == nil && meta.TranscriptPath != "" {
+			read.transcripts = append(read.transcripts, transcript{meta.TranscriptPath, meta.Cwd})
+		}
+		var limits struct {
+			RateLimits json.RawMessage `json:"rate_limits"`
+		}
+		if json.Unmarshal(lines.Bytes(), &limits) == nil && len(limits.RateLimits) > 0 && string(limits.RateLimits) != "null" {
+			read.latest, read.shape = limits.RateLimits, decoded
 		} else if read.latest == nil {
 			read.shape = decoded
 		}
@@ -156,11 +175,15 @@ func mapUsage(read statusRead) (usage.Usage, error) {
 	if read.latest == nil {
 		return usage.Usage{}, drift("Claude: the status line carried no rate_limits", read.shape)
 	}
+	var limits statusLimits
+	if json.Unmarshal(read.latest, &limits) != nil {
+		return usage.Usage{}, drift("Claude: no quota window recognized", read.shape)
+	}
 	var result usage.Usage
 	for _, w := range []struct {
 		window *statusWindow
 		hours  int64
-	}{{read.latest.RateLimits.FiveHour, 5}, {read.latest.RateLimits.SevenDay, 7 * 24}} {
+	}{{limits.FiveHour, 5}, {limits.SevenDay, 7 * 24}} {
 		if window, ok := mapWindow(w.window, w.hours); ok {
 			result.QuotaWindows = append(result.QuotaWindows, window)
 		}
