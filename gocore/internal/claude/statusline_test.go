@@ -335,7 +335,14 @@ func TestContractFixture(t *testing.T) {
 
 func TestRemoveStaleSinks(t *testing.T) {
 	t.Parallel()
-	base := t.TempDir()
+	// A base holding glob metacharacters, next to the folder they would match.
+	root := t.TempDir()
+	base, lookalike := filepath.Join(root, "cache[1]"), filepath.Join(root, "cache1")
+	for _, d := range []string{base, lookalike} {
+		if err := os.Mkdir(d, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
 	now := time.Date(2026, time.November, 2, 12, 0, 0, 0, time.UTC)
 	create := func(name string, age time.Duration) string {
 		path := filepath.Join(base, name)
@@ -348,6 +355,13 @@ func TestRemoveStaleSinks(t *testing.T) {
 		return path
 	}
 	stale := create("claude-status-1.jsonl", 11*time.Minute)
+	outside := filepath.Join(lookalike, "claude-status-9.jsonl")
+	if err := os.WriteFile(outside, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(outside, now.Add(-time.Hour), now.Add(-time.Hour)); err != nil {
+		t.Fatal(err)
+	}
 	running := create("claude-status-2.jsonl", time.Minute)
 	other := create("notes.jsonl", time.Hour)
 	folder := filepath.Join(base, "claude-status-3.jsonl")
@@ -371,7 +385,7 @@ func TestRemoveStaleSinks(t *testing.T) {
 	if exists(stale) {
 		t.Error("stale sink kept")
 	}
-	for _, kept := range []string{running, other, folder, nested} {
+	for _, kept := range []string{running, other, folder, nested, outside} {
 		if !exists(kept) {
 			t.Errorf("%s removed", kept)
 		}

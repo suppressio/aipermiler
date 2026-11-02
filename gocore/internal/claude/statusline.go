@@ -89,11 +89,16 @@ const staleSink = 10 * time.Minute
 // removeStaleSinks deletes the sink files of earlier fetches that were cut short:
 // regular files named like a sink, directly in base, untouched for staleSink.
 func removeStaleSinks(base string, now time.Time) {
-	paths, err := filepath.Glob(filepath.Join(base, sinkPattern))
+	// Only names are matched: base itself may hold glob metacharacters.
+	entries, err := os.ReadDir(base)
 	if err != nil {
 		return
 	}
-	for _, path := range paths {
+	for _, entry := range entries {
+		if ok, _ := filepath.Match(sinkPattern, entry.Name()); !ok {
+			continue
+		}
+		path := filepath.Join(base, entry.Name())
 		if info, err := os.Lstat(path); err == nil && info.Mode().IsRegular() && now.Sub(info.ModTime()) > staleSink {
 			_ = os.Remove(path)
 		}
