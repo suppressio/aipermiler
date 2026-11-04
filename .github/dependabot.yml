@@ -14,3 +14,25 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+
+  # Actions are pinned to major tags (v4…): a major bump is the normal update,
+  # so majors are not ignored here; minor/patch of full-version pins are grouped.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    target-branch: "next"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3
+    groups:
+      minori-e-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: "gomod"
+    directory: "/gocore"
+    target-branch: "next"
+    schedule:
+      interval: "monthly"
+    open-pull-requests-limit: 3
+    groups:
+      minori-e-patch:
+        update-types: ["minor", "patch"]
