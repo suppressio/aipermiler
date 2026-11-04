@@ -1,11 +1,11 @@
 module github.com/suppressio/aipermiler/gocore
 
-go 1.24
+go 1.26.0
 
 require (
 	github.com/creack/pty v1.1.24
 	github.com/zalando/go-keyring v0.2.8
-	golang.org/x/sys v0.27.0
+	golang.org/x/sys v0.49.0
 )
 
 require (
