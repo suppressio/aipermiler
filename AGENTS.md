@@ -40,6 +40,9 @@ aipermiler/
 ├── AGENTS.md                    ← this file (English only)
 ├── CLAUDE.md                    ← only `@AGENTS.md`, so Claude Code reads the same file
 ├── LICENSE                      ← MIT
+├── .editorconfig, .vscode/      ← editor settings and recommended extensions
+├── .claude/settings.json        ← shared Claude Code project settings
+├── .github/                     ← dependabot.yml (github-actions, gomod, npm) + workflows/ci.yml (lint + tests on PRs) and workflows/build.yml (cross-platform packages)
 ├── README.md / README.it.md     ← user guide only: what the app does, install, how to read every indicator (EN primary, IT secondary)
 ├── docs/                        ← every other document, EN + .it.md
 │   ├── DEVELOPMENT.md           ← build from source, tests, packaging, CI, project structure and status
@@ -49,7 +52,10 @@ aipermiler/
 │   ├── RESEARCH.md              ← what the Claude/Copilot APIs really expose (Day 1 + addenda)
 │   ├── EVOLUTION.md             ← retrospective and future directions with cost/benefit analysis
 │   ├── PLAN.md                  ← the original 3-day plan (historical)
+│   ├── SPIKE-CLAUDE-USAGE-PTY.md ← spike: Claude `/usage` panel read through a PTY (#141, #183)
+│   ├── SPIKE-CODEX-APP-SERVER.md ← spike: Codex rate limits through `codex app-server` (#142)
 │   └── screenshots/             ← README screenshots, synthetic data only
+├── package.json, package-lock.json ← scripts, dependencies, electron-builder config
 ├── tsconfig.json                ← main-process TS config (CommonJS)
 ├── tsconfig.renderer.json       ← renderer TS config (ES modules, isolated, no Node types)
 ├── tsconfig.renderer.test.json  ← renderer unit tests (adds Node types; emitted as ES modules)
@@ -59,7 +65,11 @@ aipermiler/
 ├── scripts/
 │   ├── copy-assets.js           ← copies renderer html/css into dist/renderer/ + writes dist/renderer/package.json {type: module}
 │   ├── build-core.js            ← builds the Go core CLI into core-bin/ (gitignored; electron-builder extraResources → <resources>/core/), --target to cross-compile, --dev honours AIPERMILER_CORE_BIN
-│   └── generate-icons.js        ← one-off "gauge" icon generator (build/icon.png, build/icons/*, renderer/assets/*.png)
+│   ├── generate-icons.js        ← one-off "gauge" icon generator (build/icon.png, build/icons/*, renderer/assets/*.png)
+│   ├── test-build.js            ← `npm run package:test`: local lint + tests + dev-version packages in release/test/
+│   ├── measure-resources.js     ← measures the app's memory/CPU footprint (tray-only, #27)
+│   ├── probe-copilot-shape.js   ← prints the structure (never values) of a Copilot usage response
+│   └── spikes/                  ← throwaway research code for the Claude/Codex reads: claude-usage-pty.py, claude-usage-pty-go/ (own Go module), codex-rate-limits.js
 ├── build/                       ← electron-builder resources (icons) — TRACKED, not an output (packages go to release/)
 ├── main.ts                      ← Electron main process: wiring only (lifecycle, windows, tray, IPC, timers, notifications, update checks)
 ├── preload.ts                   ← contextBridge renderer ↔ main
@@ -89,10 +99,13 @@ aipermiler/
 │   ├── coreClient.ts            ← runs the bundled core CLI (execFile, no shell, timeout, --json, secrets on stdin) and parses contract v1 against gocore/contract/v1 (+ test)
 │   ├── windows.ts               ← main window (skins filled/filled-dark/transparent-digital) and Settings window
 │   ├── tray.ts                  ← cross-platform tray; createTray returns { tray, refreshMenu }
+│   ├── traySummary.ts           ← tray tooltip: one usage line per account (+ test)
+│   ├── windowLabel.ts           ← localized quota-window labels for notifications and tray
 │   ├── trayBadge.ts             ← tray usage badge: account choice, tone, icon bitmap (+ test)
 │   ├── claude-auth.ts           ← cleanup of claude.ai sessions stored by earlier versions (no Claude sign-in since #140)
 │   ├── providers.ts             ← provider-specific part of the account registry (connection, fetch, disconnect, secret redaction)
 │   ├── refreshPolicy.ts         ← adaptive refresh pace, per-account backoff, manual-refresh cache (+ test)
+│   ├── *.test.ts                ← unit tests next to the module (coreClient, tray, refreshLifecycle, …)
 │   └── i18n/                    ← main-process strings (tray, notifications, dialogs, OAuth page): en.ts, it.ts, index.ts (+ test)
 ├── renderer/
 │   ├── index.html, style.css, app.ts           ← widget
@@ -102,6 +115,14 @@ aipermiler/
 │   ├── windowLabel.ts           ← localized quota-window labels, including Codex limits (+ test)
 │   ├── gauge.ts                 ← log-scale position of the instant pace against its target (+ test)
 │   ├── visibility.ts            ← which indicators are shown (autonomy, peak/average, streak) (+ test)
+│   ├── renewal.ts               ← whether the manual renewal day is needed or the provider reports the reset (+ test)
+│   ├── severity.ts              ← warning colour of a percent-of-quota value from the notification threshold (+ test)
+│   ├── dates.ts                 ← local day keys (copy of the budget.ts helpers, the renderer project is isolated) (+ test)
+│   ├── instantFlow.ts           ← animated push/slow-down arrows of the instant bar (+ test)
+│   ├── motion.ts, layoutMotion.ts, odometer.ts ← optional animations: effect state, FLIP layout motion, odometer digits (+ tests)
+│   ├── viewSelection.test.ts    ← test of the widget view selection
+│   ├── settings.test.ts         ← Settings window tests
+│   ├── assets/                  ← app-icon.png, tray-icon.png (generated by generate-icons.js)
 │   └── i18n/                    ← UI strings: en.ts (reference), it.ts, index.ts (t, applyTranslations, Intl formatting) (+ test)
 ├── agents/advisor.ts            ← Claude advice agent (stub)
 ├── services/
@@ -122,6 +143,7 @@ aipermiler/
 │   └── migrate.ts               ← per-provider defaults, legacy {claude, copilot} → AccountConfig[] migration (+ test)
 ├── budget.ts                    ← pure budget/efficiency/projection/verdict/tip/yield logic (+ budget.test.ts)
 ├── tests/
+│   ├── ipcContract.test.ts      ← guards the IPC contract and channel wiring (#71)
 │   ├── support/at.ts            ← at(array, i) helper for tests under noUncheckedIndexedAccess
 ├── dist/                        ← tsc output + copied assets (gitignored)
 └── package.json
