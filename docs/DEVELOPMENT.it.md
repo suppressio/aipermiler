@@ -38,7 +38,7 @@ npm run coverage   # test con la coverage integrata di Node
 
 ## Controlli del core Go
 
-Il core Go sta in `gocore/` (modulo a sé, `go.mod` fissa la versione di Go; i pacchetti ne includono il binario, vedi *Packaging*). Servono Go 1.24+ e [golangci-lint](https://golangci-lint.run/) v2. Da `gocore/`:
+Il core Go sta in `gocore/` (modulo a sé, `go.mod` fissa la versione di Go; i pacchetti ne includono il binario, vedi *Packaging*). Servono Go 1.26+ e [golangci-lint](https://golangci-lint.run/) v2. Da `gocore/`:
 
 ```bash
 gofmt -l .           # non deve stampare nulla
