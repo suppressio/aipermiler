@@ -13,6 +13,7 @@ aipermiler token delete <provider> [--json] [provider flags]
 aipermiler login <provider> [--json] [--timeout 5m] [provider flags] [login flags]   # client secret on stdin
 aipermiler raw <provider> [provider flags]
 aipermiler version [--json]
+aipermiler paths [--json]
 aipermiler help
 ```
 
@@ -116,6 +117,16 @@ Windows are recognized by duration in either `primary` or `secondary`, with the 
 - **Sources**, as in the TypeScript service: `copilot_internal/user` (the undocumented endpoint behind the VS Code quota indicator) for both scopes; for the personal scope, when it has no quotas, the billing report (`ai_credit/usage`, then `premium_request/usage` on a 404 or a 400 "Unable to get billing usage data") with `--manual-quota` as the total. Each request has a 10 s timeout.
 - **Windows**: one per `quota_snapshots` category, in the response's key order, id = the category key, label `Copilot — <key>`, `billing-cycle` of 1 month, VS Code's rules (unlimited → credits used without total, nothing when there are none; entitlement > 0 → entitlement − remaining of the entitlement; entitlement 0 → nothing; otherwise the percentage). Billing report → `ai_credits` / `AI credits`, count, reset and renewal on the 1st of the next UTC month. Same ids as before, so the stored history keeps matching.
 - **Errors**: no token stored → `signed_out`, reason `not_connected`; GitHub answers 401 → `signed_out`, reason `token_rejected`; enterprise-managed github.com seat (no data at all, #7) → `unavailable`, reason `enterprise_managed_seat`; no category recognized or no `usageItems` → `format_drift` with the shape.
+
+## Paths
+
+`paths` prints the folders a client must know about (#180): today `claudeProbe`, the folder every Claude probe runs in (`<user cache>/aipermiler/claude-probe`, not created by this command). A client that reads Claude Code sessions (the app's local insights) skips the sessions whose `cwd` is that folder: they are the core's `/usage` reads, not the user's work.
+
+```json
+{"schemaVersion":1,"claudeProbe":"/home/synthetic/.cache/aipermiler/claude-probe"}
+```
+
+Text output: `claude probe: <path>`. Unexpected arguments are usage errors (exit 2); a user cache folder that cannot be located is `unavailable` (exit 1).
 
 ## Account commands
 
@@ -259,7 +270,7 @@ With `--json`, usage errors have no provider key. Help is text-only; requesting 
 
 ## Electron client
 
-`main/coreClient.ts` (#177) is the app's side of this contract. For each read it runs the binary with `execFile`: no shell, `windowsHide` (no console window on Windows), `--json`, `--timeout 25s` and a client timeout of 30 s, stdin always closed (the secret written first with `--secret-stdin` when there is one), at most 1 MiB of output. The binary is `AIPERMILER_CORE_BIN` when set (absolute), else `<resources>/core/aipermiler[.exe]` in the package or `core-bin/` of the repository in development. Errors: binary missing or not startable → `CoreBinaryError`; killed at the client timeout → `CoreTimeoutError`; output that is not a v1 document, contradicts its exit code, or a usage error (exit 2, a bug in the arguments) → `CoreOutputError`, never quoting the output; `format_drift` → the same `FormatDriftError` as the TypeScript services, so the drift report works unchanged; other codes → `CoreProviderError` with the code. `version --json` feeds Settings → Diagnostics and the diagnostic report. Codex reads through it since #178 (`main/core.ts`, `main/providers.ts`); Copilot follows in #179.
+`main/coreClient.ts` (#177) is the app's side of this contract. For each read it runs the binary with `execFile`: no shell, `windowsHide` (no console window on Windows), `--json`, `--timeout 25s` and a client timeout of 30 s, stdin always closed (the secret written first with `--secret-stdin` when there is one), at most 1 MiB of output. The binary is `AIPERMILER_CORE_BIN` when set (absolute), else `<resources>/core/aipermiler[.exe]` in the package or `core-bin/` of the repository in development. Errors: binary missing or not startable → `CoreBinaryError`; killed at the client timeout → `CoreTimeoutError`; output that is not a v1 document, contradicts its exit code, or a usage error (exit 2, a bug in the arguments) → `CoreOutputError`, never quoting the output; `format_drift` → the same `FormatDriftError` as the TypeScript services, so the drift report works unchanged; other codes → `CoreProviderError` with the code. `version --json` feeds Settings → Diagnostics and the diagnostic report. Codex reads through it since #178 (`main/core.ts`, `main/providers.ts`), Copilot since #179 and Claude since #180; `paths --json` gives the local insights the Claude probe folder to skip.
 
 ## Versioning and shared fixtures
 

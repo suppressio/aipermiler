@@ -134,9 +134,22 @@ func cacheBase() (string, error) {
 	return filepath.Join(base, buildinfo.Name), nil
 }
 
+// probeDirName is the probes' folder inside the core's cache folder.
+const probeDirName = "claude-probe"
+
+// ProbeDir is the folder every Claude probe runs in (not created here). Clients skip
+// the sessions that ran there, e.g. in their own reading of Claude Code sessions (#180).
+func ProbeDir() (string, error) {
+	base, err := cacheBase()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(base, probeDirName), nil
+}
+
 // probeDir is the fixed working folder of the probes, inside base.
 func probeDir(base string) (string, error) {
-	dir := filepath.Join(base, "claude-probe")
+	dir := filepath.Join(base, probeDirName)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", unavailable("create claude probe folder: " + err.Error())
 	}
