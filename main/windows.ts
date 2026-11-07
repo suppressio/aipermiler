@@ -5,8 +5,9 @@ import { BrowserWindow, screen } from 'electron';
 import path from 'path';
 import type Store from 'electron-store';
 import type { AppSettings } from '../types/index';
+import { APP_DIR } from './appDir';
 
-const ROOT = path.join(__dirname, '..');
+const ROOT = APP_DIR;
 // renderer/assets/ (not build/, which is not copied into dist/ — see scripts/generate-icons.js)
 // so the same app icon reaches an unpackaged `npm start` too.
 const ICON_PATH = path.join(ROOT, 'renderer', 'assets', 'app-icon.png');

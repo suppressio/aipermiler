@@ -26,10 +26,10 @@ Instructions for every coding agent (Claude Code, Codex, pi, Copilot). Read it i
 | Build | `tsc` (three configs: `tsconfig.json` main/preload/core/services/store/budget/agents/tests — CommonJS; `tsconfig.renderer.json` renderer — ES modules; `tsconfig.renderer.test.json` renderer tests only, adds Node types) + `scripts/copy-assets.js` |
 | Lint | ESLint 10 + typescript-eslint `strictTypeChecked` (`eslint.config.mjs`) |
 | Tests | `node:test` + `node:assert` (no external test library); coverage via Node's built-in `--experimental-test-coverage` |
-| Packaging | electron-builder |
+| Packaging | electron-builder; the main process, preload and worker are bundled with esbuild at pack time (`beforePack`, `scripts/bundle-main.js`, #36) |
 | Runtime | Node.js 22 LTS |
 
-**Do not add dependencies without asking.** Every new library must be justified and agreed before installing it. (Agreed so far: TypeScript, `@types/node`, `@anthropic-ai/claude-agent-sdk`, ESLint + `@eslint/js` + `typescript-eslint` as dev dependencies; in the Go core, `github.com/zalando/go-keyring` for the OS keyring, approved on #179.)
+**Do not add dependencies without asking.** Every new library must be justified and agreed before installing it. (Agreed so far: TypeScript, `@types/node`, `@anthropic-ai/claude-agent-sdk`, ESLint + `@eslint/js` + `typescript-eslint` and esbuild (#36) as dev dependencies; in the Go core, `github.com/zalando/go-keyring` for the OS keyring, approved on #179.)
 
 ---
 
@@ -64,6 +64,7 @@ aipermiler/
 ├── types/ipc.ts                 ← IPC contract: every channel with its argument/result types + AipermilerBridge (runtime-free)
 ├── scripts/
 │   ├── copy-assets.js           ← copies renderer html/css into dist/renderer/ + writes dist/renderer/package.json {type: module}
+│   ├── bundle-main.js           ← electron-builder beforePack hook: esbuild bundles of dist/main.js, preload.js and the insights worker, written in place (#36)
 │   ├── build-core.js            ← builds the Go core CLI into core-bin/ (gitignored; electron-builder extraResources → <resources>/core/), --target to cross-compile, --dev honours AIPERMILER_CORE_BIN
 │   ├── generate-icons.js        ← one-off "gauge" icon generator (build/icon.png, build/icons/*, renderer/assets/*.png)
 │   ├── test-build.js            ← `npm run package:test`: local lint + tests + dev-version packages in release/test/
@@ -94,6 +95,7 @@ aipermiler/
 │   └── usage.ts                 ← fetch orchestration + snapshot computation (createUsageCore, computeAccountSnapshot…): store, provider fetch, local insights, clock and error reporting injected, no Electron (+ usage.test.ts)
 ├── main/
 │   ├── ipc.ts                   ← typed handle/listen/sendToRenderer wrappers keyed on types/ipc.ts
+│   ├── appDir.ts                ← folder of the main entry (dist/): base of the renderer, preload and worker paths in the bundle and in the tsc output
 │   ├── core.ts                  ← the app's one core client (binary resolved per call)
 │   ├── coreRequests.ts          ← provider flags of the core commands from an account config (pure, + test)
 │   ├── coreClient.ts            ← runs the bundled core CLI (execFile, no shell, timeout, --json, secrets on stdin) and parses contract v1 against gocore/contract/v1 (+ test)

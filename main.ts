@@ -10,6 +10,7 @@ import { isPlainRecord } from './store/merge';
 import { applyCompact, createMainWindow, createSettingsWindow } from './main/windows';
 import { createTray } from './main/tray';
 import { accountNoticeKey } from './main/accountNotice';
+import { APP_DIR } from './main/appDir';
 import { badgeEntries, pickBadge, resolveLegacyView, sameChoice, trackAutoAccount } from './main/trayBadge';
 import { clearClaudePartition, clearDefaultSessionClaudeCookies } from './main/claude-auth';
 import * as providers from './main/providers';
@@ -212,7 +213,7 @@ function claudeProbeFolder(): Promise<string | null> {
 
 function computeLocalInsightsInProcess(windowDays: number, skipCwd: string | null): Promise<ClaudeLocalInsights | null> {
   return new Promise((resolve, reject) => {
-    const child = utilityProcess.fork(path.join(__dirname, 'services', 'claudeLocalSessions.worker.js'), [], {
+    const child = utilityProcess.fork(path.join(APP_DIR, 'services', 'claudeLocalSessions.worker.js'), [], {
       serviceName: 'AIpermiler local insights',
     });
     let settled = false;
