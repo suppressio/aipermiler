@@ -8,8 +8,9 @@ import { BADGE_SIZE, badgeText, badgeTone, pickBadge, pickAlerts, renderBadge } 
 import { windowLabel } from './windowLabel';
 import type { AppSettings, UsageSnapshot, TrayBadgeChoice, TrayViewState } from '../types/index';
 import { t } from './i18n/index';
+import { APP_DIR } from './appDir';
 
-const ICON_PATH = path.join(__dirname, '..', 'renderer', 'assets', 'tray-icon.png');
+const ICON_PATH = path.join(APP_DIR, 'renderer', 'assets', 'tray-icon.png');
 
 export interface CreateTrayDeps {
   getMainWindow: () => BrowserWindow | null;
