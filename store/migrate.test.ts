@@ -205,6 +205,14 @@ test('enforceSingleSignInAccounts: the enabled Claude account with local insight
   assert.deepEqual(off.map((x) => [x.id, x.enabled]), [['a', true], ['b', false]]);
 });
 
+test('enforceSingleLocalInsights: an enabled account keeps the flag over a disabled one (#180)', () => {
+  const result = normalizeAccounts([
+    { id: 'a', provider: 'claude', enabled: false, localInsights: true },
+    { id: 'b', provider: 'claude', enabled: true, localInsights: true },
+  ]);
+  assert.deepEqual(result.map((x) => [x.id, x.enabled, x.provider === 'claude' && x.localInsights]), [['a', false, false], ['b', true, true]]);
+});
+
 test('normalizeAccounts: Claude binary path kept only when absolute (#180)', () => {
   const pathOf = (binaryPath: unknown) => {
     const account = at(normalizeAccounts([{ id: 'c', provider: 'claude', binaryPath }]), 0);

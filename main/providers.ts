@@ -12,6 +12,7 @@
 
 import { core } from './core';
 import { requireFresh } from './coreClient';
+import { oneAtATime } from './oneAtATime';
 import { claudeUsageRequest, codexUsageRequest, copilotAccountFlags, copilotUsageRequest } from './coreRequests';
 import { clearClaudePartition } from './claude-auth';
 import { PROVIDER_DISPLAY_NAMES } from '../store/migrate';
@@ -44,12 +45,7 @@ export const CODEX_CORE_ENDPOINT_LABEL = 'core: codex app-server account/rateLim
  * Two probes at once would share that folder; the core refuses a non-empty one, but two
  * starting together could both pass the check.
  */
-let claudeReads: Promise<unknown> = Promise.resolve();
-export function oneClaudeReadAtATime<T>(read: () => Promise<T>): Promise<T> {
-  const next = claudeReads.then(read, read);
-  claudeReads = next.catch(() => undefined);
-  return next;
-}
+const oneClaudeReadAtATime = oneAtATime();
 
 /** Label of the Claude source in the diagnostic report. */
 export const CLAUDE_CORE_ENDPOINT_LABEL = 'core: claude /usage status line rate_limits';
