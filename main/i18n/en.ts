@@ -57,7 +57,8 @@ export const en = {
   'report.confirmDetail': "The report reads the usage of {accounts} connected account(s) and saves one text file in your Downloads folder with:\n• the usage responses of Claude/GitHub, with real values (percentages, amounts, dates)\n• the settings that affect pacing (scope, renewal day, work schedule)\n• how the app read the data (windows, verdicts, budgets)\n• the last 7 days of history and today's samples\n• the last errors and warnings of the app\n• system facts: time zone, screens and scaling, memory/CPU used by the app, its internal timings, number of cores and RAM\n\nNever included: account names, credentials, cookies, ids, your company domain, free text, CPU/GPU model, computer or user name.\n\nNothing is sent: the folder opens and a GitHub issue draft opens in the browser. You decide whether to attach the file and submit it.",
   'report.confirm': "Create report",
   'report.cancel': "Cancel",
-  'error.claudeQuotasUnavailable': 'Claude quotas are not available in this version: Anthropic does not allow third-party apps to sign in to claude.ai or store its session. They will return through an allowed source (issue #139 on the project GitHub page). Local insights keep working.',
+  'error.claudeSignedOut': 'Sign in to Claude Code on this computer with your Claude subscription (run `claude` and follow the login): this app reads the quotas through your Claude Code sign-in and stores no claude.ai session.',
+  'error.claudeNotReady': 'Claude Code did not reach its prompt: open `claude` once in a terminal and answer what it asks (first start, an update, an API key in the environment), then refresh.',
   'error.copilotEnterpriseManaged': 'This github.com account has no Copilot usage data. If your company uses its own GitHub domain (<name>.ghe.com), set it in the account and reconnect with an account of that domain.',
 } as const;
 

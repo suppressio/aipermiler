@@ -5,30 +5,19 @@
 // renderer. Codex (#178) and Copilot (#179) are read by the Go core CLI (main/core.ts):
 // Codex through the user's own Codex sign-in, Copilot with the token the core keeps in
 // the OS keyring. No provider secret lives in the app any more, except a Copilot token
-// of an earlier version until main.ts moves it to the keyring. Claude quotas are not read (#140): see ClaudeUsageUnavailableError. Adding a provider = a new branch in each function below (the exhaustive
+// of an earlier version until main.ts moves it to the keyring. Claude (#180) is read by
+// the core through the user's own Claude Code sign-in (`claude /usage` in a PTY, #147),
+// never a claude.ai session (#140). Adding a provider = a new branch in each function below (the exhaustive
 // `switch` on `provider` makes tsc fail when one is forgotten).
 
 import { core } from './core';
 import { requireFresh } from './coreClient';
-import { codexUsageRequest, copilotAccountFlags, copilotUsageRequest } from './coreRequests';
+import { claudeUsageRequest, codexUsageRequest, copilotAccountFlags, copilotUsageRequest } from './coreRequests';
 import { clearClaudePartition } from './claude-auth';
 import { PROVIDER_DISPLAY_NAMES } from '../store/migrate';
 import type { AccountConfig, ProviderId, RawAccountUsage } from '../types/index';
 
 const SECRET_PLACEHOLDER = '••••••••';
-
-/**
- * Claude quotas are not read (#140): Anthropic does not allow third-party apps to
- * collect or store claude.ai session tokens (Claude Code legal and compliance page), and
- * that was the only source. Claude accounts stay for the local insights; quotas return
- * through an allowed source with the standalone core (#139).
- */
-export class ClaudeUsageUnavailableError extends Error {
-  constructor() {
-    super('Claude quotas are not available in this version (#140)');
-    this.name = 'ClaudeUsageUnavailableError';
-  }
-}
 
 export function providerDisplayName(provider: ProviderId): string {
   return PROVIDER_DISPLAY_NAMES[provider];
@@ -38,7 +27,7 @@ export function isConnected(cfg: AccountConfig): boolean {
   switch (cfg.provider) {
     // Nothing to connect: the core uses the Codex sign-in of this computer (#178).
     case 'codex': return true;
-    // Nothing to connect: the account exists for the local insights (#140).
+    // Nothing to connect: the core uses the Claude Code sign-in of this computer (#180).
     case 'claude': return true;
     // Connected once the core holds its token (username set at connect), or while a
     // token of an earlier version waits to be moved to the keyring.
@@ -49,6 +38,9 @@ export function isConnected(cfg: AccountConfig): boolean {
 /** Label of the Codex source in the diagnostic report. */
 export const CODEX_CORE_ENDPOINT_LABEL = 'core: codex app-server account/rateLimits/read';
 
+/** Label of the Claude source in the diagnostic report. */
+export const CLAUDE_CORE_ENDPOINT_LABEL = 'core: claude /usage status line rate_limits';
+
 
 /** Calls the provider service's fetchUsage with the account credentials. */
 export async function fetchUsage(cfg: AccountConfig): Promise<RawAccountUsage> {
@@ -56,7 +48,7 @@ export async function fetchUsage(cfg: AccountConfig): Promise<RawAccountUsage> {
     case 'codex':
       return requireFresh(await core.usage(codexUsageRequest(cfg)), 'codex');
     case 'claude':
-      throw new ClaudeUsageUnavailableError();
+      return requireFresh(await core.usage(claudeUsageRequest(cfg)), 'claude');
     case 'copilot':
       return requireFresh(await core.usage(copilotUsageRequest(cfg)), 'copilot');
   }
@@ -74,7 +66,8 @@ export async function fetchRawResponse(cfg: AccountConfig): Promise<{ endpointLa
       // core never forwards it. Redacted like any response by the report.
       return { endpointLabel: CODEX_CORE_ENDPOINT_LABEL, response: await core.usage(codexUsageRequest(cfg)) };
     case 'claude':
-      throw new ClaudeUsageUnavailableError();
+      // The core's reading too: the status line JSON stays inside the core.
+      return { endpointLabel: CLAUDE_CORE_ENDPOINT_LABEL, response: await core.usage(claudeUsageRequest(cfg)) };
     case 'copilot':
       // copilot_internal/user, the main source of both scopes, raw (redacted by the report).
       return core.raw({ provider: 'copilot', flags: copilotAccountFlags(cfg) });

@@ -3,8 +3,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import path from 'node:path';
-import { codexUsageRequest, copilotAccountFlags, copilotUsageRequest } from './coreRequests';
-import { defaultCodexAccount, defaultCopilotAccount } from '../store/migrate';
+import { claudeUsageRequest, codexUsageRequest, copilotAccountFlags, copilotUsageRequest } from './coreRequests';
+import { defaultClaudeAccount, defaultCodexAccount, defaultCopilotAccount } from '../store/migrate';
 
 test('Copilot: account and host on every command; scope, and the manual quota only for the personal scope', () => {
   const personal = { ...defaultCopilotAccount('copilot-1'), host: 'acme.ghe.com', manualQuota: 300 };
@@ -25,4 +25,10 @@ test('Codex: the binary path only when set', () => {
   assert.deepEqual(codexUsageRequest(defaultCodexAccount('cx')), { provider: 'codex', flags: [] });
   const bin = path.resolve('opt', 'codex');
   assert.deepEqual(codexUsageRequest({ ...defaultCodexAccount('cx'), binaryPath: bin }).flags, ['--codex-bin', bin]);
+});
+
+test('claudeUsageRequest: auto-detection by default, --claude-bin when a path is set (#180)', () => {
+  assert.deepEqual(claudeUsageRequest(defaultClaudeAccount('cl')), { provider: 'claude', flags: [] });
+  const bin = path.resolve('/opt/claude/bin/claude');
+  assert.deepEqual(claudeUsageRequest({ ...defaultClaudeAccount('cl'), binaryPath: bin }).flags, ['--claude-bin', bin]);
 });

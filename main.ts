@@ -14,7 +14,7 @@ import { clearClaudePartition, clearDefaultSessionClaudeCookies } from './main/c
 import * as providers from './main/providers';
 import * as refreshPolicy from './main/refreshPolicy';
 import type { RefreshMode } from './main/refreshPolicy';
-import { defaultAccountFor, enforceSingleCodexAccount, enforceSingleLocalInsights, nextAccountLabel, normalizeAccounts, purgeClaudeSessions } from './store/migrate';
+import { defaultAccountFor, enforceSingleLocalInsights, enforceSingleSignInAccounts, nextAccountLabel, normalizeAccounts, purgeClaudeSessions } from './store/migrate';
 import * as budget from './budget';
 import { createUsageCore, refreshIntervalMs } from './core/usage';
 import path from 'path';
@@ -173,7 +173,8 @@ async function computeLocalInsightsIfNeeded(): Promise<ClaudeLocalInsights | nul
 function startLocalInsights(windowDays: number, refreshWhenDone: boolean): Promise<ClaudeLocalInsights | null> {
   const cached = store.get('localInsightsCache').claudeCode;
   const startedAt = Date.now();
-  localInsightsRunning = computeLocalInsightsInProcess(windowDays)
+  localInsightsRunning = claudeProbeFolder()
+    .then((probe) => computeLocalInsightsInProcess(windowDays, probe))
     .then((result) => {
       timings.lastLocalInsights = { at: new Date().toISOString(), ms: Date.now() - startedAt };
       store.set('localInsightsCache.claudeCode', result);
@@ -191,7 +192,24 @@ function startLocalInsights(windowDays: number, refreshWhenDone: boolean): Promi
   return localInsightsRunning;
 }
 
-function computeLocalInsightsInProcess(windowDays: number): Promise<ClaudeLocalInsights | null> {
+// The core's Claude probe folder (#180): its sessions are the core's /usage reads, not
+// the user's work, so the local insights skip them. Asked once per run of the app; a
+// core that cannot answer only means nothing is skipped (the core deletes the probe
+// transcripts anyway, #147).
+let claudeProbePath: Promise<string | null> | null = null;
+function claudeProbeFolder(): Promise<string | null> {
+  claudeProbePath ??= core.paths().then(
+    (paths) => paths.claudeProbe,
+    (err: unknown) => {
+      console.warn('[main] core paths unavailable, Claude probe sessions not skipped:', friendlyErrorMessage(err));
+      claudeProbePath = null; // asked again next time
+      return null;
+    },
+  );
+  return claudeProbePath;
+}
+
+function computeLocalInsightsInProcess(windowDays: number, skipCwd: string | null): Promise<ClaudeLocalInsights | null> {
   return new Promise((resolve, reject) => {
     const child = utilityProcess.fork(path.join(__dirname, 'services', 'claudeLocalSessions.worker.js'), [], {
       serviceName: 'AIpermiler local insights',
@@ -212,7 +230,7 @@ function computeLocalInsightsInProcess(windowDays: number): Promise<ClaudeLocalI
       });
     });
     child.once('exit', (code) => { settle(() => { reject(new Error(`local insights: process exited (${String(code)})`)); }); });
-    child.postMessage({ windowDays });
+    child.postMessage({ windowDays, skipCwd });
   });
 }
 
@@ -253,9 +271,6 @@ function friendlyErrorMessage(err: unknown): string {
     if (err.reason === 'enterprise_managed_seat') return t('error.copilotEnterpriseManaged');
     if (err.code === 'signed_out') return t('error.copilotSignedOut');
     if (err.reason === 'keyring_unavailable') return t('error.keyringUnavailable', { detail: err.message });
-  }
-  if (err instanceof providers.ClaudeUsageUnavailableError) {
-    return t('error.claudeQuotasUnavailable');
   }
   if (err instanceof CoreBinaryError) return t('error.coreMissing', { detail: error.message });
   if (err instanceof CoreTimeoutError) return t('error.coreTimeout');
@@ -317,7 +332,7 @@ function reportConfig(cfg: AccountConfig): Record<string, unknown> {
     // Never the path itself (it can hold the user name): only whether one is set.
     case 'codex': return { ...common, binaryPath: cfg.binaryPath ? 'set' : 'auto-detect' };
     case 'claude':
-      return { ...common, authMethod: cfg.authMethod, localInsights: cfg.localInsights };
+      return { ...common, localInsights: cfg.localInsights, binaryPath: cfg.binaryPath ? 'set' : 'auto-detect' };
     case 'copilot':
       return {
         ...common,
@@ -488,14 +503,19 @@ const usageCore = createUsageCore({
   },
   fetchUsage: providers.fetchUsage,
   isConnected: providers.isConnected,
-  // Signed out is a state, not a failure: Codex (sign in with Codex), Copilot (reconnect).
+  // Signed out is a state, not a failure: Codex (sign in with Codex), Copilot (reconnect),
+  // Claude (sign in to Claude Code). For Claude "not ready" is a state too: Claude Code
+  // shows a screen of its own to answer first (#180).
   accountNotice: (err) => {
-    if (!(err instanceof CoreProviderError) || err.code !== 'signed_out') return null;
-    if (err.provider === 'codex') return t('error.codexSignedOut');
-    if (err.provider === 'copilot') return t('error.copilotSignedOut');
+    if (!(err instanceof CoreProviderError)) return null;
+    if (err.code === 'signed_out') {
+      if (err.provider === 'codex') return t('error.codexSignedOut');
+      if (err.provider === 'copilot') return t('error.copilotSignedOut');
+      if (err.provider === 'claude') return t('error.claudeSignedOut');
+    }
+    if (err.code === 'not_ready' && err.provider === 'claude') return t('error.claudeNotReady');
     return null;
   },
-  quotasUnavailable: (cfg) => (cfg.provider === 'claude' ? t('error.claudeQuotasUnavailable') : null),
   localInsights: computeLocalInsightsIfNeeded,
   describeError: friendlyErrorMessage,
   onFetchError: maybeReportFormatDrift,
@@ -690,7 +710,7 @@ function preserveRealSecretsOnWrite(key: string, value: unknown): unknown {
   for (const cur of current) {
     if (!merged.some((m) => m.id === cur.id)) merged.push(cur);
   }
-  return enforceSingleCodexAccount(enforceSingleLocalInsights(merged));
+  return enforceSingleSignInAccounts(enforceSingleLocalInsights(merged));
 }
 
 // ---------------------------------------------------------------------------
@@ -844,10 +864,11 @@ function registerIpcHandlers(): void {
     const accounts = getAccounts();
     const id = `${provider}-${randomUUID().slice(0, 8)}`;
     accounts.push(defaultAccountFor(provider, id, nextAccountLabel(provider, accounts)));
-    // A new Codex account starts enabled unless another one already is (#178).
-    store.set('accounts', enforceSingleCodexAccount(accounts));
+    // A new Codex or Claude account starts enabled unless another one of the same
+    // provider already is (#178, #180).
+    store.set('accounts', enforceSingleSignInAccounts(accounts));
     broadcastSettings();
-    // Codex has no Connect step that would trigger the first read: refresh now.
+    // Codex and Claude have no Connect step that would trigger the first read: refresh now.
     runDetached('refresh usage', refreshAndBroadcast('forced'));
     return id;
   });

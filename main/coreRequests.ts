@@ -2,7 +2,7 @@
 // config (pure: no Electron, tested in coreRequests.test.ts). Account parameters only:
 // secrets never go in argv (docs/CORE-CLI.md).
 
-import type { CodexAccountSettings, CopilotAccountSettings } from '../types/index';
+import type { ClaudeAccountSettings, CodexAccountSettings, CopilotAccountSettings } from '../types/index';
 
 export interface CoreProviderRequest {
   provider: string;
@@ -22,6 +22,11 @@ export function copilotUsageRequest(cfg: CopilotAccountSettings): CoreProviderRe
   const flags = [...copilotAccountFlags(cfg), '--scope', cfg.accountScope];
   if (cfg.accountScope === 'personal') flags.push('--manual-quota', String(cfg.manualQuota));
   return { provider: 'copilot', flags };
+}
+
+/** `usage claude`: only the optional binary path (#180). */
+export function claudeUsageRequest(cfg: ClaudeAccountSettings): CoreProviderRequest {
+  return { provider: 'claude', flags: cfg.binaryPath ? ['--claude-bin', cfg.binaryPath] : [] };
 }
 
 /** `usage codex`: only the optional binary path. */

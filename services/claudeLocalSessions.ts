@@ -15,6 +15,7 @@
 // system Node tolerates require() of ESM via interop, the one inside Electron does
 // not). Fix: a native dynamic import(), see dynamicImport below.
 import type { ListSessionsOptions, GetSessionMessagesOptions, SDKSessionInfo, SessionMessage } from '@anthropic-ai/claude-agent-sdk';
+import path from 'node:path';
 import type { ClaudeLocalInsights, LocalDailyTokens, ToolUsageShare } from '../types/index';
 import { localDateKey } from '../budget';
 
@@ -72,6 +73,18 @@ function loadSdkDeps(): Promise<LocalSessionsDeps> {
 }
 
 /**
+ * Whether a session ran in `folder` (the core's Claude probe folder, #180): compared as
+ * resolved paths, case-insensitively on Windows and macOS (their default file systems).
+ */
+export function ranIn(sessionCwd: string | undefined, folder: string | null, platform: NodeJS.Platform = process.platform): boolean {
+  if (folder === null || sessionCwd === undefined || sessionCwd === '') return false;
+  const p = platform === 'win32' ? path.win32 : path.posix;
+  const a = p.resolve(sessionCwd);
+  const b = p.resolve(folder);
+  return platform === 'win32' || platform === 'darwin' ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
+/**
  * Aggregates behavioural insights over the local Claude Code sessions of the last
  * `windowDays` days. Shares are weighted by output_tokens volume (the usage that
  * really consumes credit), not by turn count. Returns null when there are no sessions
@@ -80,6 +93,10 @@ function loadSdkDeps(): Promise<LocalSessionsDeps> {
 export async function computeClaudeLocalInsights(
   windowDays: number,
   deps?: LocalSessionsDeps,
+  // The core's Claude probe folder (#180): its sessions are the core's /usage reads,
+  // not the user's work. Otherwise each probe would count as the day's first session
+  // (firstSessionStartByDay moves the working-day start in pacing).
+  skipCwd: string | null = null,
 ): Promise<ClaudeLocalInsights | null> {
   const resolvedDeps = deps ?? (await loadSdkDeps());
   let sessions: SDKSessionInfo[];
@@ -91,7 +108,7 @@ export async function computeClaudeLocalInsights(
   }
 
   const cutoff = Date.now() - windowDays * 24 * 3600 * 1000;
-  const inWindow = sessions.filter((s) => s.lastModified >= cutoff);
+  const inWindow = sessions.filter((s) => s.lastModified >= cutoff && !ranIn(s.cwd, skipCwd));
   if (inWindow.length === 0) return null;
 
   let totalOutputTokens = 0;

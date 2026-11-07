@@ -177,6 +177,20 @@ test('version(): `version --json` with a short timeout', async () => {
   assert.deepEqual(rec.calls.map((c) => [c.args, c.timeoutMs]), [[['version', '--json'], 5000]]);
 });
 
+test('paths(): `paths --json` with a short timeout, claudeProbe required (#180)', async () => {
+  const rec = recordingRunner({ exitCode: 0, stdout: '{"schemaVersion":1,"claudeProbe":"/synthetic/cache/aipermiler/claude-probe"}\n' });
+  const paths = await createCoreClient({ binary: () => 'core', run: rec.runner }).paths();
+  assert.equal(paths.claudeProbe, '/synthetic/cache/aipermiler/claude-probe');
+  assert.deepEqual(rec.calls.map((c) => [c.args, c.timeoutMs]), [[['paths', '--json'], 5000]]);
+
+  for (const stdout of ['{"schemaVersion":1}\n', '{"schemaVersion":1,"claudeProbe":""}\n']) {
+    const bad = recordingRunner({ exitCode: 0, stdout });
+    await assert.rejects(createCoreClient({ binary: () => 'core', run: bad.runner }).paths(), CoreOutputError);
+  }
+  const failed = recordingRunner({ exitCode: 1, stdout: '{"schemaVersion":1,"error":{"code":"unavailable","message":"x"}}\n' });
+  await assert.rejects(createCoreClient({ binary: () => 'core', run: failed.runner }).paths(), CoreOutputError);
+});
+
 test('a binary that cannot be resolved fails that call, not the client', async () => {
   const client = createCoreClient({ binary: () => { throw new CoreBinaryError('AIPERMILER_CORE_BIN must be an absolute path'); } });
   await assert.rejects(client.version(), CoreBinaryError);
