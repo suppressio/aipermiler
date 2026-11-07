@@ -24,6 +24,7 @@ const (
 	screenTrust     = "\x1b[2J\x1b[HQuick\x1b[1Csafety\x1b[1Ccheck: Is this a project you created or one you trust?\r\n❯ 1. Yes, I trust this folder\r\n  2. No, exit\r\n"
 	screenSignedOut = "\x1b[2J\x1b[H> \r\n\x1b[2mNot logged in · Run /login\x1b[0m\r\n"
 	screenTheme     = "\x1b[2J\x1b[HLet's get started.\r\nChoose the text style that looks best with your terminal\r\n"
+	screenAPIKey    = "\x1b[2J\x1b[H\x1b[1mDetected\x1b[12Ga\x1b[14Gcustom\x1b[21GAPI\x1b[25Gkey in your environment\x1b[22m\r\nANTHROPIC_API_KEY: sk-ant-...-synthetic\r\nDo you want to use this API key?\r\n  Yes\r\n❯ No (recommended)\r\n"
 	screenPanel     = "\x1b[2J\x1b[H Usage\r\n Current\x1b[1Csession\r\n \x1b[38;5;2m███\x1b[0m 12%\x1b[1Cused\r\n Resets 3pm (UTC)\r\n"
 )
 
@@ -165,6 +166,28 @@ func TestDriveSignedOut(t *testing.T) {
 			assertKeys(t, f)
 		})
 	}
+}
+
+// #228: the API key question is never answered, not even by the /usage meant for the
+// prompt (its Enter would store "No" in the user's Claude Code), also after trust.
+func TestDriveLeavesTheAPIKeyQuestion(t *testing.T) {
+	t.Parallel()
+	t.Run("at start", func(t *testing.T) {
+		t.Parallel()
+		f := newFake(screenAPIKey, nil)
+		assertCode(t, claude.DriveForTest(context.Background(), f, nil), usage.CodeUnavailable)
+		assertKeys(t, f)
+	})
+	t.Run("after trust", func(t *testing.T) {
+		t.Parallel()
+		f := newFake(screenTrust, func(f *fake, key string) {
+			if key == "\r" {
+				go f.print(screenAPIKey)
+			}
+		})
+		assertCode(t, claude.DriveForTest(context.Background(), f, nil), usage.CodeUnavailable)
+		assertKeys(t, f, "\x1b[B", "\r")
+	})
 }
 
 func TestDriveSignedOutInThePanel(t *testing.T) {

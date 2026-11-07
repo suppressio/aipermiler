@@ -34,7 +34,11 @@ const (
 var (
 	markersSignedOut = []string{"notloggedin", "selectloginmethod", "choosethetextstyle"}
 	markersTrust     = []string{"quicksafetycheck", "itrustthisfolder"}
-	markerPanel      = "%used"
+	// The question about an API key in the environment (seen on 2.1.319). Its default
+	// answer is No, and any Enter typed into it stores that answer in the user's
+	// Claude Code (#228): the probe types nothing there and leaves.
+	markersAPIKey = []string{"detectedacustomapikey", "doyouwanttousethisapikey"}
+	markerPanel   = "%used"
 )
 
 // timing holds the waits of a probe; tests shorten them.
@@ -338,6 +342,8 @@ func (d *driver) run(ctx context.Context, afterEsc func(context.Context) error) 
 		switch {
 		case d.has(markersSignedOut...):
 			return signedOut()
+		case d.has(markersAPIKey...):
+			return unavailable("Claude Code asks whether to use the API key in its environment; answer it in claude, then retry")
 		case !trusted && d.has(markersTrust...):
 			// Answered once, never again: the redraw after Down still carries the
 			// marker. Should the answer not take, /usage opens no panel: not_ready.
