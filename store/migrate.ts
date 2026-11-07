@@ -192,11 +192,6 @@ export function migrateAccounts(rawAccounts: unknown, legacyLocalInsightsEnabled
 }
 
 /**
- * At most one Claude account can have `localInsights: true`: local Claude Code
- * sessions do not say which account they belong to. If more have it (patch from the
- * renderer), the first in order wins.
- */
-/**
  * Providers read through the one sign-in of this computer by the core: Codex (#178)
  * and Claude Code (#180).
  */
@@ -230,14 +225,17 @@ export function enforceSingleSignInAccounts(accounts: AccountConfig[]): AccountC
   return accounts.map((a) => (SIGN_IN_PROVIDERS.includes(a.provider) && a.enabled && !keepers.has(a.id) ? { ...a, enabled: false } : a));
 }
 
+/**
+ * At most one Claude account can have `localInsights: true`: local Claude Code
+ * sessions do not say which account they belong to. If more have it (patch from the
+ * renderer), an enabled one wins, else the first in order.
+ */
 export function enforceSingleLocalInsights(accounts: AccountConfig[]): AccountConfig[] {
-  let seen = false;
-  return accounts.map((a) => {
-    if (a.provider !== 'claude' || !a.localInsights) return a;
-    if (seen) return { ...a, localInsights: false };
-    seen = true;
-    return a;
-  });
+  // An enabled account keeps the flag over a disabled one listed first (#180: the flag
+  // on a disabled account computes nothing).
+  const flagged = accounts.filter((a) => a.provider === 'claude' && a.localInsights);
+  const keeper = (flagged.find((a) => a.enabled) ?? flagged[0])?.id;
+  return accounts.map((a) => (a.provider === 'claude' && a.localInsights && a.id !== keeper ? { ...a, localInsights: false } : a));
 }
 
 /**

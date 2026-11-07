@@ -124,7 +124,9 @@ export async function computeClaudeLocalInsights(
   }
 
   const cutoff = Date.now() - windowDays * 24 * 3600 * 1000;
-  const inWindow = sessions.filter((s) => s.lastModified >= cutoff && !ranIn(s.cwd, skipCwd));
+  // The probe folder's real path is resolved once, not per session.
+  const probeFolder = skipCwd === null ? null : realPath(skipCwd);
+  const inWindow = sessions.filter((s) => s.lastModified >= cutoff && !ranIn(s.cwd, probeFolder));
   if (inWindow.length === 0) return null;
 
   let totalOutputTokens = 0;
