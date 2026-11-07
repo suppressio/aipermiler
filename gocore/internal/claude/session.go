@@ -146,17 +146,44 @@ func claudeArgs(statusLine string) []string {
 }
 
 // childEnv drops the markers a parent Claude Code session leaves (they change the
-// child's behaviour) and sets the terminal type.
+// child's behaviour) and sets the terminal type. Only those markers go: every other
+// variable is the user's configuration (provider, sign-in, gateway, mTLS, Git Bash
+// path...) and must reach the child, or it would read another sign-in than the user's
+// Claude Code (#228).
 func childEnv(environ []string) []string {
 	env := make([]string, 0, len(environ)+1)
 	for _, kv := range environ {
 		key, _, _ := strings.Cut(kv, "=")
-		if strings.HasPrefix(key, "CLAUDE_CODE_") || key == "CLAUDECODE" || key == "TERM" {
+		// Windows names are case-insensitive; Claude Code sets the markers in upper case.
+		if strings.EqualFold(key, "TERM") || sessionMarkers[strings.ToUpper(key)] {
 			continue
 		}
 		env = append(env, kv)
 	}
 	return append(env, "TERM=xterm-256color")
+}
+
+// sessionMarkers: the variables a running Claude Code session sets for the processes
+// it starts, not configuration a user sets: documented as "set by Claude Code" on
+// code.claude.com/docs/en/env-vars, or seen in its subprocesses on 2.1.302-2.1.319
+// (ENTRYPOINT, SSE_PORT, SESSION_ATTENDED, EXECPATH, AI_AGENT).
+var sessionMarkers = map[string]bool{
+	"CLAUDECODE":                    true,
+	"CLAUDE_CODE_ENTRYPOINT":        true,
+	"CLAUDE_CODE_SSE_PORT":          true,
+	"CLAUDE_CODE_SESSION_ID":        true,
+	"CLAUDE_CODE_CHILD_SESSION":     true,
+	"CLAUDE_CODE_SESSION_ATTENDED":  true,
+	"CLAUDE_CODE_EXECPATH":          true,
+	"CLAUDE_CODE_MESSAGING_SOCKET":  true,
+	"CLAUDE_CODE_MESSAGING_TOKEN":   true,
+	"CLAUDE_CODE_BRIDGE_SESSION_ID": true,
+	"CLAUDE_CODE_REMOTE":            true,
+	"CLAUDE_CODE_REMOTE_SESSION_ID": true,
+	"CLAUDE_JOB_DIR":                true,
+	"CLAUDE_PID":                    true,
+	"CLAUDE_EFFORT":                 true,
+	"AI_AGENT":                      true,
 }
 
 // authStatus is what the probe reads from `claude auth status`: whether it is signed

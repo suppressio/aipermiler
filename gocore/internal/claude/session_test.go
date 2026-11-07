@@ -337,8 +337,27 @@ func TestClaudeArgs(t *testing.T) {
 
 func TestChildEnv(t *testing.T) {
 	t.Parallel()
-	got := claude.ChildEnvForTest([]string{"PATH=/usr/bin", "CLAUDECODE=1", "CLAUDE_CODE_SSE_PORT=1", "TERM=dumb", "CLAUDE_CONFIG_DIR=/synthetic"})
-	want := []string{"PATH=/usr/bin", "CLAUDE_CONFIG_DIR=/synthetic", "TERM=xterm-256color"}
+	got := claude.ChildEnvForTest([]string{
+		"PATH=/usr/bin", "CLAUDECODE=1", "CLAUDE_CODE_SSE_PORT=1", "CLAUDE_CODE_ENTRYPOINT=cli",
+		"CLAUDE_CODE_SESSION_ID=synthetic", "CLAUDE_CODE_CHILD_SESSION=1", "CLAUDE_CODE_SESSION_ATTENDED=1",
+		"CLAUDE_CODE_EXECPATH=/synthetic/claude", "CLAUDE_PID=1", "CLAUDE_EFFORT=high",
+		"CLAUDE_CODE_MESSAGING_SOCKET=/synthetic/sock", "CLAUDE_CODE_MESSAGING_TOKEN=synthetic",
+		"CLAUDE_CODE_BRIDGE_SESSION_ID=synthetic", "CLAUDE_CODE_REMOTE=true", "CLAUDE_CODE_REMOTE_SESSION_ID=synthetic",
+		"CLAUDE_JOB_DIR=/synthetic/job", "AI_AGENT=claude-code",
+		"TERM=dumb", "Term=dumb", "claudecode=1", "CLAUDE_CONFIG_DIR=/synthetic",
+		// Windows drive entries and malformed entries pass through untouched.
+		"=C:=C:\\synthetic", "NOEQUALS",
+		// #228: the user's configuration reaches the child.
+		"CLAUDE_CODE_USE_BEDROCK=1", "CLAUDE_CODE_SKIP_BEDROCK_AUTH=1", "CLAUDE_CODE_OAUTH_TOKEN=synthetic",
+		"CLAUDE_CODE_CLIENT_CERT=/synthetic/cert.pem", "CLAUDE_CODE_GIT_BASH_PATH=/synthetic/bash",
+		"ANTHROPIC_API_KEY=synthetic",
+	})
+	want := []string{
+		"PATH=/usr/bin", "CLAUDE_CONFIG_DIR=/synthetic", "=C:=C:\\synthetic", "NOEQUALS",
+		"CLAUDE_CODE_USE_BEDROCK=1", "CLAUDE_CODE_SKIP_BEDROCK_AUTH=1", "CLAUDE_CODE_OAUTH_TOKEN=synthetic",
+		"CLAUDE_CODE_CLIENT_CERT=/synthetic/cert.pem", "CLAUDE_CODE_GIT_BASH_PATH=/synthetic/bash",
+		"ANTHROPIC_API_KEY=synthetic", "TERM=xterm-256color",
+	}
 	if !slices.Equal(got, want) {
 		t.Fatalf("env = %q; want %q", got, want)
 	}
