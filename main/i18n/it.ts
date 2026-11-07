@@ -15,6 +15,8 @@ export const it: Record<MainMessageKey, string> = {
   'windows.premium_interactions': 'Crediti AI Copilot',
   'windows.chat': 'Chat Copilot',
   'windows.completions': 'Completamento codice Copilot',
+  'windows.claude-5h': 'Limite 5 ore',
+  'windows.claude-7d': 'Limite settimanale',
   'windows.codex-5h': 'Limite 5 ore',
   'windows.codex-7d': 'Limite settimanale',
   'windows.codexHours': 'Limite {n} ore',

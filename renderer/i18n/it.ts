@@ -31,6 +31,7 @@ export const it: Record<MessageKey, string> = {
   'widget.gauge.sustainable': 'Ritmo sostenibile: {rate}',
 
   'widget.chart.title': 'Consumo giornaliero vs budget ({days}gg)',
+  'widget.chart.titleEmpty': 'Consumo giornaliero vs budget',
   'widget.chart.ideal': 'quota ideale {value}/giorno',
   'widget.chart.notApplicable': 'Non applicabile su finestre di poche ore — vedi il consumo istantaneo.',
   'widget.chart.noData': '{date}: nessun dato',
@@ -110,6 +111,8 @@ export const it: Record<MessageKey, string> = {
   'windows.premium_interactions': 'Crediti AI Copilot',
   'windows.chat': 'Chat Copilot',
   'windows.completions': 'Completamento codice Copilot',
+  'windows.claude-5h': 'Limite 5 ore',
+  'windows.claude-7d': 'Limite settimanale',
   'windows.codex-5h': 'Limite 5 ore',
   'windows.codex-7d': 'Limite settimanale',
   'windows.codexHours': 'Limite {n} ore',

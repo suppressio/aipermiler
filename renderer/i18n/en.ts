@@ -35,6 +35,7 @@ export const en = {
 
   // --- Widget: daily chart ---------------------------------------------------
   'widget.chart.title': 'Daily consumption vs budget ({days}d)',
+  'widget.chart.titleEmpty': 'Daily consumption vs budget',
   'widget.chart.ideal': 'ideal share {value}/day',
   'widget.chart.notApplicable': 'Not applicable to windows of a few hours — see instant consumption.',
   'widget.chart.noData': '{date}: no data',
@@ -119,6 +120,8 @@ export const en = {
   'windows.premium_interactions': 'Copilot AI credits',
   'windows.chat': 'Copilot chat',
   'windows.completions': 'Copilot code completions',
+  'windows.claude-5h': '5-hour limit',
+  'windows.claude-7d': 'Weekly limit',
   'windows.codex-5h': '5-hour limit',
   'windows.codex-7d': 'Weekly limit',
   'windows.codexHours': '{n}-hour limit',
