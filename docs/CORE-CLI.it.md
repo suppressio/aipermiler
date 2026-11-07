@@ -13,6 +13,7 @@ aipermiler token delete <provider> [--json] [provider flags]
 aipermiler login <provider> [--json] [--timeout 5m] [provider flags] [login flags]   # client secret su stdin
 aipermiler raw <provider> [provider flags]
 aipermiler version [--json]
+aipermiler paths [--json]
 aipermiler help
 ```
 
@@ -116,6 +117,16 @@ Le finestre sono riconosciute dalla durata in `primary` o `secondary`; in caso d
 - **Fonti**, come nel servizio TypeScript: `copilot_internal/user` (l'endpoint non documentato dietro l'indicatore di quota di VS Code) per entrambi gli ambiti; per l'ambito personale, quando non ha quote, il report di billing (`ai_credit/usage`, poi `premium_request/usage` su un 404 o un 400 "Unable to get billing usage data") con `--manual-quota` come totale. Ogni richiesta ha un timeout di 10 s.
 - **Finestre**: una per categoria di `quota_snapshots`, nell'ordine delle chiavi della risposta, id = la chiave della categoria, etichetta `Copilot — <chiave>`, `billing-cycle` di 1 mese, regole di VS Code (illimitata → crediti usati senza totale, niente se sono zero; entitlement > 0 → entitlement − rimanenti sull'entitlement; entitlement 0 → niente; altrimenti la percentuale). Report di billing → `ai_credits` / `AI credits`, conteggio, reset e rinnovo il 1° del mese UTC successivo. Stessi id di prima, così lo storico salvato continua a combaciare.
 - **Errori**: nessun token salvato → `signed_out`, reason `not_connected`; GitHub risponde 401 → `signed_out`, reason `token_rejected`; licenza github.com gestita da un'enterprise (nessun dato, #7) → `unavailable`, reason `enterprise_managed_seat`; nessuna categoria riconosciuta o niente `usageItems` → `format_drift` con la shape.
+
+## Percorsi
+
+`paths` stampa le cartelle che un client deve conoscere (#180): oggi `claudeProbe`, la cartella in cui gira ogni probe di Claude (`<user cache>/aipermiler/claude-probe`, che questo comando non crea). Un client che legge le sessioni di Claude Code (gli insight locali dell'app) salta le sessioni con `cwd` in quella cartella: sono le letture `/usage` del core, non il lavoro dell'utente.
+
+```json
+{"schemaVersion":1,"claudeProbe":"/home/synthetic/.cache/aipermiler/claude-probe"}
+```
+
+Output testuale: `claude probe: <percorso>`. Argomenti in più sono errori d'uso (exit 2); una cartella di cache utente che non si trova è `unavailable` (exit 1).
 
 ## Comandi per l'account
 
@@ -259,7 +270,7 @@ Con `--json`, gli errori di utilizzo non hanno la chiave provider. L'help è sol
 
 ## Client Electron
 
-`main/coreClient.ts` (#177) è il lato app di questo contratto. Per ogni lettura esegue il binario con `execFile`: niente shell, `windowsHide` (nessuna finestra di console su Windows), `--json`, `--timeout 25s` e un timeout del client di 30 s, stdin sempre chiuso (con il segreto scritto prima, con `--secret-stdin`, quando c'è), al massimo 1 MiB di output. Il binario è `AIPERMILER_CORE_BIN` se impostato (assoluto), altrimenti `<resources>/core/aipermiler[.exe]` nel pacchetto o `core-bin/` del repository in sviluppo. Errori: binario assente o non avviabile → `CoreBinaryError`; ucciso al timeout del client → `CoreTimeoutError`; output che non è un documento v1, che contraddice il proprio exit code, o un errore di uso (exit 2, un bug negli argomenti) → `CoreOutputError`, senza mai citare l'output; `format_drift` → lo stesso `FormatDriftError` dei servizi TypeScript, così la segnalazione di drift funziona senza modifiche; gli altri codici → `CoreProviderError` con il codice. `version --json` alimenta Impostazioni → Diagnostica e il report di diagnosi. Codex legge da qui da #178 (`main/core.ts`, `main/providers.ts`); Copilot segue in #179.
+`main/coreClient.ts` (#177) è il lato app di questo contratto. Per ogni lettura esegue il binario con `execFile`: niente shell, `windowsHide` (nessuna finestra di console su Windows), `--json`, `--timeout 25s` e un timeout del client di 30 s, stdin sempre chiuso (con il segreto scritto prima, con `--secret-stdin`, quando c'è), al massimo 1 MiB di output. Il binario è `AIPERMILER_CORE_BIN` se impostato (assoluto), altrimenti `<resources>/core/aipermiler[.exe]` nel pacchetto o `core-bin/` del repository in sviluppo. Errori: binario assente o non avviabile → `CoreBinaryError`; ucciso al timeout del client → `CoreTimeoutError`; output che non è un documento v1, che contraddice il proprio exit code, o un errore di uso (exit 2, un bug negli argomenti) → `CoreOutputError`, senza mai citare l'output; `format_drift` → lo stesso `FormatDriftError` dei servizi TypeScript, così la segnalazione di drift funziona senza modifiche; gli altri codici → `CoreProviderError` con il codice. `version --json` alimenta Impostazioni → Diagnostica e il report di diagnosi. Codex legge da qui da #178 (`main/core.ts`, `main/providers.ts`), Copilot da #179 e Claude da #180; `paths --json` dà agli insight locali la cartella dei probe di Claude da saltare.
 
 ## Versionamento e fixture condivise
 

@@ -2,7 +2,10 @@ package cli_test
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
@@ -75,5 +78,40 @@ func TestRunLogsToStderr(t *testing.T) { // uses t.Setenv; paralleltest recogniz
 	}
 	if !strings.Contains(stderr.String(), "level=DEBUG") || !strings.Contains(stderr.String(), "version="+buildinfo.Version) {
 		t.Errorf("stderr is missing the startup debug log: %q", stderr.String())
+	}
+}
+
+// #180: `paths` names the Claude probe folder, for clients that read Claude Code
+// sessions and must skip the probes' own.
+func TestPaths(t *testing.T) { // uses t.Setenv
+	t.Setenv("AIPERMILER_LOG_LEVEL", "warn")
+	t.Setenv("XDG_CACHE_HOME", t.TempDir()) // Linux; other systems keep their own folder
+	base, err := os.UserCacheDir()
+	if err != nil {
+		t.Skip("no user cache folder:", err)
+	}
+	want := filepath.Join(base, buildinfo.Name, "claude-probe")
+
+	var stdout, stderr bytes.Buffer
+	if code := cli.Run([]string{"paths", "--json"}, strings.NewReader(""), &stdout, &stderr); code != cli.ExitOK {
+		t.Fatalf("code = %d; stderr %q", code, stderr.String())
+	}
+	var doc struct {
+		SchemaVersion int    `json:"schemaVersion"`
+		ClaudeProbe   string `json:"claudeProbe"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil || doc.SchemaVersion != 1 || doc.ClaudeProbe != want {
+		t.Fatalf("document %q (%v); want claudeProbe %q", stdout.String(), err, want)
+	}
+	if _, err := os.Stat(want); !os.IsNotExist(err) {
+		t.Fatalf("paths created the probe folder (stat err %v)", err)
+	}
+
+	stdout.Reset()
+	if code := cli.Run([]string{"paths"}, strings.NewReader(""), &stdout, &stderr); code != cli.ExitOK || stdout.String() != "claude probe: "+want+"\n" {
+		t.Fatalf("text: code %d, %q", code, stdout.String())
+	}
+	if code := cli.Run([]string{"paths", "extra"}, strings.NewReader(""), &stdout, &stderr); code != cli.ExitUsage {
+		t.Fatalf("extra argument: code %d", code)
 	}
 }
