@@ -26,6 +26,7 @@ var TestTiming = timing{
 	quiet:        40 * time.Millisecond,
 	panelSettle:  20 * time.Millisecond,
 	panelTimeout: 300 * time.Millisecond,
+	echoTimeout:  150 * time.Millisecond,
 	escSettle:    100 * time.Millisecond,
 	exitGrace:    80 * time.Millisecond,
 	keyGap:       time.Millisecond,
