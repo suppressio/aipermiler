@@ -57,6 +57,9 @@ export const it: Record<MainMessageKey, string> = {
   'report.confirm': "Crea report",
   'report.cancel': "Annulla",
   'error.claudeSignedOut': "Accedi a Claude Code su questo computer con il tuo abbonamento Claude (esegui `claude` e segui il login): l'app legge le quote tramite il tuo accesso a Claude Code e non salva sessioni di claude.ai.",
-  'error.claudeNotReady': "Claude Code non ha raggiunto il suo prompt: apri `claude` una volta in un terminale e rispondi a quello che chiede (primo avvio, un aggiornamento, una API key nell'ambiente), poi aggiorna.",
+  'error.claudeNotReady': "Claude Code non ha raggiunto il suo prompt: apri `claude` una volta in un terminale e rispondi a quello che chiede (primo avvio, un aggiornamento), poi aggiorna.",
+  'error.claudeNotInstalled': "Claude Code non è stato trovato su questo computer: installalo (code.claude.com) e accedi, oppure indica il suo percorso nell'account (Impostazioni → Programma Claude Code).",
+  'error.claudeNoSubscription': "Claude Code ha l'accesso con una API key o un provider cloud (Bedrock, Vertex), che non ha quote di abbonamento: accedi a Claude Code con il tuo abbonamento Claude per vedere le quote.",
+  'error.claudeApiKeyQuestion': "Claude Code chiede se usare la API key impostata nel suo ambiente (ANTHROPIC_API_KEY): apri `claude` una volta in un terminale e rispondi, poi aggiorna. L'app non risponde mai al posto tuo.",
   'error.copilotEnterpriseManaged': "Questo account github.com non ha dati di consumo Copilot. Se la tua azienda usa un proprio dominio GitHub (<nome>.ghe.com), impostalo nell'account e ricollegati con un account di quel dominio.",
 };

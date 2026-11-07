@@ -115,8 +115,8 @@ func assertDiscover(t *testing.T, tr *tree, explicit, want string) {
 	got, err := claude.DiscoverForTest(tr.d, explicit)
 	if want == "" {
 		var e *usage.Error
-		if !errors.As(err, &e) || e.Code != usage.CodeUnavailable {
-			t.Fatalf("discover(%q) = %q, %#v; want unavailable", explicit, got, err)
+		if !errors.As(err, &e) || e.Code != usage.CodeUnavailable || e.Reason != claude.ReasonNotInstalled {
+			t.Fatalf("discover(%q) = %q, %#v; want unavailable, not_installed", explicit, got, err)
 		}
 		return
 	}

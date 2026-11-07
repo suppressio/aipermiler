@@ -35,6 +35,20 @@ func systemDiscovery() discovery {
 	return discovery{os.Getenv, os.Stat, filepath.EvalSymlinks, os.ReadDir, os.UserHomeDir, runtime.GOOS, runtime.GOARCH}
 }
 
+// Reasons of `unavailable` a client explains in the user's language (#180).
+const (
+	// Claude Code is not installed (or not where --claude-bin points).
+	ReasonNotInstalled = "not_installed"
+	// Signed in with an API key or a cloud provider: no subscription quota.
+	ReasonNoSubscription = "no_subscription"
+	// Claude Code waits for the user to answer about an API key in its environment.
+	ReasonAPIKeyQuestion = "api_key_question"
+)
+
+func unavailableBecause(reason, message string) *usage.Error {
+	return &usage.Error{Code: usage.CodeUnavailable, Reason: reason, Message: message}
+}
+
 func unavailable(message string) *usage.Error {
 	return &usage.Error{Code: usage.CodeUnavailable, Message: message}
 }
@@ -75,17 +89,17 @@ func (d discovery) native(path string) string {
 func (d discovery) discover(explicit string) (string, error) {
 	if explicit != "" {
 		if !filepath.IsAbs(explicit) {
-			return "", unavailable("claude binary path must be absolute")
+			return "", unavailableBecause(ReasonNotInstalled, "claude binary path must be absolute")
 		}
 		if found := d.native(explicit); found != "" {
 			return found, nil
 		}
-		return "", unavailable("no native claude binary at --claude-bin (not found, not executable, or an npm shim)")
+		return "", unavailableBecause(ReasonNotInstalled, "no native claude binary at --claude-bin (not found, not executable, or an npm shim)")
 	}
 	if found := d.candidates(); len(found) > 0 {
 		return found[0], nil
 	}
-	return "", unavailable("Claude Code not found; install it or set --claude-bin")
+	return "", unavailableBecause(ReasonNotInstalled, "Claude Code not found; install it or set --claude-bin")
 }
 
 // candidates lists every native binary found, in discovery order, de-duplicated by

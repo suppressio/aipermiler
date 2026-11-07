@@ -190,6 +190,21 @@ test('enforceSingleSignInAccounts: one enabled Claude account too, each provider
   assert.deepEqual(result.map((x) => [x.id, x.enabled]), [['c1', true], ['x1', true], ['c2', false], ['p', true], ['p2', true], ['x2', false]]);
 });
 
+test('enforceSingleSignInAccounts: the enabled Claude account with local insights stays enabled (#180)', () => {
+  const result = normalizeAccounts([
+    { id: 'a', provider: 'claude', enabled: true, localInsights: false },
+    { id: 'b', provider: 'claude', enabled: true, localInsights: true },
+    { id: 'c', provider: 'claude', enabled: false, localInsights: false },
+  ]);
+  assert.deepEqual(result.map((x) => [x.id, x.enabled, x.provider === 'claude' && x.localInsights]), [['a', false, false], ['b', true, true], ['c', false, false]]);
+  // Insights on a disabled account do not take the place of an enabled one.
+  const off = normalizeAccounts([
+    { id: 'a', provider: 'claude', enabled: true },
+    { id: 'b', provider: 'claude', enabled: false, localInsights: true },
+  ]);
+  assert.deepEqual(off.map((x) => [x.id, x.enabled]), [['a', true], ['b', false]]);
+});
+
 test('normalizeAccounts: Claude binary path kept only when absolute (#180)', () => {
   const pathOf = (binaryPath: unknown) => {
     const account = at(normalizeAccounts([{ id: 'c', provider: 'claude', binaryPath }]), 0);

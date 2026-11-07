@@ -60,9 +60,9 @@ Valgono solo binari nativi: almeno 1 MB, mai `.js`/`.cjs` (Node non viene mai es
 
 | Condizione | Codice | Significato/messaggio |
 |---|---|---|
-| Binario non trovato | `unavailable` | `Claude Code not found; install it or set --claude-bin` |
-| Connesso con una API key o un cloud provider | `unavailable` | `Claude Code is signed in with an API key or a cloud provider, which has no subscription quota` |
-| Claude Code chiede se usare una API key presente nel suo ambiente | `unavailable` | ``Claude Code asks whether to use the API key in its environment; answer it in claude, then retry`` |
+| Binario non trovato (anche `--claude-bin` relativo o sbagliato) | `unavailable`, reason `not_installed` | `Claude Code not found; install it or set --claude-bin` |
+| Connesso con una API key o un cloud provider | `unavailable`, reason `no_subscription` | `Claude Code is signed in with an API key or a cloud provider, which has no subscription quota` |
+| Claude Code chiede se usare una API key presente nel suo ambiente | `unavailable`, reason `api_key_question` | ``Claude Code asks whether to use the API key in its environment; answer it in claude, then retry`` |
 | Non connesso (`auth status`, o la schermata di login/tema) | `signed_out` | ``Claude Code is not signed in; run `claude` and sign in`` |
 | Prompt non raggiunto (schermata sconosciuta), `/usage` non mostrato 3 s dopo averlo digitato, o nessun pannello 12 s dopo `/usage` | `not_ready` | `claude did not reach its prompt (an unknown screen?)` / `claude did not show /usage at its prompt (an unknown screen?)` / `no usage panel after /usage` |
 | Scadenza dopo il prompt | `timeout` | `claude probe timed out <where>` |
@@ -162,7 +162,7 @@ Tutte le date sono stringhe UTC RFC 3339 con `Z`, alla precisione del secondo. T
 | `stale` | booleano, solo successo | Il provider ha restituito gli ultimi valori noti invece di dati freschi. |
 | `staleReason` | `{code, message}`, solo quando stale | Motivo del fallback, con i codici di errore dei provider. Qui non ci sono endpoint o shape. |
 | `usage` | `RawAccountUsage`, solo successo | Dati del provider, senza pacing o cronologia. |
-| `error` | oggetto, solo errori | `code` stabile e `message` leggibile; format drift ha anche `endpoint` e `shape`. `reason` facoltativo (additivo, #149): un caso noto dentro il codice, così un client può spiegarlo nella lingua dell'utente senza analizzare `message`. Reason note: `not_connected`, `token_rejected` (con `signed_out`); `enterprise_managed_seat`, `keyring_unavailable` (con `unavailable`). Un client ignora una reason che non conosce. |
+| `error` | oggetto, solo errori | `code` stabile e `message` leggibile; format drift ha anche `endpoint` e `shape`. `reason` facoltativo (additivo, #149): un caso noto dentro il codice, così un client può spiegarlo nella lingua dell'utente senza analizzare `message`. Reason note: `not_connected`, `token_rejected` (con `signed_out`); `enterprise_managed_seat`, `keyring_unavailable` e per Claude (#180) `not_installed`, `no_subscription`, `api_key_question` (con `unavailable`). Un client ignora una reason che non conosce. |
 | `name`, `version`, `os`, `arch` | stringhe, solo documento version | Identità del binario, versione di build (default `dev`), OS e architettura Go. |
 
 ### Campi usage e quota

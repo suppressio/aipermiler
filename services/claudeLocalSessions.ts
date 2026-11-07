@@ -15,6 +15,7 @@
 // system Node tolerates require() of ESM via interop, the one inside Electron does
 // not). Fix: a native dynamic import(), see dynamicImport below.
 import type { ListSessionsOptions, GetSessionMessagesOptions, SDKSessionInfo, SessionMessage } from '@anthropic-ai/claude-agent-sdk';
+import fs from 'node:fs';
 import path from 'node:path';
 import type { ClaudeLocalInsights, LocalDailyTokens, ToolUsageShare } from '../types/index';
 import { localDateKey } from '../budget';
@@ -72,15 +73,30 @@ function loadSdkDeps(): Promise<LocalSessionsDeps> {
   return sdkDepsPromise;
 }
 
+/** The real path (symlinks resolved, e.g. a linked ~/.cache), else the path as given. */
+function realPath(value: string): string {
+  try {
+    return fs.realpathSync.native(value);
+  } catch {
+    return value;
+  }
+}
+
 /**
  * Whether a session ran in `folder` (the core's Claude probe folder, #180): compared as
- * resolved paths, case-insensitively on Windows and macOS (their default file systems).
+ * real, resolved paths (Claude Code records its physical cwd), case-insensitively on
+ * Windows and macOS (their default file systems).
  */
-export function ranIn(sessionCwd: string | undefined, folder: string | null, platform: NodeJS.Platform = process.platform): boolean {
+export function ranIn(
+  sessionCwd: string | undefined,
+  folder: string | null,
+  platform: NodeJS.Platform = process.platform,
+  resolveLinks: (value: string) => string = realPath,
+): boolean {
   if (folder === null || sessionCwd === undefined || sessionCwd === '') return false;
   const p = platform === 'win32' ? path.win32 : path.posix;
-  const a = p.resolve(sessionCwd);
-  const b = p.resolve(folder);
+  const a = p.resolve(resolveLinks(sessionCwd));
+  const b = p.resolve(resolveLinks(folder));
   return platform === 'win32' || platform === 'darwin' ? a.toLowerCase() === b.toLowerCase() : a === b;
 }
 

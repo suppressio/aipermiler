@@ -376,6 +376,11 @@ export interface CorePaths {
 }
 
 export function parsePathsRun(run: CoreRun): CorePaths {
+  if (run.exitCode === 1) {
+    // No user cache folder: an error document, like the provider commands (no provider).
+    const doc = parseDocument(run.stdout);
+    throw providerError(doc, '');
+  }
   if (run.exitCode !== 0) throw new CoreOutputError(`Core paths exited with code ${String(run.exitCode)}`);
   const { claudeProbe } = parseDocument(run.stdout);
   if (typeof claudeProbe !== 'string' || claudeProbe === '') throw new CoreOutputError('Core paths document: claudeProbe is required');
