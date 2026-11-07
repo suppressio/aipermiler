@@ -47,6 +47,7 @@ type timing struct {
 	quiet        time.Duration // no output for this long: the prompt is ready
 	panelSettle  time.Duration // no output for this long after the panel showed
 	panelTimeout time.Duration // no panel this long after /usage: not_ready
+	echoTimeout  time.Duration // no /usage echoed this long: not the prompt, not_ready
 	escSettle    time.Duration // longest wait for the panel to close
 	exitGrace    time.Duration // time /exit gets before the kill
 	keyGap       time.Duration // between a command and its Enter
@@ -57,6 +58,7 @@ var defaultTiming = timing{
 	quiet:        1200 * time.Millisecond,
 	panelSettle:  700 * time.Millisecond,
 	panelTimeout: 12 * time.Second,
+	echoTimeout:  3 * time.Second,
 	escSettle:    2 * time.Second,
 	exitGrace:    5 * time.Second,
 	keyGap:       300 * time.Millisecond,
@@ -358,7 +360,25 @@ func (d *driver) run(ctx context.Context, afterEsc func(context.Context) error) 
 			ready = true
 		}
 	}
-	if err := d.send(cmdUsage, keyEnter); err != nil {
+	// Enter only once the prompt shows /usage: a quiet screen may be a dialog instead,
+	// and an Enter there would confirm its preselected answer in the user's Claude
+	// Code (#228). A selection dialog does not echo the text.
+	if err := d.send(cmdUsage); err != nil {
+		return err
+	}
+	for typed := time.Now(); !d.has(cmdUsage); {
+		if time.Since(typed) > d.t.echoTimeout {
+			return notReady("claude did not show /usage at its prompt (an unknown screen?)")
+		}
+		if err := d.wait(ctx); err != nil {
+			return d.failure(err, "before the prompt showed /usage")
+		}
+		if d.has(markersSignedOut...) {
+			return signedOut()
+		}
+	}
+	time.Sleep(d.t.keyGap)
+	if err := d.send(keyEnter); err != nil {
 		return err
 	}
 	sent := time.Now()

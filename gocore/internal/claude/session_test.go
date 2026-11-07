@@ -35,6 +35,7 @@ type fake struct {
 	pw     *io.PipeWriter
 	keys   []string
 	killed bool
+	noEcho bool // a dialog: typed text is not shown
 	react  func(f *fake, key string)
 }
 
@@ -55,7 +56,12 @@ func (f *fake) Wait() error                { return nil }
 func (f *fake) Write(p []byte) (int, error) {
 	f.mu.Lock()
 	f.keys = append(f.keys, string(p))
+	echo := !f.noEcho && strings.HasPrefix(string(p), "/")
 	f.mu.Unlock()
+	if echo {
+		// The prompt shows a typed command, with its suggestion below.
+		go f.print("\x1b[2K\r> " + string(p) + "\r\n  " + string(p) + "  Show something\r\n")
+	}
 	if f.react != nil {
 		f.react(f, string(p))
 	}
@@ -188,6 +194,28 @@ func TestDriveLeavesTheAPIKeyQuestion(t *testing.T) {
 		assertCode(t, claude.DriveForTest(context.Background(), f, nil), usage.CodeUnavailable)
 		assertKeys(t, f, "\x1b[B", "\r")
 	})
+}
+
+// #228: a quiet screen that does not show the typed /usage is a dialog, not the prompt:
+// no Enter (it would confirm the dialog's preselected answer), not_ready.
+func TestDriveNoEnterIntoAnUnknownDialog(t *testing.T) {
+	t.Parallel()
+	f := newFake("\x1b[2J\x1b[HSomething new?\r\n❯ 1. Accept\r\n  2. Decline\r\n", nil)
+	f.noEcho = true
+	assertCode(t, claude.DriveForTest(context.Background(), f, nil), usage.CodeNotReady)
+	assertKeys(t, f, "/usage")
+}
+
+func TestDriveSignedOutWhileWaitingForTheEcho(t *testing.T) {
+	t.Parallel()
+	f := newFake(screenPrompt, func(f *fake, key string) {
+		if key == "/usage" {
+			go f.print(screenSignedOut)
+		}
+	})
+	f.noEcho = true
+	assertCode(t, claude.DriveForTest(context.Background(), f, nil), usage.CodeSignedOut)
+	assertKeys(t, f, "/usage")
 }
 
 func TestDriveSignedOutInThePanel(t *testing.T) {
