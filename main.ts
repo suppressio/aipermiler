@@ -26,7 +26,7 @@ import type { TrayHandle } from './main/tray';
 import { FormatDriftError, shapeSignature } from './services/_shape';
 import { CoreBinaryError, CoreOutputError, CoreProviderError, CoreTimeoutError } from './main/coreClient';
 import { core } from './main/core';
-import { copilotAccountFlags } from './main/coreRequests';
+import { binaryPathChanged, copilotAccountFlags } from './main/coreRequests';
 import { buildFormatDriftIssueUrl, buildReportIssueUrl, shortError } from './diagnostics/githubIssue';
 import { buildDiagnosticReport, neutralize } from './diagnostics/report';
 import type { ReportAccount } from './diagnostics/report';
@@ -788,6 +788,7 @@ function registerIpcHandlers(): void {
   handle('settings:set', (_event, patch: unknown) => {
     if (!isPlainRecord(patch)) throw new Error('Settings: invalid patch');
     let next: AppSettings = store.store;
+    const accountsBefore = next.accounts;
     for (const [key, value] of Object.entries(patch)) {
       if (!RENDERER_EDITABLE_KEYS.has(key)) throw new Error(`Settings: section not editable from the renderer: ${key}`);
       next = { ...next, [key]: preserveRealSecretsOnWrite(key, value) };
@@ -798,6 +799,7 @@ function registerIpcHandlers(): void {
     applyMainLocale();
     broadcastView();
     scheduleRefreshLoop();
+    if (binaryPathChanged(accountsBefore, store.store.accounts)) runDetached('refresh usage', refreshAndBroadcast('forced'));
     const redacted = redactSecretsForRenderer(store.store);
     // Propagates the change to the widget if open: some fields (e.g. accent color) have
     // no dedicated IPC like ui.windowStyle/ui.alwaysOnTop and would otherwise apply only

@@ -16,6 +16,8 @@ export const en = {
   'windows.premium_interactions': 'Copilot AI credits',
   'windows.chat': 'Copilot chat',
   'windows.completions': 'Copilot code completions',
+  'windows.claude-5h': '5-hour limit',
+  'windows.claude-7d': 'Weekly limit',
   'windows.codex-5h': '5-hour limit',
   'windows.codex-7d': 'Weekly limit',
   'windows.codexHours': '{n}-hour limit',
