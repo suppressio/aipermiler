@@ -130,14 +130,14 @@ function accounts(): AccountConfig[] {
   return Array.isArray(settings?.accounts) ? settings.accounts : [];
 }
 
-// Claude (#140) and Codex (#178) have nothing to connect: Claude only carries the local
-// insights, Codex is read through the Codex sign-in of this computer.
+// Claude (#180) and Codex (#178) have nothing to connect: both are read through the
+// Claude Code / Codex sign-in of this computer.
 function isAccountConnected(account: AccountConfig): boolean {
   return account.provider === 'copilot' && !!account.credentials.username;
 }
 
 function connectionLabel(account: AccountConfig): string {
-  if (account.provider === 'claude') return t('settings.accounts.statusClaudeLocalOnly');
+  if (account.provider === 'claude') return t('settings.accounts.statusClaudeSignIn');
   if (account.provider === 'codex') return t('settings.accounts.statusCodexSignIn');
   if (!isAccountConnected(account)) return t('settings.accounts.statusNotConnected');
   return account.credentials.username
@@ -352,25 +352,31 @@ function enforceSingleLocalInsightsDraft(keepIndex: number): void {
   });
 }
 
-// The draft merged with a fresh store copy can hold two enabled Codex accounts (one
-// enabled in the draft, one just added): same rule as enforceSingleCodexAccount in
-// store/migrate.ts, the first enabled one is kept.
-function keepFirstEnabledCodex(list: AccountConfig[]): AccountConfig[] {
-  let seen = false;
+// Providers read through the one sign-in of this computer (SIGN_IN_PROVIDERS in
+// store/migrate.ts): Codex (#178) and Claude Code (#180).
+const SIGN_IN_PROVIDERS: readonly ProviderId[] = ['codex', 'claude'];
+
+// The draft merged with a fresh store copy can hold two enabled accounts of a sign-in
+// provider (one enabled in the draft, one just added): same rule as
+// enforceSingleSignInAccounts in store/migrate.ts, the first enabled one is kept.
+function keepFirstEnabledSignIn(list: AccountConfig[]): AccountConfig[] {
+  const seen = new Set<ProviderId>();
   return list.map((a) => {
-    if (a.provider !== 'codex' || !a.enabled) return a;
-    if (seen) return { ...a, enabled: false };
-    seen = true;
+    if (!SIGN_IN_PROVIDERS.includes(a.provider) || !a.enabled) return a;
+    if (seen.has(a.provider)) return { ...a, enabled: false };
+    seen.add(a.provider);
     return a;
   });
 }
 
-// At most one enabled Codex account: the core reads the one Codex sign-in of this
-// computer (enforceSingleCodexAccount in store/migrate.ts does the same on save).
-function enforceSingleCodexDraft(keepIndex: number): void {
-  if (accounts()[keepIndex]?.provider !== 'codex') return;
+// At most one enabled Codex and one enabled Claude account: the core reads the one
+// sign-in of this computer (enforceSingleSignInAccounts in store/migrate.ts does the
+// same on save).
+function enforceSingleSignInDraft(keepIndex: number): void {
+  const provider = accounts()[keepIndex]?.provider;
+  if (provider === undefined || !SIGN_IN_PROVIDERS.includes(provider)) return;
   accounts().forEach((account, index) => {
-    if (index === keepIndex || account.provider !== 'codex' || !account.enabled) return;
+    if (index === keepIndex || account.provider !== provider || !account.enabled) return;
     account.enabled = false;
     const el = document.querySelector<HTMLInputElement>(`[data-field="accounts.${index}.enabled"]`);
     if (el) el.checked = false;
@@ -387,7 +393,7 @@ async function reloadAfterAccountAction(actedOn: AccountId | null): Promise<void
   savedSettings = structuredClone(fresh);
   if (draft) {
     const draftAccounts = new Map(accounts().map((a) => [a.id, a]));
-    fresh.accounts = keepFirstEnabledCodex(fresh.accounts.map((a) => (a.id !== actedOn ? draftAccounts.get(a.id) ?? a : a)));
+    fresh.accounts = keepFirstEnabledSignIn(fresh.accounts.map((a) => (a.id !== actedOn ? draftAccounts.get(a.id) ?? a : a)));
     for (const [key, value] of Object.entries(draft)) {
       if (key !== 'accounts') (fresh as unknown as PlainRecord)[key] = value;
     }
@@ -563,7 +569,7 @@ function bindEvents(): void {
     if (accountMatch) {
       const index = Number(accountMatch[1]);
       if (accountMatch[2] === 'localInsights' && value === true) enforceSingleLocalInsightsDraft(index);
-      if (accountMatch[2] === 'enabled' && value === true) enforceSingleCodexDraft(index);
+      if (accountMatch[2] === 'enabled' && value === true) enforceSingleSignInDraft(index);
       applyAccountDetailState(index);
     }
     // No saving or side effect here: the change stays a draft in the form until

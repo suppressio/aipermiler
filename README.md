@@ -6,7 +6,7 @@
 
 A small always-on-top widget for Windows, macOS and Linux that tells you how fast you are using your **Claude**, **GitHub Copilot** and **Codex** (ChatGPT subscription) quotas, and how much you can still use today so the quota lasts until it renews.
 
-> **Claude quotas are not available in this version.** Anthropic does not allow third-party apps to sign in to claude.ai or to store its session ([Claude Code legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)), which was the only way this app could read them. A Claude account now shows only the local insights from Claude Code. The quotas will return through an allowed source ([#139](https://github.com/suppressio/aipermiler/issues/139)).
+> **Claude quotas need Claude Code.** Anthropic does not allow third-party apps to sign in to claude.ai or to store its session ([Claude Code legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)). Since v0.6.0 the app reads the Claude quotas through [Claude Code](https://code.claude.com/docs/en/setup) installed and signed in on this computer, with your own sign-in.
 
 <p align="center"><img src="docs/screenshots/widget-en.png" alt="The AIpermiler widget with example data" width="406"></p>
 
@@ -42,7 +42,7 @@ The packages are not signed: Windows SmartScreen and macOS Gatekeeper show a war
 ## First start
 
 1. Open **Settings** (⚙ in the widget, or from the tray icon) → **Add account**.
-2. **Claude**: no login. Add the account only for the local insights (see below); its quotas are not available in this version.
+2. **Claude**: needs [Claude Code](https://code.claude.com/docs/en/setup) installed and signed in on this computer with your Claude subscription (run `claude` once and sign in). Add an account with this provider: it reads the 5-hour and 7-day limits through your own Claude Code sign-in, with no login window and no claude.ai session stored by the app. Each read opens a short Claude Code session that only asks for `/usage` (no model request, so it uses none of your quota), about every 30 minutes. If Claude Code is installed somewhere unusual, set its path in the account (*Claude Code binary*). Signed out, or when Claude Code waits for an answer of its own (first start, an API key in the environment), the account says so. Only one Claude account can be active, since there is one Claude Code sign-in per computer.
    **Codex (ChatGPT)**: needs Codex signed in on this computer, the [Codex CLI](https://developers.openai.com/codex/cli) (`codex login`) or the Codex extension of VS Code. Add an account with this provider: it reads the usage at once, through your own Codex sign-in, with no login window and no ChatGPT session stored by the app. If Codex is installed somewhere unusual, set its path in the account (*Codex binary*). Signed out, the account says so and tells you where to sign in. Only one Codex account can be active, since there is one Codex sign-in per computer (#188 tracks one sign-in per account).
    **GitHub Copilot**: paste a Personal Access Token (fine-grained, *Plan* read-only, or classic with no scope), or sign in with a GitHub OAuth App. For a company seat on a `<name>.ghe.com` tenant, set the GitHub domain first. The token is kept in your system keyring (Windows Credential Manager, macOS Keychain, GNOME Keyring or KWallet on Linux), not in the app's files; a token saved by an earlier version is moved there at the first start.
 3. Optional, per account: the **work schedule** (last section of the account) and, only when the provider does not report it, the **renewal day**.
@@ -142,7 +142,7 @@ Shown only when it adds something the numbers above do not say: you would run ou
 
 ### Local insights (Claude Code, optional)
 
-When enabled on one Claude account, the app reads the Claude Code sessions on this computer (token counts and tool names only, never the content of your messages). It shows how much of your usage comes from very long contexts (over 150k) or very long sessions, and your most used tools. Tokens per 1% of quota need the Claude quotas, so they are not shown in this version.
+When enabled on one Claude account, the app reads the Claude Code sessions on this computer (token counts and tool names only, never the content of your messages). It shows how much of your usage comes from very long contexts (over 150k) or very long sessions, and your most used tools. It also shows the output tokens produced for every 1% of Claude quota used. The short sessions the app opens to read the quotas are not counted.
 
 ---
 
