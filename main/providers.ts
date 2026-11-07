@@ -38,6 +38,19 @@ export function isConnected(cfg: AccountConfig): boolean {
 /** Label of the Codex source in the diagnostic report. */
 export const CODEX_CORE_ENDPOINT_LABEL = 'core: codex app-server account/rateLimits/read';
 
+/**
+ * Claude reads one at a time (#180): every read starts a Claude Code session in the
+ * core's single probe folder, and the diagnostic report reads outside the refresh queue.
+ * Two probes at once would share that folder; the core refuses a non-empty one, but two
+ * starting together could both pass the check.
+ */
+let claudeReads: Promise<unknown> = Promise.resolve();
+export function oneClaudeReadAtATime<T>(read: () => Promise<T>): Promise<T> {
+  const next = claudeReads.then(read, read);
+  claudeReads = next.catch(() => undefined);
+  return next;
+}
+
 /** Label of the Claude source in the diagnostic report. */
 export const CLAUDE_CORE_ENDPOINT_LABEL = 'core: claude /usage status line rate_limits';
 
@@ -48,7 +61,7 @@ export async function fetchUsage(cfg: AccountConfig): Promise<RawAccountUsage> {
     case 'codex':
       return requireFresh(await core.usage(codexUsageRequest(cfg)), 'codex');
     case 'claude':
-      return requireFresh(await core.usage(claudeUsageRequest(cfg)), 'claude');
+      return requireFresh(await oneClaudeReadAtATime(() => core.usage(claudeUsageRequest(cfg))), 'claude');
     case 'copilot':
       return requireFresh(await core.usage(copilotUsageRequest(cfg)), 'copilot');
   }
@@ -67,7 +80,7 @@ export async function fetchRawResponse(cfg: AccountConfig): Promise<{ endpointLa
       return { endpointLabel: CODEX_CORE_ENDPOINT_LABEL, response: await core.usage(codexUsageRequest(cfg)) };
     case 'claude':
       // The core's reading too: the status line JSON stays inside the core.
-      return { endpointLabel: CLAUDE_CORE_ENDPOINT_LABEL, response: await core.usage(claudeUsageRequest(cfg)) };
+      return { endpointLabel: CLAUDE_CORE_ENDPOINT_LABEL, response: await oneClaudeReadAtATime(() => core.usage(claudeUsageRequest(cfg))) };
     case 'copilot':
       // copilot_internal/user, the main source of both scopes, raw (redacted by the report).
       return core.raw({ provider: 'copilot', flags: copilotAccountFlags(cfg) });

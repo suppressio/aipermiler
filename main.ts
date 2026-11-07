@@ -9,6 +9,7 @@ import { normalizeSettings } from './store/normalize';
 import { isPlainRecord } from './store/merge';
 import { applyCompact, createMainWindow, createSettingsWindow } from './main/windows';
 import { createTray } from './main/tray';
+import { accountNoticeKey } from './main/accountNotice';
 import { badgeEntries, pickBadge, resolveLegacyView, sameChoice, trackAutoAccount } from './main/trayBadge';
 import { clearClaudePartition, clearDefaultSessionClaudeCookies } from './main/claude-auth';
 import * as providers from './main/providers';
@@ -503,18 +504,10 @@ const usageCore = createUsageCore({
   },
   fetchUsage: providers.fetchUsage,
   isConnected: providers.isConnected,
-  // Signed out is a state, not a failure: Codex (sign in with Codex), Copilot (reconnect),
-  // Claude (sign in to Claude Code). For Claude "not ready" is a state too: Claude Code
-  // shows a screen of its own to answer first (#180).
+  // States the user acts on, not failures: signed out, Claude Code missing… (main/accountNotice.ts).
   accountNotice: (err) => {
-    if (!(err instanceof CoreProviderError)) return null;
-    if (err.code === 'signed_out') {
-      if (err.provider === 'codex') return t('error.codexSignedOut');
-      if (err.provider === 'copilot') return t('error.copilotSignedOut');
-      if (err.provider === 'claude') return t('error.claudeSignedOut');
-    }
-    if (err.code === 'not_ready' && err.provider === 'claude') return t('error.claudeNotReady');
-    return null;
+    const key = accountNoticeKey(err);
+    return key === null ? null : t(key);
   },
   localInsights: computeLocalInsightsIfNeeded,
   describeError: friendlyErrorMessage,

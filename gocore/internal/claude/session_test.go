@@ -105,6 +105,14 @@ func assertCode(t *testing.T, err error, want usage.Code) {
 	}
 }
 
+func assertReason(t *testing.T, err error, want string) {
+	t.Helper()
+	var e *usage.Error
+	if !errors.As(err, &e) || e.Reason != want {
+		t.Fatalf("err = %#v; want reason %q", err, want)
+	}
+}
+
 func assertKeys(t *testing.T, f *fake, want ...string) {
 	t.Helper()
 	if got := f.typed(); !slices.Equal(got, want) {
@@ -181,7 +189,9 @@ func TestDriveLeavesTheAPIKeyQuestion(t *testing.T) {
 	t.Run("at start", func(t *testing.T) {
 		t.Parallel()
 		f := newFake(screenAPIKey, nil)
-		assertCode(t, claude.DriveForTest(context.Background(), f, nil), usage.CodeUnavailable)
+		err := claude.DriveForTest(context.Background(), f, nil)
+		assertCode(t, err, usage.CodeUnavailable)
+		assertReason(t, err, claude.ReasonAPIKeyQuestion)
 		assertKeys(t, f)
 	})
 	t.Run("after trust", func(t *testing.T) {
@@ -316,12 +326,13 @@ func TestProbe(t *testing.T) {
 		auth    string
 		started bool
 		code    usage.Code
+		reason  string
 	}{
-		{"signed in", `{"loggedIn":true,"authMethod":"claude.ai"}`, true, ""},
-		{"signed out", `{"loggedIn":false}`, false, usage.CodeSignedOut},
-		{"API key", `{"loggedIn":true,"authMethod":"api_key"}`, false, usage.CodeUnavailable},
-		{"cloud provider", `{"loggedIn":true,"authMethod":"third_party","apiProvider":"vertex"}`, false, usage.CodeUnavailable},
-		{"auth status unusable", "not json", true, ""},
+		{"signed in", `{"loggedIn":true,"authMethod":"claude.ai"}`, true, "", ""},
+		{"signed out", `{"loggedIn":false}`, false, usage.CodeSignedOut, ""},
+		{"API key", `{"loggedIn":true,"authMethod":"api_key"}`, false, usage.CodeUnavailable, claude.ReasonNoSubscription},
+		{"cloud provider", `{"loggedIn":true,"authMethod":"third_party","apiProvider":"vertex"}`, false, usage.CodeUnavailable, claude.ReasonNoSubscription},
+		{"auth status unusable", "not json", true, "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -344,6 +355,7 @@ func TestProbe(t *testing.T) {
 			}
 			if tt.code != "" {
 				assertCode(t, err, tt.code)
+				assertReason(t, err, tt.reason)
 			}
 			if started != tt.started {
 				t.Fatalf("started = %v; want %v", started, tt.started)

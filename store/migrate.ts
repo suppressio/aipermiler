@@ -203,20 +203,31 @@ export function migrateAccounts(rawAccounts: unknown, legacyLocalInsightsEnabled
 export const SIGN_IN_PROVIDERS: readonly ProviderId[] = ['codex', 'claude'];
 
 /**
+ * The enabled account of each sign-in provider that stays enabled: the Claude account
+ * with the local insights when it is enabled (its insights would stop otherwise, #180),
+ * else the first enabled one.
+ */
+export function signInKeepers(accounts: readonly AccountConfig[]): Set<AccountId> {
+  const keepers = new Map<ProviderId, AccountId>();
+  for (const a of accounts) {
+    if (a.provider === 'claude' && a.enabled && a.localInsights) keepers.set('claude', a.id);
+  }
+  for (const a of accounts) {
+    if (SIGN_IN_PROVIDERS.includes(a.provider) && a.enabled && !keepers.has(a.provider)) keepers.set(a.provider, a.id);
+  }
+  return new Set(keepers.values());
+}
+
+/**
  * At most one enabled account per sign-in provider (#178, #180): the core reads the one
  * Codex or Claude Code sign-in of this computer, so two enabled accounts would show the
  * same data under two names (and accounts migrated from separate logins would all get
- * it). The first enabled one of each provider is kept; reading another Codex login per
- * account is #188.
+ * it). signInKeepers chooses the one kept; reading another Codex login per account is
+ * #188. Accounts are only disabled: history and settings stay.
  */
 export function enforceSingleSignInAccounts(accounts: AccountConfig[]): AccountConfig[] {
-  const seen = new Set<ProviderId>();
-  return accounts.map((a) => {
-    if (!SIGN_IN_PROVIDERS.includes(a.provider) || !a.enabled) return a;
-    if (seen.has(a.provider)) return { ...a, enabled: false };
-    seen.add(a.provider);
-    return a;
-  });
+  const keepers = signInKeepers(accounts);
+  return accounts.map((a) => (SIGN_IN_PROVIDERS.includes(a.provider) && a.enabled && !keepers.has(a.id) ? { ...a, enabled: false } : a));
 }
 
 export function enforceSingleLocalInsights(accounts: AccountConfig[]): AccountConfig[] {

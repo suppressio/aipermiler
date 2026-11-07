@@ -58,7 +58,10 @@ export const en = {
   'report.confirm': "Create report",
   'report.cancel': "Cancel",
   'error.claudeSignedOut': 'Sign in to Claude Code on this computer with your Claude subscription (run `claude` and follow the login): this app reads the quotas through your Claude Code sign-in and stores no claude.ai session.',
-  'error.claudeNotReady': 'Claude Code did not reach its prompt: open `claude` once in a terminal and answer what it asks (first start, an update, an API key in the environment), then refresh.',
+  'error.claudeNotReady': 'Claude Code did not reach its prompt: open `claude` once in a terminal and answer what it asks (first start, an update), then refresh.',
+  'error.claudeNotInstalled': 'Claude Code was not found on this computer: install it (code.claude.com) and sign in, or set its path in the account (Settings → Claude Code binary).',
+  'error.claudeNoSubscription': 'Claude Code is signed in with an API key or a cloud provider (Bedrock, Vertex), which has no subscription quota: sign in to Claude Code with your Claude subscription to see the quotas.',
+  'error.claudeApiKeyQuestion': 'Claude Code asks whether to use the API key set in its environment (ANTHROPIC_API_KEY): open `claude` once in a terminal and answer, then refresh. The app never answers it for you.',
   'error.copilotEnterpriseManaged': 'This github.com account has no Copilot usage data. If your company uses its own GitHub domain (<name>.ghe.com), set it in the account and reconnect with an account of that domain.',
 } as const;
 

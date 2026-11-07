@@ -358,15 +358,18 @@ const SIGN_IN_PROVIDERS: readonly ProviderId[] = ['codex', 'claude'];
 
 // The draft merged with a fresh store copy can hold two enabled accounts of a sign-in
 // provider (one enabled in the draft, one just added): same rule as
-// enforceSingleSignInAccounts in store/migrate.ts, the first enabled one is kept.
+// enforceSingleSignInAccounts in store/migrate.ts (the Claude account with the local
+// insights, else the first enabled one, is kept). The renderer project cannot import
+// store/, hence the copy.
 function keepFirstEnabledSignIn(list: AccountConfig[]): AccountConfig[] {
-  const seen = new Set<ProviderId>();
-  return list.map((a) => {
-    if (!SIGN_IN_PROVIDERS.includes(a.provider) || !a.enabled) return a;
-    if (seen.has(a.provider)) return { ...a, enabled: false };
-    seen.add(a.provider);
-    return a;
-  });
+  const keepers = new Map<ProviderId, AccountId>();
+  for (const a of list) {
+    if (a.provider === 'claude' && a.enabled && a.localInsights) keepers.set('claude', a.id);
+  }
+  for (const a of list) {
+    if (SIGN_IN_PROVIDERS.includes(a.provider) && a.enabled && !keepers.has(a.provider)) keepers.set(a.provider, a.id);
+  }
+  return list.map((a) => (SIGN_IN_PROVIDERS.includes(a.provider) && a.enabled && keepers.get(a.provider) !== a.id ? { ...a, enabled: false } : a));
 }
 
 // At most one enabled Codex and one enabled Claude account: the core reads the one

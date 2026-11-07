@@ -60,9 +60,9 @@ Only native binaries qualify: at least 1 MB, never `.js`/`.cjs` (Node is never r
 
 | Condition | Code | Meaning/message |
 |---|---|---|
-| Binary not found | `unavailable` | `Claude Code not found; install it or set --claude-bin` |
-| Signed in with an API key or a cloud provider | `unavailable` | `Claude Code is signed in with an API key or a cloud provider, which has no subscription quota` |
-| Claude Code asks whether to use an API key in its environment | `unavailable` | ``Claude Code asks whether to use the API key in its environment; answer it in claude, then retry`` |
+| Binary not found (also a relative or wrong `--claude-bin`) | `unavailable`, reason `not_installed` | `Claude Code not found; install it or set --claude-bin` |
+| Signed in with an API key or a cloud provider | `unavailable`, reason `no_subscription` | `Claude Code is signed in with an API key or a cloud provider, which has no subscription quota` |
+| Claude Code asks whether to use an API key in its environment | `unavailable`, reason `api_key_question` | ``Claude Code asks whether to use the API key in its environment; answer it in claude, then retry`` |
 | Signed out (`auth status`, or the login/theme screen) | `signed_out` | ``Claude Code is not signed in; run `claude` and sign in`` |
 | No prompt reached (an unknown screen), `/usage` not shown 3 s after typing it, or no panel 12 s after `/usage` | `not_ready` | `claude did not reach its prompt (an unknown screen?)` / `claude did not show /usage at its prompt (an unknown screen?)` / `no usage panel after /usage` |
 | Deadline after the prompt | `timeout` | `claude probe timed out <where>` |
@@ -162,7 +162,7 @@ All dates are RFC 3339 UTC strings with `Z`, at second precision. All keys of `R
 | `stale` | boolean, success only | Provider returned last known values rather than fresh values. |
 | `staleReason` | `{code, message}`, only when stale | Reason for fallback, using provider error codes. No endpoint or shape here. |
 | `usage` | `RawAccountUsage`, success only | Provider data, without pacing or history. |
-| `error` | object, errors only | Stable `code` and readable `message`; format drift also has `endpoint` and `shape`. Optional `reason` (additive, #149): a known case inside the code, so a client can explain it in the user's language without parsing `message`. Known reasons: `not_connected`, `token_rejected` (with `signed_out`); `enterprise_managed_seat`, `keyring_unavailable` (with `unavailable`). A client ignores a reason it does not know. |
+| `error` | object, errors only | Stable `code` and readable `message`; format drift also has `endpoint` and `shape`. Optional `reason` (additive, #149): a known case inside the code, so a client can explain it in the user's language without parsing `message`. Known reasons: `not_connected`, `token_rejected` (with `signed_out`); `enterprise_managed_seat`, `keyring_unavailable`, and for Claude (#180) `not_installed`, `no_subscription`, `api_key_question` (with `unavailable`). A client ignores a reason it does not know. |
 | `name`, `version`, `os`, `arch` | strings, version document only | Binary identity, build-time version (default `dev`), Go OS and architecture. |
 
 ### Usage and quota fields

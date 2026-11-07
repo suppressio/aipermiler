@@ -195,4 +195,7 @@ test('ranIn: resolved paths, case-insensitive on Windows and macOS only', () => 
   assert.equal(ranIn('/c/aipermiler/claude-probe/sub', '/c/aipermiler/claude-probe', 'linux'), false);
   assert.equal(ranIn(undefined, '/c/aipermiler/claude-probe', 'linux'), false);
   assert.equal(ranIn('/c/aipermiler/claude-probe', null, 'linux'), false);
+  // A linked cache folder: the probe folder named through the link is still matched.
+  const links = (value: string) => value.replace('/home/u/.cache', '/data/cache');
+  assert.equal(ranIn('/data/cache/aipermiler/claude-probe', '/home/u/.cache/aipermiler/claude-probe', 'linux', links), true);
 });

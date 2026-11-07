@@ -116,7 +116,7 @@ func (p prober) probe(ctx context.Context, bin, dir, statusLine string, afterEsc
 		return status.projects, signedOut()
 	}
 	if status.noQuota {
-		return status.projects, unavailable("Claude Code is signed in with an API key or a cloud provider, which has no subscription quota")
+		return status.projects, unavailableBecause(ReasonNoSubscription, "Claude Code is signed in with an API key or a cloud provider, which has no subscription quota")
 	}
 	term, err := p.start(bin, claudeArgs(statusLine), env, dir)
 	if err != nil {
@@ -358,7 +358,7 @@ func (d *driver) run(ctx context.Context, afterEsc func(context.Context) error) 
 		case d.has(markersSignedOut...):
 			return signedOut()
 		case d.has(markersAPIKey...):
-			return unavailable("Claude Code asks whether to use the API key in its environment; answer it in claude, then retry")
+			return unavailableBecause(ReasonAPIKeyQuestion, "Claude Code asks whether to use the API key in its environment; answer it in claude, then retry")
 		case !trusted && d.has(markersTrust...):
 			// Answered once, never again: the redraw after Down still carries the
 			// marker. Should the answer not take, /usage opens no panel: not_ready.

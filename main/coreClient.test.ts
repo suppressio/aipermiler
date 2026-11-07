@@ -187,8 +187,8 @@ test('paths(): `paths --json` with a short timeout, claudeProbe required (#180)'
     const bad = recordingRunner({ exitCode: 0, stdout });
     await assert.rejects(createCoreClient({ binary: () => 'core', run: bad.runner }).paths(), CoreOutputError);
   }
-  const failed = recordingRunner({ exitCode: 1, stdout: '{"schemaVersion":1,"error":{"code":"unavailable","message":"x"}}\n' });
-  await assert.rejects(createCoreClient({ binary: () => 'core', run: failed.runner }).paths(), CoreOutputError);
+  const failed = recordingRunner({ exitCode: 1, stdout: '{"schemaVersion":1,"error":{"code":"unavailable","message":"no cache folder"}}\n' });
+  await assert.rejects(createCoreClient({ binary: () => 'core', run: failed.runner }).paths(), (err: unknown) => err instanceof CoreProviderError && err.code === 'unavailable');
 });
 
 test('a binary that cannot be resolved fails that call, not the client', async () => {

@@ -115,3 +115,18 @@ func TestPaths(t *testing.T) { // uses t.Setenv
 		t.Fatalf("extra argument: code %d", code)
 	}
 }
+
+// #180: without a user cache folder `paths` fails as unavailable, not with a usage error.
+func TestPathsWithoutCacheFolder(t *testing.T) { // uses t.Setenv
+	t.Setenv("AIPERMILER_LOG_LEVEL", "warn")
+	t.Setenv("XDG_CACHE_HOME", "")
+	t.Setenv("HOME", "")
+	t.Setenv("LocalAppData", "")
+	if _, err := os.UserCacheDir(); err == nil {
+		t.Skip("this system finds a cache folder without HOME")
+	}
+	var stdout, stderr bytes.Buffer
+	if code := cli.Run([]string{"paths", "--json"}, strings.NewReader(""), &stdout, &stderr); code != cli.ExitProviderError || !strings.Contains(stdout.String(), `"code":"unavailable"`) {
+		t.Fatalf("code %d, %q", code, stdout.String())
+	}
+}
