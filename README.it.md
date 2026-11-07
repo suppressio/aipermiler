@@ -6,7 +6,7 @@
 
 Un piccolo widget sempre in primo piano, per Windows, macOS e Linux, che ti dice a che ritmo stai usando le quote di **Claude**, **GitHub Copilot** e **Codex** (abbonamento ChatGPT) e quanto puoi ancora usare oggi perché la quota arrivi al rinnovo.
 
-> **Le quote di Claude non sono disponibili in questa versione.** Anthropic non consente alle app di terzi di accedere a claude.ai né di salvarne la sessione ([Claude Code legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)), ed era l'unico modo con cui questa app poteva leggerle. Un account Claude ora mostra solo gli insight locali di Claude Code. Le quote torneranno con una fonte consentita ([#139](https://github.com/suppressio/aipermiler/issues/139)).
+> **Le quote di Claude richiedono Claude Code.** Anthropic non consente alle app di terzi di accedere a claude.ai né di salvarne la sessione ([Claude Code legal and compliance](https://code.claude.com/docs/en/legal-and-compliance)). Dalla v0.6.0 l'app legge le quote di Claude tramite [Claude Code](https://code.claude.com/docs/en/setup) installato e con accesso su questo computer, con il tuo accesso.
 
 <p align="center"><img src="docs/screenshots/widget-it.png" alt="Il widget di AIpermiler con dati di esempio" width="406"></p>
 
@@ -37,12 +37,12 @@ Le altre versioni, comprese le pre-release di test, sono nella pagina [Releases]
 
 I pacchetti non sono firmati: Windows SmartScreen e macOS Gatekeeper mostrano un avviso la prima volta. L'app controlla le nuove versioni all'avvio e ogni 24 ore e apre nel browser il download giusto.
 
-**Arrivi da IA Hypermiler (v0.4.x)?** Dalla v0.5.0 l'app si chiama AIpermiler. Le versioni fino alla 0.4.18 annunciano l'aggiornamento ma non riescono ad aprirne il download: scaricalo a mano dall'[ultima release](https://github.com/suppressio/aipermiler/releases/latest). Installalo come al solito: su Windows e su Debian/Ubuntu sostituisce IA Hypermiler, mentre su macOS e con l'AppImage puoi cancellare la vecchia app dopo. Al primo avvio impostazioni, account e storico vengono spostati, e gli account Copilot collegati restano collegati.
+**Arrivi da IA Hypermiler (v0.4.x)?** Dalla v0.5.0 l'app si chiama AIpermiler. Le versioni fino alla 0.4.18 annunciano l'aggiornamento ma non riescono ad aprirne il download: scaricalo a mano dall'[ultima release](https://github.com/suppressio/aipermiler/releases/latest). Installalo come al solito: su Windows e su Debian/Ubuntu sostituisce IA Hypermiler, mentre su macOS e con l'AppImage puoi cancellare la vecchia app dopo. Al primo avvio impostazioni, account e storico vengono spostati, e gli account Copilot collegati restano collegati. Dalla v0.6.0 l'aggiornamento diretto dalla v0.4.x non è più supportato: installa prima la v0.5.0, avviala una volta, poi aggiorna.
 
 ## Primo avvio
 
 1. Apri **Impostazioni** (⚙ nel widget, o dall'icona nel tray) → **Aggiungi account**.
-2. **Claude**: nessun login. Aggiungi l'account solo per gli insight locali (vedi sotto); le sue quote non sono disponibili in questa versione.
+2. **Claude**: serve [Claude Code](https://code.claude.com/docs/en/setup) installato e con accesso su questo computer con il tuo abbonamento Claude (esegui `claude` una volta e accedi). Aggiungi un account con questo provider: legge i limiti di 5 ore e 7 giorni tramite il tuo accesso a Claude Code, senza finestre di login e senza sessioni claude.ai salvate dall'app. Ogni lettura apre una breve sessione di Claude Code che chiede solo `/usage` (nessuna richiesta al modello, quindi non consuma la tua quota), a ogni aggiornamento (ogni 30 minuti come impostazione predefinita). Se Claude Code è installato in un posto insolito, indica il percorso nell'account (*Programma Claude Code*). Senza accesso, senza Claude Code installato, con un accesso tramite API key, o quando Claude Code aspetta una risposta sua (primo avvio, una API key nell'ambiente), l'account lo dice e indica cosa fare. Un solo account Claude può essere attivo, perché c'è un solo accesso a Claude Code per computer.
    **Codex (ChatGPT)**: serve Codex con accesso su questo computer, la [Codex CLI](https://developers.openai.com/codex/cli) (`codex login`) o l'estensione Codex di VS Code. Aggiungi un account con questo provider: legge subito l'utilizzo, tramite il tuo accesso a Codex, senza finestre di login e senza sessioni ChatGPT salvate dall'app. Se Codex è installato in un posto insolito, indica il percorso nell'account (*Programma Codex*). Senza accesso, l'account lo dice e ti indica dove accedere. Un solo account Codex può essere attivo, perché c'è un solo accesso a Codex per computer (#188 segue un accesso per account).
    **GitHub Copilot**: incolla un Personal Access Token (fine-grained con *Plan* in sola lettura, o classic senza scope), oppure accedi con una GitHub OAuth App. Per una licenza aziendale su un tenant `<nome>.ghe.com`, imposta prima il dominio GitHub. Il token si conserva nel portachiavi di sistema (Gestione credenziali di Windows, Portachiavi di macOS, GNOME Keyring o KWallet su Linux), non nei file dell'app; un token salvato da una versione precedente viene spostato lì al primo avvio.
 3. Facoltativo, per ogni account: il **calendario di lavoro** (ultima sezione dell'account) e, solo se il provider non lo comunica, il **giorno di rinnovo**.
@@ -142,7 +142,7 @@ Compaiono solo quando aggiungono qualcosa che i numeri sopra non dicono: finires
 
 ### Insight locali (Claude Code, facoltativi)
 
-Se li attivi su un account Claude, l'app legge le sessioni di Claude Code su questo computer (solo conteggi di token e nomi degli strumenti, mai il contenuto dei messaggi). Mostra quanta parte del tuo uso viene da contesti molto lunghi (oltre 150k) o da sessioni molto lunghe, e gli strumenti più usati. I token per ogni 1% di quota richiedono le quote di Claude, quindi in questa versione non sono mostrati.
+Se li attivi su un account Claude, l'app legge le sessioni di Claude Code su questo computer (solo conteggi di token e nomi degli strumenti, mai il contenuto dei messaggi). Mostra quanta parte del tuo uso viene da contesti molto lunghi (oltre 150k) o da sessioni molto lunghe, e gli strumenti più usati. Mostra anche i token di output prodotti per ogni 1% di quota Claude usata. Le brevi sessioni che l'app apre per leggere le quote non vengono contate.
 
 ---
 

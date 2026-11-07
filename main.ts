@@ -3,20 +3,20 @@
 // When a fetch fails, the last known data is shown with its timestamp (never a blank
 // screen, see AGENTS.md).
 
-// Loaded by entry.ts only after the userData migration succeeded (#200).
-import { userDataMigration } from './main/userDataBootstrap';
 import { app, dialog, BrowserWindow, Notification, shell, Menu, screen, session, utilityProcess } from 'electron';
 import store, { DEFAULTS } from './store/index';
 import { normalizeSettings } from './store/normalize';
 import { isPlainRecord } from './store/merge';
 import { applyCompact, createMainWindow, createSettingsWindow } from './main/windows';
 import { createTray } from './main/tray';
+import { accountNoticeKey } from './main/accountNotice';
+import { APP_DIR } from './main/appDir';
 import { badgeEntries, pickBadge, resolveLegacyView, sameChoice, trackAutoAccount } from './main/trayBadge';
 import { clearClaudePartition, clearDefaultSessionClaudeCookies } from './main/claude-auth';
 import * as providers from './main/providers';
 import * as refreshPolicy from './main/refreshPolicy';
 import type { RefreshMode } from './main/refreshPolicy';
-import { defaultAccountFor, enforceSingleCodexAccount, enforceSingleLocalInsights, nextAccountLabel, normalizeAccounts, purgeClaudeSessions } from './store/migrate';
+import { defaultAccountFor, enforceSingleLocalInsights, enforceSingleSignInAccounts, nextAccountLabel, normalizeAccounts, purgeClaudeSessions } from './store/migrate';
 import * as budget from './budget';
 import { createUsageCore, refreshIntervalMs } from './core/usage';
 import path from 'path';
@@ -26,7 +26,7 @@ import type { TrayHandle } from './main/tray';
 import { FormatDriftError, shapeSignature } from './services/_shape';
 import { CoreBinaryError, CoreOutputError, CoreProviderError, CoreTimeoutError } from './main/coreClient';
 import { core } from './main/core';
-import { copilotAccountFlags } from './main/coreRequests';
+import { binaryPathChanged, copilotAccountFlags } from './main/coreRequests';
 import { buildFormatDriftIssueUrl, buildReportIssueUrl, shortError } from './diagnostics/githubIssue';
 import { buildDiagnosticReport, neutralize } from './diagnostics/report';
 import type { ReportAccount } from './diagnostics/report';
@@ -79,8 +79,6 @@ let lastSnapshot: UsageSnapshot | null = null;
 // installed app has no visible console (diagnostics/logBuffer.ts).
 const logBuffer = new LogBuffer(50);
 captureConsole(logBuffer);
-for (const warning of userDataMigration.warnings) console.warn(`[main] ${warning}`);
-if (userDataMigration.migrated) console.log('[main] settings moved from the folder of the old app name');
 
 
 // Durations of the last refresh and of the last local insights scan, for the
@@ -177,7 +175,8 @@ async function computeLocalInsightsIfNeeded(): Promise<ClaudeLocalInsights | nul
 function startLocalInsights(windowDays: number, refreshWhenDone: boolean): Promise<ClaudeLocalInsights | null> {
   const cached = store.get('localInsightsCache').claudeCode;
   const startedAt = Date.now();
-  localInsightsRunning = computeLocalInsightsInProcess(windowDays)
+  localInsightsRunning = claudeProbeFolder()
+    .then((probe) => computeLocalInsightsInProcess(windowDays, probe))
     .then((result) => {
       timings.lastLocalInsights = { at: new Date().toISOString(), ms: Date.now() - startedAt };
       store.set('localInsightsCache.claudeCode', result);
@@ -195,9 +194,26 @@ function startLocalInsights(windowDays: number, refreshWhenDone: boolean): Promi
   return localInsightsRunning;
 }
 
-function computeLocalInsightsInProcess(windowDays: number): Promise<ClaudeLocalInsights | null> {
+// The core's Claude probe folder (#180): its sessions are the core's /usage reads, not
+// the user's work, so the local insights skip them. Asked once per run of the app; a
+// core that cannot answer only means nothing is skipped (the core deletes the probe
+// transcripts anyway, #147).
+let claudeProbePath: Promise<string | null> | null = null;
+function claudeProbeFolder(): Promise<string | null> {
+  claudeProbePath ??= core.paths().then(
+    (paths) => paths.claudeProbe,
+    (err: unknown) => {
+      console.warn('[main] core paths unavailable, Claude probe sessions not skipped:', friendlyErrorMessage(err));
+      claudeProbePath = null; // asked again next time
+      return null;
+    },
+  );
+  return claudeProbePath;
+}
+
+function computeLocalInsightsInProcess(windowDays: number, skipCwd: string | null): Promise<ClaudeLocalInsights | null> {
   return new Promise((resolve, reject) => {
-    const child = utilityProcess.fork(path.join(__dirname, 'services', 'claudeLocalSessions.worker.js'), [], {
+    const child = utilityProcess.fork(path.join(APP_DIR, 'services', 'claudeLocalSessions.worker.js'), [], {
       serviceName: 'AIpermiler local insights',
     });
     let settled = false;
@@ -216,7 +232,7 @@ function computeLocalInsightsInProcess(windowDays: number): Promise<ClaudeLocalI
       });
     });
     child.once('exit', (code) => { settle(() => { reject(new Error(`local insights: process exited (${String(code)})`)); }); });
-    child.postMessage({ windowDays });
+    child.postMessage({ windowDays, skipCwd });
   });
 }
 
@@ -257,9 +273,6 @@ function friendlyErrorMessage(err: unknown): string {
     if (err.reason === 'enterprise_managed_seat') return t('error.copilotEnterpriseManaged');
     if (err.code === 'signed_out') return t('error.copilotSignedOut');
     if (err.reason === 'keyring_unavailable') return t('error.keyringUnavailable', { detail: err.message });
-  }
-  if (err instanceof providers.ClaudeUsageUnavailableError) {
-    return t('error.claudeQuotasUnavailable');
   }
   if (err instanceof CoreBinaryError) return t('error.coreMissing', { detail: error.message });
   if (err instanceof CoreTimeoutError) return t('error.coreTimeout');
@@ -321,7 +334,7 @@ function reportConfig(cfg: AccountConfig): Record<string, unknown> {
     // Never the path itself (it can hold the user name): only whether one is set.
     case 'codex': return { ...common, binaryPath: cfg.binaryPath ? 'set' : 'auto-detect' };
     case 'claude':
-      return { ...common, authMethod: cfg.authMethod, localInsights: cfg.localInsights };
+      return { ...common, localInsights: cfg.localInsights, binaryPath: cfg.binaryPath ? 'set' : 'auto-detect' };
     case 'copilot':
       return {
         ...common,
@@ -492,14 +505,11 @@ const usageCore = createUsageCore({
   },
   fetchUsage: providers.fetchUsage,
   isConnected: providers.isConnected,
-  // Signed out is a state, not a failure: Codex (sign in with Codex), Copilot (reconnect).
+  // States the user acts on, not failures: signed out, Claude Code missing… (main/accountNotice.ts).
   accountNotice: (err) => {
-    if (!(err instanceof CoreProviderError) || err.code !== 'signed_out') return null;
-    if (err.provider === 'codex') return t('error.codexSignedOut');
-    if (err.provider === 'copilot') return t('error.copilotSignedOut');
-    return null;
+    const key = accountNoticeKey(err);
+    return key === null ? null : t(key);
   },
-  quotasUnavailable: (cfg) => (cfg.provider === 'claude' ? t('error.claudeQuotasUnavailable') : null),
   localInsights: computeLocalInsightsIfNeeded,
   describeError: friendlyErrorMessage,
   onFetchError: maybeReportFormatDrift,
@@ -694,7 +704,7 @@ function preserveRealSecretsOnWrite(key: string, value: unknown): unknown {
   for (const cur of current) {
     if (!merged.some((m) => m.id === cur.id)) merged.push(cur);
   }
-  return enforceSingleCodexAccount(enforceSingleLocalInsights(merged));
+  return enforceSingleSignInAccounts(enforceSingleLocalInsights(merged));
 }
 
 // ---------------------------------------------------------------------------
@@ -778,6 +788,7 @@ function registerIpcHandlers(): void {
   handle('settings:set', (_event, patch: unknown) => {
     if (!isPlainRecord(patch)) throw new Error('Settings: invalid patch');
     let next: AppSettings = store.store;
+    const accountsBefore = next.accounts;
     for (const [key, value] of Object.entries(patch)) {
       if (!RENDERER_EDITABLE_KEYS.has(key)) throw new Error(`Settings: section not editable from the renderer: ${key}`);
       next = { ...next, [key]: preserveRealSecretsOnWrite(key, value) };
@@ -788,6 +799,7 @@ function registerIpcHandlers(): void {
     applyMainLocale();
     broadcastView();
     scheduleRefreshLoop();
+    if (binaryPathChanged(accountsBefore, store.store.accounts)) runDetached('refresh usage', refreshAndBroadcast('forced'));
     const redacted = redactSecretsForRenderer(store.store);
     // Propagates the change to the widget if open: some fields (e.g. accent color) have
     // no dedicated IPC like ui.windowStyle/ui.alwaysOnTop and would otherwise apply only
@@ -848,10 +860,11 @@ function registerIpcHandlers(): void {
     const accounts = getAccounts();
     const id = `${provider}-${randomUUID().slice(0, 8)}`;
     accounts.push(defaultAccountFor(provider, id, nextAccountLabel(provider, accounts)));
-    // A new Codex account starts enabled unless another one already is (#178).
-    store.set('accounts', enforceSingleCodexAccount(accounts));
+    // A new Codex or Claude account starts enabled unless another one of the same
+    // provider already is (#178, #180).
+    store.set('accounts', enforceSingleSignInAccounts(accounts));
     broadcastSettings();
-    // Codex has no Connect step that would trigger the first read: refresh now.
+    // Codex and Claude have no Connect step that would trigger the first read: refresh now.
     runDetached('refresh usage', refreshAndBroadcast('forced'));
     return id;
   });

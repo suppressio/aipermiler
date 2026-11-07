@@ -131,8 +131,8 @@ func TestAllFixturesAreVersionedDocuments(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) != 15 {
-		t.Fatalf("fixture count = %d; want 15", len(files))
+	if len(files) != 16 {
+		t.Fatalf("fixture count = %d; want 16", len(files))
 	}
 	for _, file := range files {
 		t.Run(filepath.Base(file), func(t *testing.T) {

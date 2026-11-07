@@ -15,6 +15,8 @@ export const it: Record<MainMessageKey, string> = {
   'windows.premium_interactions': 'Crediti AI Copilot',
   'windows.chat': 'Chat Copilot',
   'windows.completions': 'Completamento codice Copilot',
+  'windows.claude-5h': 'Limite 5 ore',
+  'windows.claude-7d': 'Limite settimanale',
   'windows.codex-5h': 'Limite 5 ore',
   'windows.codex-7d': 'Limite settimanale',
   'windows.codexHours': 'Limite {n} ore',
@@ -40,7 +42,6 @@ export const it: Record<MainMessageKey, string> = {
   'notify.updateAvailable': 'È disponibile la versione {version}: apri Impostazioni → Aggiornamenti per scaricarla.',
 
   'startup.failedTitle': 'AIpermiler non è riuscita ad avviarsi',
-  'startup.migrationFailed': 'Non è stato possibile spostare le impostazioni da IA Hypermiler: l\'app si ferma per non perderle. Chiudi IA Hypermiler se è aperta e riavvia AIpermiler. ({detail})',
 
 
   'error.sessionExpired': "Sessione scaduta o non valida — riconnetti l'account da Impostazioni. ({detail})",
@@ -57,6 +58,10 @@ export const it: Record<MainMessageKey, string> = {
   'report.confirmDetail': "Il report legge l'utilizzo di {accounts} account collegati e salva un file di testo nella cartella Download con:\n• le risposte di utilizzo di Claude/GitHub, con valori reali (percentuali, importi, date)\n• le impostazioni che influiscono sul pacing (ambito, giorno di rinnovo, calendario di lavoro)\n• come l'app ha letto i dati (finestre, verdetti, budget)\n• gli ultimi 7 giorni di storico e i campioni di oggi\n• gli ultimi errori e avvisi dell'app\n• dati di sistema: fuso orario, schermi e scalatura, memoria/CPU usate dall'app, i suoi tempi interni, numero di core e RAM\n\nMai inclusi: nomi degli account, credenziali, cookie, id, il dominio aziendale, testi liberi, modello di CPU/GPU, nome del computer o dell'utente.\n\nNon viene inviato nulla: si apre la cartella e una bozza di issue GitHub nel browser. Sei tu a decidere se allegare il file e inviarla.",
   'report.confirm': "Crea report",
   'report.cancel': "Annulla",
-  'error.claudeQuotasUnavailable': "Le quote di Claude non sono disponibili in questa versione: Anthropic non consente alle app di terzi di accedere a claude.ai né di salvarne la sessione. Torneranno con una fonte consentita (issue #139 sulla pagina GitHub del progetto). Le local insights continuano a funzionare.",
+  'error.claudeSignedOut': "Accedi a Claude Code su questo computer con il tuo abbonamento Claude (esegui `claude` e segui il login): l'app legge le quote tramite il tuo accesso a Claude Code e non salva sessioni di claude.ai.",
+  'error.claudeNotReady': "Claude Code non ha raggiunto il suo prompt: apri `claude` una volta in un terminale e rispondi a quello che chiede (primo avvio, un aggiornamento), poi aggiorna.",
+  'error.claudeNotInstalled': "Claude Code non è stato trovato su questo computer: installalo (code.claude.com) e accedi, oppure indica il suo percorso nell'account (Impostazioni → Programma Claude Code).",
+  'error.claudeNoSubscription': "Claude Code ha l'accesso con una API key o un provider cloud (Bedrock, Vertex), che non ha quote di abbonamento: accedi a Claude Code con il tuo abbonamento Claude per vedere le quote.",
+  'error.claudeApiKeyQuestion': "Claude Code chiede se usare la API key impostata nel suo ambiente (ANTHROPIC_API_KEY): apri `claude` una volta in un terminale e rispondi, poi aggiorna. L'app non risponde mai al posto tuo.",
   'error.copilotEnterpriseManaged': "Questo account github.com non ha dati di consumo Copilot. Se la tua azienda usa un proprio dominio GitHub (<nome>.ghe.com), impostalo nell'account e ricollegati con un account di quel dominio.",
 };

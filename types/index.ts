@@ -349,6 +349,10 @@ export interface ClaudeAccountSettings extends AccountConfigBase {
   // Claude Code sessions of THIS machine attributed to this account (opt-in, at most
   // one Claude account at a time) — see services/claudeLocalSessions.ts.
   localInsights: boolean;
+  // Absolute path of the claude binary, or null to let the core find it (PATH,
+  // ~/.local/bin, npm, VS Code extension; docs/CORE-CLI.md). Quotas are read by the core
+  // through the user's own Claude Code sign-in (#147, #180), never a stored session.
+  binaryPath: string | null;
 }
 
 export interface CopilotAccountSettings extends AccountConfigBase {

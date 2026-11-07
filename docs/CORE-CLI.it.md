@@ -2,7 +2,7 @@
 
 # CLI del core Go
 
-> Implementato in #26: contratto JSON v1 indipendente dal trasporto e output per terminale del livello 1 di #139. Adapter Codex implementato in #148, Copilot in #149.
+> Implementato in #26: contratto JSON v1 indipendente dal trasporto e output per terminale del livello 1 di #139. Adapter Codex implementato in #148, Copilot in #149, Claude in #147 (#219-#221, Windows #223).
 
 ## Comandi e ambito
 
@@ -13,10 +13,11 @@ aipermiler token delete <provider> [--json] [provider flags]
 aipermiler login <provider> [--json] [--timeout 5m] [provider flags] [login flags]   # client secret su stdin
 aipermiler raw <provider> [provider flags]
 aipermiler version [--json]
+aipermiler paths [--json]
 aipermiler help
 ```
 
-La CLI recupera i dati su richiesta e termina. Non ci sono server, porte, daemon, store condiviso o snapshot del pacing. #31 servirà gli stessi documenti via HTTP; #177 aggiunge il client TypeScript. Codex (#148) e Copilot (#149) sono registrati; `token`, `login` e `raw` sono di Copilot (comandi per l'account, sotto). Un provider sconosciuto come `aipermiler usage nope` fallisce con exit 2, `Unknown provider: nope`. I test registrano un provider sintetico chiamato `fake`.
+La CLI recupera i dati su richiesta e termina. Non ci sono server, porte, daemon, store condiviso o snapshot del pacing. #31 servirà gli stessi documenti via HTTP; #177 aggiunge il client TypeScript. Claude (#147), Codex (#148) e Copilot (#149) sono registrati; `token`, `login` e `raw` sono di Copilot (comandi per l'account, sotto). Un provider sconosciuto come `aipermiler usage nope` fallisce con exit 2, `Unknown provider: nope`. I test registrano un provider sintetico chiamato `fake`.
 
 Mettere il provider prima dei suoi flag. Argomenti posizionali inattesi e flag sconosciuti sono errori di utilizzo.
 
@@ -29,6 +30,49 @@ Mettere il provider prima dei suoi flag. Argomenti posizionali inattesi e flag s
 I secret sono accettati solo su stdin, mai come flag: argv è visibile nell'elenco dei processi. I parametri dell'account vanno nei flag del provider, le credenziali no. Senza `--secret-stdin`, stdin non viene letto e Fetch riceve un secret vuoto. La CLI oscura il secret fornito nei messaggi di errore del provider e nelle motivazioni stale; i provider devono escludere le credenziali da tutti i campi di utilizzo restituiti, dalle etichette degli endpoint diagnostici e dai messaggi.
 
 ## Provider
+
+### Claude
+
+```text
+aipermiler usage claude [--json] [--claude-bin /percorso/assoluto/di/claude]
+```
+
+Le quote arrivano solo attraverso il binario `claude` dell'utente, non modificato, e il suo login (#139, #140): il core non legge mai le credenziali di Claude e non fa mai login. L'approccio è stato deciso in #183 e #218 ([spike](SPIKE-CLAUDE-USAGE-PTY.it.md)). Linux, macOS e Windows (#223). Claude non accetta `--secret-stdin`.
+
+Una lettura:
+
+1. `claude auth status --json` (5 s). Si leggono solo `loggedIn`, `authMethod` e `projectsDirectory`, mai email od organizzazione. `loggedIn: false` è `signed_out` e `authMethod` `api_key` o `third_party` (una API key, Bedrock, Vertex: nessuna quota di abbonamento) è `unavailable`, entrambi senza avviare una sessione (#228); `claude.ai`, `oauth_token` (`claude setup-token`) e valori sconosciuti proseguono; un output inutilizzabile lascia il controllo allo schermo.
+2. `claude` parte in uno pseudo-terminale (50×140, `TERM=xterm-256color`; su Windows una ConPTY su `golang.org/x/sys/windows`, il `claude.exe` nativo avviato direttamente, sospeso, messo in un job object con `KILL_ON_JOB_CLOSE`, poi ripreso, mai con `CREATE_NO_WINDOW`, che rompe la ConPTY) dentro la cartella di probe del core, `<user cache>/aipermiler/claude-probe`, che deve essere vuota. I flag sono `--settings` con il nostro comando di status line, `--strict-mcp-config` e `--setting-sources local`. Nelle impostazioni dell'utente non viene scritto niente, e server MCP, hook e plugin dell'utente restano fuori. Le variabili d'ambiente lasciate da una sessione Claude Code genitore (`CLAUDECODE`, `CLAUDE_CODE_ENTRYPOINT`, `CLAUDE_CODE_SESSION_ID` e simili, un elenco fisso) vengono rimosse. Tutte le altre restano, `CLAUDE_CODE_*` comprese (provider, accesso, gateway, mTLS, percorso di Git Bash), così il core legge lo stesso accesso del Claude Code dell'utente (#228).
+3. Al prompt di fiducia della cartella si risponde una volta sola, e solo per quella cartella vuota. Il core digita solo `/usage`, Esc e `/exit`, mai un prompt, quindi nessuna richiesta al modello sul piano dell'utente. Alla domanda di Claude Code su una API key nel suo ambiente (*Detected a custom API key*) non si risponde mai: la risposta predefinita è No, e qualunque Invio digitato lì salverebbe quella risposta nel Claude Code dell'utente, quindi il core la lascia com'è e chiude la sessione (#228). Per lo stesso motivo l'Invio dopo `/usage` parte solo quando il prompt mostra il `/usage` digitato: una schermata ferma che non lo mostra è una finestra sconosciuta, e il probe finisce `not_ready` senza confermare niente.
+4. Claude esegue il comando di status line. È il sottocomando nascosto `aipermiler claude-statusline <file>`, che aggiunge come una riga il JSON ricevuto su stdin a un file `<user cache>/aipermiler/claude-status-*.jsonl` creato per questa lettura. Non crea mai un file e non stampa niente. Su Linux e macOS Claude esegue il comando con `sh`, quindi i due percorsi sono tra apici singoli. Su Windows lo esegue con Windows PowerShell, oppure con Git Bash quando è installato Git for Windows (entrambi verificati su Windows 11 con 2.1.302 e 2.1.316), e i due quotano in modo diverso: i percorsi vanno senza virgolette, le cartelle come nomi brevi 8.3 con slash in avanti (`C:/Users/MARIOR~1/…/aipermiler.exe`), che PowerShell, bash e cmd leggono tutti come la stessa parola. Un percorso che contiene ancora un carattere diverso da lettere e cifre ASCII e `:/._-~` (un volume senza nomi brevi) è `unavailable`. Chiuso il pannello con Esc, il core aspetta fino a 3 s un'esecuzione che porti `rate_limits`.
+5. `/exit` ha 5 s, poi viene ucciso l'intero albero di processi (il process group su POSIX, il job su Windows). Il probe ha un limite di 25 s.
+6. Pulizia, anche dopo un probe fallito: si cancella il file del sink e anche il transcript del probe stesso. È il `transcript_path` di un'esecuzione del status line il cui `cwd` è la cartella di probe, solo un `.jsonl` direttamente dentro una cartella di `projectsDirectory` (percorsi confrontati come file, non come stringhe). Si rimuove anche la cartella, se non resta altro dentro. Senza `projectsDirectory` non si cancella niente. Una lettura cancella anche i file del sink di letture precedenti interrotte (un core ucciso), se fermi da 10 min (#229). Nient'altro di Claude viene toccato: la riga di `/usage` in `history.jsonl` resta.
+
+Ordine di ricerca (#219):
+
+1. `--claude-bin` esplicito: assoluto e nativo, altrimenti `unavailable`, senza fallback.
+2. `claude` (`claude.exe` su Windows) nelle voci del PATH, in ordine. Su Windows ogni voce viene guardata anche come prefisso npm: `<voce>\node_modules\@anthropic-ai\claude-code\bin\claude.exe`, il binario che esegue il suo shim `claude.cmd` (con Node da winget il prefisso è la cartella di Node stessa, non `%APPDATA%\npm`; verificato).
+3. `~/.local/bin/claude`.
+4. Prefissi fissi: su macOS `/opt/homebrew/bin/claude`, `/usr/local/bin/claude`, poi il pacchetto npm sotto `/usr/local` e `/opt/homebrew`; su Linux il pacchetto npm sotto `/usr/local/lib` e `/usr/lib`; su Windows il pacchetto npm sotto `%APPDATA%\npm` e il pacchetto winget sotto `%LOCALAPPDATA%`.
+5. Il binario nativo dell'estensione Claude Code di VS Code, VS Code Insiders, Cursor, Windsurf e VS Code Server, dalla versione più recente.
+
+Valgono solo binari nativi: almeno 1 MB, mai `.js`/`.cjs` (Node non viene mai eseguito), `.exe` su Windows, eseguibili altrove. I symlink vengono risolti e i duplicati saltati. npm 11 non esegue più gli script di installazione di default: senza `--allow-scripts=@anthropic-ai/claude-code` il pacchetto resta con il suo piccolo stub al posto del binario nativo, e quell'installazione viene saltata (verificato su Windows con npm 11.19). Su Windows 11 le quattro installazioni sono state trovate insieme e ognuna ha letto entrambe le finestre: winget, npm, native installer, estensione VS Code.
+
+| Condizione | Codice | Significato/messaggio |
+|---|---|---|
+| Binario non trovato (anche `--claude-bin` relativo o sbagliato) | `unavailable`, reason `not_installed` | `Claude Code not found; install it or set --claude-bin` |
+| Connesso con una API key o un cloud provider | `unavailable`, reason `no_subscription` | `Claude Code is signed in with an API key or a cloud provider, which has no subscription quota` |
+| Claude Code chiede se usare una API key presente nel suo ambiente | `unavailable`, reason `api_key_question` | ``Claude Code asks whether to use the API key in its environment; answer it in claude, then retry`` |
+| Non connesso (`auth status`, o la schermata di login/tema) | `signed_out` | ``Claude Code is not signed in; run `claude` and sign in`` |
+| Prompt non raggiunto (schermata sconosciuta), `/usage` non mostrato 3 s dopo averlo digitato, o nessun pannello 12 s dopo `/usage` | `not_ready` | `claude did not reach its prompt (an unknown screen?)` / `claude did not show /usage at its prompt (an unknown screen?)` / `no usage panel after /usage` |
+| Scadenza dopo il prompt | `timeout` | `claude probe timed out <where>` |
+| Status line mai eseguito, nessun `rate_limits` o nessuna finestra riconosciuta | `format_drift` | `Claude: …`, endpoint `claude status line rate_limits`, solo la forma |
+| `claude` non parte, esce prima, cartella di probe non vuota | `unavailable` | il motivo, mai lo schermo |
+| Windows: un percorso del core o della cache che lo status line non può nominare senza virgolette | `unavailable` | `the status line command cannot name this path without quoting (no 8.3 short name?): <path>` |
+
+Il mapping legge l'ultima esecuzione del status line che portava `rate_limits`. `five_hour` diventa `claude-5h` / `5-hour limit` / `rolling-hours` 5 e `seven_day` diventa `claude-7d` / `7-day limit` / `rolling-days` 7. Un `used_percentage` mancante o negativo salta la finestra; il valore non viene mai limitato; unità `percentage`, totale 100. Un `resets_at` positivo in secondi Unix diventa una data UTC, altrimenti null. `planTier` e `subscriptionRenewsAt` sono sempre null: lo status line non porta nessuno dei due. Le fixture sintetiche in `internal/claude/testdata/` portano il nome della versione di Claude Code di cui seguono la forma; il comportamento è stato visto su 2.1.314-2.1.316.
+
+**Polling.** Ogni lettura avvia una sessione Claude Code (circa 5 s misurati su Linux, 6-9 s su una VM Windows 11, 2.1.302-2.1.316) e aggiunge una riga a `history.jsonl` di Claude. Il client legge ogni 30 min di default e mai sotto i 5 min col timer (il ritmo adattivo di 5 min è il minimo); un aggiornamento manuale riusa una lettura di meno di 1 min (`main/refreshPolicy.ts`). La scadenza di default della CLI, 25 s, copre l'intera lettura; il client tiene il proprio timeout sopra (#180). Su Windows il core avviato da `execFile` di Node con `windowsHide` (come fa `main/coreClient.ts`) nella sessione desktop ha letto entrambe le finestre e non ha mostrato nessuna finestra in 14 s di screenshot presi ogni ~40 ms (una console visibile, in una prova di controllo, è stata vista in 148 frame su 189).
 
 ### Codex
 
@@ -74,6 +118,16 @@ Le finestre sono riconosciute dalla durata in `primary` o `secondary`; in caso d
 - **Finestre**: una per categoria di `quota_snapshots`, nell'ordine delle chiavi della risposta, id = la chiave della categoria, etichetta `Copilot — <chiave>`, `billing-cycle` di 1 mese, regole di VS Code (illimitata → crediti usati senza totale, niente se sono zero; entitlement > 0 → entitlement − rimanenti sull'entitlement; entitlement 0 → niente; altrimenti la percentuale). Report di billing → `ai_credits` / `AI credits`, conteggio, reset e rinnovo il 1° del mese UTC successivo. Stessi id di prima, così lo storico salvato continua a combaciare.
 - **Errori**: nessun token salvato → `signed_out`, reason `not_connected`; GitHub risponde 401 → `signed_out`, reason `token_rejected`; licenza github.com gestita da un'enterprise (nessun dato, #7) → `unavailable`, reason `enterprise_managed_seat`; nessuna categoria riconosciuta o niente `usageItems` → `format_drift` con la shape.
 
+## Percorsi
+
+`paths` stampa le cartelle che un client deve conoscere (#180): oggi `claudeProbe`, la cartella in cui gira ogni probe di Claude (`<user cache>/aipermiler/claude-probe`, che questo comando non crea). Un client che legge le sessioni di Claude Code (gli insight locali dell'app) salta le sessioni con `cwd` in quella cartella: sono le letture `/usage` del core, non il lavoro dell'utente.
+
+```json
+{"schemaVersion":1,"claudeProbe":"/home/synthetic/.cache/aipermiler/claude-probe"}
+```
+
+Output testuale: `claude probe: <percorso>`. Argomenti in più sono errori d'uso (exit 2); una cartella di cache utente che non si trova è `unavailable` (exit 1).
+
 ## Comandi per l'account
 
 Gestiscono nel core le credenziali dell'account di un provider (per ora solo Copilot). I loro documenti seguono le stesse regole degli altri (un documento compatto per riga, `schemaVersion` 1, documenti di errore ed exit code come per `usage`).
@@ -108,7 +162,7 @@ Tutte le date sono stringhe UTC RFC 3339 con `Z`, alla precisione del secondo. T
 | `stale` | booleano, solo successo | Il provider ha restituito gli ultimi valori noti invece di dati freschi. |
 | `staleReason` | `{code, message}`, solo quando stale | Motivo del fallback, con i codici di errore dei provider. Qui non ci sono endpoint o shape. |
 | `usage` | `RawAccountUsage`, solo successo | Dati del provider, senza pacing o cronologia. |
-| `error` | oggetto, solo errori | `code` stabile e `message` leggibile; format drift ha anche `endpoint` e `shape`. `reason` facoltativo (additivo, #149): un caso noto dentro il codice, così un client può spiegarlo nella lingua dell'utente senza analizzare `message`. Reason note: `not_connected`, `token_rejected` (con `signed_out`); `enterprise_managed_seat`, `keyring_unavailable` (con `unavailable`). Un client ignora una reason che non conosce. |
+| `error` | oggetto, solo errori | `code` stabile e `message` leggibile; format drift ha anche `endpoint` e `shape`. `reason` facoltativo (additivo, #149): un caso noto dentro il codice, così un client può spiegarlo nella lingua dell'utente senza analizzare `message`. Reason note: `not_connected`, `token_rejected` (con `signed_out`); `enterprise_managed_seat`, `keyring_unavailable` e per Claude (#180) `not_installed`, `no_subscription`, `api_key_question` (con `unavailable`). Un client ignora una reason che non conosce. |
 | `name`, `version`, `os`, `arch` | stringhe, solo documento version | Identità del binario, versione di build (default `dev`), OS e architettura Go. |
 
 ### Campi usage e quota
@@ -216,10 +270,10 @@ Con `--json`, gli errori di utilizzo non hanno la chiave provider. L'help è sol
 
 ## Client Electron
 
-`main/coreClient.ts` (#177) è il lato app di questo contratto. Per ogni lettura esegue il binario con `execFile`: niente shell, `windowsHide` (nessuna finestra di console su Windows), `--json`, `--timeout 25s` e un timeout del client di 30 s, stdin sempre chiuso (con il segreto scritto prima, con `--secret-stdin`, quando c'è), al massimo 1 MiB di output. Il binario è `AIPERMILER_CORE_BIN` se impostato (assoluto), altrimenti `<resources>/core/aipermiler[.exe]` nel pacchetto o `core-bin/` del repository in sviluppo. Errori: binario assente o non avviabile → `CoreBinaryError`; ucciso al timeout del client → `CoreTimeoutError`; output che non è un documento v1, che contraddice il proprio exit code, o un errore di uso (exit 2, un bug negli argomenti) → `CoreOutputError`, senza mai citare l'output; `format_drift` → lo stesso `FormatDriftError` dei servizi TypeScript, così la segnalazione di drift funziona senza modifiche; gli altri codici → `CoreProviderError` con il codice. `version --json` alimenta Impostazioni → Diagnostica e il report di diagnosi. Codex legge da qui da #178 (`main/core.ts`, `main/providers.ts`); Copilot segue in #179.
+`main/coreClient.ts` (#177) è il lato app di questo contratto. Per ogni lettura esegue il binario con `execFile`: niente shell, `windowsHide` (nessuna finestra di console su Windows), `--json`, `--timeout 25s` e un timeout del client di 30 s, stdin sempre chiuso (con il segreto scritto prima, con `--secret-stdin`, quando c'è), al massimo 1 MiB di output. Il binario è `AIPERMILER_CORE_BIN` se impostato (assoluto), altrimenti `<resources>/core/aipermiler[.exe]` nel pacchetto o `core-bin/` del repository in sviluppo. Errori: binario assente o non avviabile → `CoreBinaryError`; ucciso al timeout del client → `CoreTimeoutError`; output che non è un documento v1, che contraddice il proprio exit code, o un errore di uso (exit 2, un bug negli argomenti) → `CoreOutputError`, senza mai citare l'output; `format_drift` → lo stesso `FormatDriftError` dei servizi TypeScript, così la segnalazione di drift funziona senza modifiche; gli altri codici → `CoreProviderError` con il codice. `version --json` alimenta Impostazioni → Diagnostica e il report di diagnosi. Codex legge da qui da #178 (`main/core.ts`, `main/providers.ts`), Copilot da #179 e Claude da #180; `paths --json` dà agli insight locali la cartella dei probe di Claude da saltare.
 
 ## Versionamento e fixture condivise
 
 I campi aggiuntivi mantengono `schemaVersion: 1`; i client devono ignorare i campi sconosciuti. Rimuovere o rinominare un campo, o cambiarne il significato, incrementa la versione dello schema. Un client che vede una versione dello schema non supportata deve rifiutare esplicitamente il documento. Un codice di errore sconosciuto viene trattato come `unavailable`, conservando gli ultimi valori come stale.
 
-I file indipendenti dalla lingua in `gocore/contract/v1/` sono esempi normativi. I test black-box Go della CLI riproducono ogni fixture byte per byte attraverso `RunWith`, un provider fake e un orologio fisso. I test del client TypeScript (`main/coreClient.test.ts`, #177) leggono gli stessi file. `version.json` usa `aipermiler`, `dev`, `linux`, `amd64`; il suo test Go sostituisce `buildinfo.Name`, `buildinfo.Version`, `runtime.GOOS` e `runtime.GOARCH` prima del confronto byte per byte per supportare versioni impostate in build ed esecuzioni multipiattaforma. Ogni fixture viene anche verificata come JSON compatto valido con `schemaVersion: 1` ed esattamente un newline finale. I documenti per l'account (`account-connected`, `account-deleted`, `login-authorize`, `raw`) ed `error-unavailable-reason` sono arrivati con #149; il client TypeScript li legge da #179. I documenti sono scritti senza escape HTML (un URL mantiene una `&` letterale).
+I file indipendenti dalla lingua in `gocore/contract/v1/` sono esempi normativi. I test black-box Go della CLI riproducono ogni fixture indipendente dal provider byte per byte attraverso `RunWith`, un provider fake e un orologio fisso. I test del client TypeScript (`main/coreClient.test.ts`, #177) leggono gli stessi file. `version.json` usa `aipermiler`, `dev`, `linux`, `amd64`; il suo test Go sostituisce `buildinfo.Name`, `buildinfo.Version`, `runtime.GOOS` e `runtime.GOARCH` prima del confronto byte per byte per supportare versioni impostate in build ed esecuzioni multipiattaforma. Ogni fixture viene anche verificata come JSON compatto valido con `schemaVersion: 1` ed esattamente un newline finale. `usage-claude` è riprodotto dal test dell'adapter Claude (`internal/claude`), dalla sua fixture del status line 2.1.316 attraverso il mapping. I documenti per l'account (`account-connected`, `account-deleted`, `login-authorize`, `raw`) ed `error-unavailable-reason` sono arrivati con #149; il client TypeScript li legge da #179. I documenti sono scritti senza escape HTML (un URL mantiene una `&` letterale).

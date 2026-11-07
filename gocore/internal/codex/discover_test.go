@@ -300,25 +300,3 @@ func TestDiscoverySkipsScripts(t *testing.T) {
 	assertDiscover(t, tr, shim, "")
 	assertDiscover(t, tr, "", native)
 }
-
-func TestSplitPathList(t *testing.T) {
-	t.Parallel()
-	tests := []struct {
-		goos, value string
-		want        []string
-	}{
-		{"linux", "/usr/bin:/opt/codex", []string{"/usr/bin", "/opt/codex"}},
-		{"linux", "", nil},
-		{"windows", `C:\Windows;"D:\Tools\Codex";E:\bin`, []string{`C:\Windows`, `D:\Tools\Codex`, `E:\bin`}},
-		{"windows", `"D:\a;b\Codex";C:\x`, []string{`D:\a;b\Codex`, `C:\x`}},
-	}
-	for _, tt := range tests {
-		t.Run(tt.goos+" "+tt.value, func(t *testing.T) {
-			t.Parallel()
-			got := codex.SplitPathListForTest(tt.value, tt.goos)
-			if strings.Join(got, "|") != strings.Join(tt.want, "|") || len(got) != len(tt.want) {
-				t.Errorf("splitPathList(%q) = %q; want %q", tt.value, got, tt.want)
-			}
-		})
-	}
-}

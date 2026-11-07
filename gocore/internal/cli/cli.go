@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/suppressio/aipermiler/gocore/internal/buildinfo"
+	"github.com/suppressio/aipermiler/gocore/internal/claude"
 	"github.com/suppressio/aipermiler/gocore/internal/logging"
 	"github.com/suppressio/aipermiler/gocore/internal/provider"
 	"github.com/suppressio/aipermiler/gocore/internal/usage"
@@ -61,9 +62,12 @@ func RunWith(env Env, args []string) int {
 		return runLogin(env, args[1:], jsonMode)
 	case "raw":
 		return runRaw(env, args[1:], jsonMode)
+	case claude.SinkCommand:
+		// Hidden: Claude runs it as the probe's status line, never a user.
+		return claude.Sink(args[1:], env.Stdin)
 	}
 	switch command {
-	case "help", "-h", "--help", "version":
+	case "help", "-h", "--help", "version", "paths":
 	default:
 		return usageError(env, jsonMode, "Unknown command: "+command)
 	}
@@ -78,6 +82,9 @@ func RunWith(env Env, args []string) int {
 		return usageError(env, jsonMode, "Unexpected arguments")
 	}
 	jsonMode = *jsonFlag
+	if command == "paths" {
+		return runPaths(env, jsonMode)
+	}
 	if command != "version" {
 		if jsonMode {
 			return usageError(env, true, "Help is only available as text")
@@ -96,6 +103,28 @@ func RunWith(env Env, args []string) int {
 		return outputResult(env, err, ExitOK)
 	}
 	_, err := fmt.Fprintf(env.Stdout, "%s %s (%s/%s)\n", buildinfo.Name, buildinfo.Version, runtime.GOOS, runtime.GOARCH)
+	return outputResult(env, err, ExitOK)
+}
+
+// runPaths prints the folders a client needs to know about (#180): today the folder
+// the Claude probes run in, so a client reading Claude Code sessions skips them.
+func runPaths(env Env, jsonMode bool) int {
+	probe, err := claude.ProbeDir()
+	if err != nil {
+		if jsonMode {
+			return outputResult(env, usage.WriteError(env.Stdout, "", usage.ClassifyError(err)), ExitProviderError)
+		}
+		_, _ = fmt.Fprintln(env.Stderr, oneLine(err.Error()))
+		return ExitProviderError
+	}
+	if jsonMode {
+		err := json.NewEncoder(env.Stdout).Encode(struct {
+			SchemaVersion int    `json:"schemaVersion"`
+			ClaudeProbe   string `json:"claudeProbe"`
+		}{usage.SchemaVersion, probe})
+		return outputResult(env, err, ExitOK)
+	}
+	_, err = fmt.Fprintf(env.Stdout, "claude probe: %s\n", probe)
 	return outputResult(env, err, ExitOK)
 }
 
@@ -222,6 +251,7 @@ Commands:
   login <provider> [flags]         Sign in with an OAuth App (client secret on stdin)
   raw <provider> [flags]           Print the provider's raw usage response (JSON, for diagnostics)
   version [--json]                 Print version and platform
+  paths [--json]                   Print the folders a client must know (the Claude probe folder)
   help                             Show this help
 
 Common flags:

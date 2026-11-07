@@ -35,6 +35,7 @@ export const en = {
 
   // --- Widget: daily chart ---------------------------------------------------
   'widget.chart.title': 'Daily consumption vs budget ({days}d)',
+  'widget.chart.titleEmpty': 'Daily consumption vs budget',
   'widget.chart.ideal': 'ideal share {value}/day',
   'widget.chart.notApplicable': 'Not applicable to windows of a few hours — see instant consumption.',
   'widget.chart.noData': '{date}: no data',
@@ -119,6 +120,8 @@ export const en = {
   'windows.premium_interactions': 'Copilot AI credits',
   'windows.chat': 'Copilot chat',
   'windows.completions': 'Copilot code completions',
+  'windows.claude-5h': '5-hour limit',
+  'windows.claude-7d': 'Weekly limit',
   'windows.codex-5h': '5-hour limit',
   'windows.codex-7d': 'Weekly limit',
   'windows.codexHours': '{n}-hour limit',
@@ -162,7 +165,7 @@ export const en = {
   'settings.accounts.statusConnected': 'Connected',
   'settings.accounts.statusConnectedAs': 'Connected as {user}',
   'settings.accounts.statusNotConnected': 'Not connected',
-  'settings.accounts.statusClaudeLocalOnly': 'Local insights only',
+  'settings.accounts.statusClaudeSignIn': 'Claude Code sign-in of this computer',
   'settings.accounts.statusCodexSignIn': 'Codex sign-in of this computer',
   'settings.accounts.enabledAria': 'Account {name} active',
   'settings.accounts.detailTitle': 'Configure “{name}”',
@@ -185,7 +188,10 @@ export const en = {
   'settings.account.renewalDay': 'Renewal day (of the month)',
 
   // --- Settings: Claude detail ------------------------------------------------
-  'settings.claude.quotasUnavailable': 'Claude quotas are not available in this version: Anthropic does not allow third-party apps to sign in to claude.ai. This account shows the local insights only.',
+  'settings.claude.signInHint': 'Usage is read through Claude Code signed in on this computer (the claude CLI or the VS Code extension): each read opens a short Claude Code session that only asks for /usage, without any model request. Sign in there with your Claude subscription; the app stores no claude.ai session. Only one Claude account can be active, since there is one Claude Code sign-in per computer.',
+  'settings.claude.binaryPath': 'Claude Code binary (optional)',
+  'settings.claude.binaryPathHint': 'Leave empty: the app finds Claude Code by itself (on the PATH, ~/.local/bin, npm global install, VS Code extension). Fill it only if Claude Code is installed somewhere else: the full path of the claude program.',
+  'settings.claude.binaryPathPlaceholder': 'Found automatically',
   'settings.claude.localInsights': 'Attribute this machine’s Claude Code sessions to this account (local insights, experimental)',
   'settings.claude.localInsightsHint': 'Reads local Claude Code sessions (CLI and VS Code extension — same source) to show how much of your usage happens with a very large context or in very long sessions, which tools/MCP servers you use most and how many tokens you produce per point of quota. It only reads token counts and tool names — never message content. Local sessions do not say which account they belong to: enable it on one Claude account only, the one you use with Claude Code. Sessions older than about 30 days are no longer available.',
 

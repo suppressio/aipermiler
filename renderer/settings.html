@@ -76,7 +76,10 @@
             <input type="text" data-account-field="label" />
           </label>
         </div>
-        <p class="hint" data-i18n="settings.claude.quotasUnavailable">Claude quotas are not available in this version: Anthropic does not allow third-party apps to sign in to claude.ai. This account shows the local insights only.</p>
+        <p class="hint" data-i18n="settings.claude.signInHint">Usage is read through Claude Code signed in on this computer (the claude CLI or the VS Code extension). Sign in there; the app stores no claude.ai session. Only one Claude account can be active, since there is one Claude Code sign-in per computer.</p>
+        <label><span class="label-row"><span data-i18n="settings.claude.binaryPath">Claude Code binary (optional)</span> <button type="button" class="info-icon" aria-label="More information" data-i18n-aria-label="settings.infoAria">ⓘ<span class="tooltip" role="tooltip" data-i18n="settings.claude.binaryPathHint"></span></button></span>
+          <input type="text" data-account-field="binaryPath" data-i18n-placeholder="settings.claude.binaryPathPlaceholder" placeholder="Found automatically" spellcheck="false" />
+        </label>
         <label><span class="label-row"><span data-i18n="settings.account.renewalDay">Renewal day (of the month)</span> <button type="button" class="info-icon" data-role="renewal-hint" aria-label="More information" data-i18n-aria-label="settings.infoAria" hidden>ⓘ<span class="tooltip" role="tooltip" data-role="renewal-hint-text"></span></button></span>
           <input type="number" min="1" max="31" data-account-field="subscription.renewalRule.day" />
         </label>

@@ -15,6 +15,8 @@
 // system Node tolerates require() of ESM via interop, the one inside Electron does
 // not). Fix: a native dynamic import(), see dynamicImport below.
 import type { ListSessionsOptions, GetSessionMessagesOptions, SDKSessionInfo, SessionMessage } from '@anthropic-ai/claude-agent-sdk';
+import fs from 'node:fs';
+import path from 'node:path';
 import type { ClaudeLocalInsights, LocalDailyTokens, ToolUsageShare } from '../types/index';
 import { localDateKey } from '../budget';
 
@@ -71,6 +73,33 @@ function loadSdkDeps(): Promise<LocalSessionsDeps> {
   return sdkDepsPromise;
 }
 
+/** The real path (symlinks resolved, e.g. a linked ~/.cache), else the path as given. */
+function realPath(value: string): string {
+  try {
+    return fs.realpathSync.native(value);
+  } catch {
+    return value;
+  }
+}
+
+/**
+ * Whether a session ran in `folder` (the core's Claude probe folder, #180): compared as
+ * real, resolved paths (Claude Code records its physical cwd), case-insensitively on
+ * Windows and macOS (their default file systems).
+ */
+export function ranIn(
+  sessionCwd: string | undefined,
+  folder: string | null,
+  platform: NodeJS.Platform = process.platform,
+  resolveLinks: (value: string) => string = realPath,
+): boolean {
+  if (folder === null || sessionCwd === undefined || sessionCwd === '') return false;
+  const p = platform === 'win32' ? path.win32 : path.posix;
+  const a = p.resolve(resolveLinks(sessionCwd));
+  const b = p.resolve(resolveLinks(folder));
+  return platform === 'win32' || platform === 'darwin' ? a.toLowerCase() === b.toLowerCase() : a === b;
+}
+
 /**
  * Aggregates behavioural insights over the local Claude Code sessions of the last
  * `windowDays` days. Shares are weighted by output_tokens volume (the usage that
@@ -80,6 +109,10 @@ function loadSdkDeps(): Promise<LocalSessionsDeps> {
 export async function computeClaudeLocalInsights(
   windowDays: number,
   deps?: LocalSessionsDeps,
+  // The core's Claude probe folder (#180): its sessions are the core's /usage reads,
+  // not the user's work. Otherwise each probe would count as the day's first session
+  // (firstSessionStartByDay moves the working-day start in pacing).
+  skipCwd: string | null = null,
 ): Promise<ClaudeLocalInsights | null> {
   const resolvedDeps = deps ?? (await loadSdkDeps());
   let sessions: SDKSessionInfo[];
@@ -91,7 +124,9 @@ export async function computeClaudeLocalInsights(
   }
 
   const cutoff = Date.now() - windowDays * 24 * 3600 * 1000;
-  const inWindow = sessions.filter((s) => s.lastModified >= cutoff);
+  // The probe folder's real path is resolved once, not per session.
+  const probeFolder = skipCwd === null ? null : realPath(skipCwd);
+  const inWindow = sessions.filter((s) => s.lastModified >= cutoff && !ranIn(s.cwd, probeFolder));
   if (inWindow.length === 0) return null;
 
   let totalOutputTokens = 0;

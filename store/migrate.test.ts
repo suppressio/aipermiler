@@ -3,12 +3,13 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import path from 'node:path';
 import {
   claudePartitionFor,
   defaultClaudeAccount,
   defaultCopilotAccount,
   defaultCodexAccount,
-  enforceSingleCodexAccount,
+  enforceSingleSignInAccounts,
   enforceSingleLocalInsights,
   migrateAccounts,
   migrateTrayBadge,
@@ -173,12 +174,56 @@ test('purgeClaudeSessions: no lastGood stays undefined', () => {
   assert.equal(purgeClaudeSessions([defaultClaudeAccount('c1')], undefined).lastGood, undefined);
 });
 
-test('enforceSingleCodexAccount: at most one enabled Codex account, the first kept (#178)', () => {
+test('enforceSingleSignInAccounts: at most one enabled Codex account, the first kept (#178)', () => {
   const a = defaultCodexAccount('a');
   const b = defaultCodexAccount('b');
   const off = { ...defaultCodexAccount('off'), enabled: false };
-  const result = enforceSingleCodexAccount([off, a, defaultCopilotAccount('c'), b]);
+  const result = enforceSingleSignInAccounts([off, a, defaultCopilotAccount('c'), b]);
   assert.deepEqual(result.map((x) => [x.id, x.enabled]), [['off', false], ['a', true], ['c', false], ['b', false]]);
+});
+
+test('enforceSingleSignInAccounts: one enabled Claude account too, each provider on its own (#180)', () => {
+  const copilot = { ...defaultCopilotAccount('p'), enabled: true };
+  const result = enforceSingleSignInAccounts([
+    defaultClaudeAccount('c1'), defaultCodexAccount('x1'), defaultClaudeAccount('c2'), copilot, { ...copilot, id: 'p2' }, defaultCodexAccount('x2'),
+  ]);
+  assert.deepEqual(result.map((x) => [x.id, x.enabled]), [['c1', true], ['x1', true], ['c2', false], ['p', true], ['p2', true], ['x2', false]]);
+});
+
+test('enforceSingleSignInAccounts: the enabled Claude account with local insights stays enabled (#180)', () => {
+  const result = normalizeAccounts([
+    { id: 'a', provider: 'claude', enabled: true, localInsights: false },
+    { id: 'b', provider: 'claude', enabled: true, localInsights: true },
+    { id: 'c', provider: 'claude', enabled: false, localInsights: false },
+  ]);
+  assert.deepEqual(result.map((x) => [x.id, x.enabled, x.provider === 'claude' && x.localInsights]), [['a', false, false], ['b', true, true], ['c', false, false]]);
+  // Insights on a disabled account do not take the place of an enabled one.
+  const off = normalizeAccounts([
+    { id: 'a', provider: 'claude', enabled: true },
+    { id: 'b', provider: 'claude', enabled: false, localInsights: true },
+  ]);
+  assert.deepEqual(off.map((x) => [x.id, x.enabled]), [['a', true], ['b', false]]);
+});
+
+test('enforceSingleLocalInsights: an enabled account keeps the flag over a disabled one (#180)', () => {
+  const result = normalizeAccounts([
+    { id: 'a', provider: 'claude', enabled: false, localInsights: true },
+    { id: 'b', provider: 'claude', enabled: true, localInsights: true },
+  ]);
+  assert.deepEqual(result.map((x) => [x.id, x.enabled, x.provider === 'claude' && x.localInsights]), [['a', false, false], ['b', true, true]]);
+});
+
+test('normalizeAccounts: Claude binary path kept only when absolute (#180)', () => {
+  const pathOf = (binaryPath: unknown) => {
+    const account = at(normalizeAccounts([{ id: 'c', provider: 'claude', binaryPath }]), 0);
+    assert.ok(account.provider === 'claude');
+    return account.binaryPath;
+  };
+  assert.equal(pathOf(undefined), null);
+  assert.equal(pathOf('claude'), null);
+  assert.equal(pathOf('  '), null);
+  const abs = path.resolve('/opt/claude/bin/claude');
+  assert.equal(pathOf(` ${abs} `), abs);
 });
 
 test('normalizeAccounts: two migrated Codex accounts → only the first stays enabled (#178)', () => {

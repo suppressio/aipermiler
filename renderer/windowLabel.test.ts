@@ -24,3 +24,11 @@ for (const locale of ['en', 'it'] as const) {
     assert.equal(windowLabel(win('codex-additional-array-0-5h'), 'codex'), `${locale === 'en' ? 'Additional' : 'Aggiuntivo'} #1: ${hours}`);
   });
 }
+
+for (const locale of ['en', 'it'] as const) {
+  test(`Claude core windows have their own labels in ${locale} (#242)`, () => {
+    setLocale(locale);
+    assert.equal(windowLabel(win('claude-5h'), 'claude'), locale === 'en' ? '5-hour limit' : 'Limite 5 ore');
+    assert.equal(windowLabel(win('claude-7d', 'rolling-days', 7), 'claude'), locale === 'en' ? 'Weekly limit' : 'Limite settimanale');
+  });
+}

@@ -31,6 +31,7 @@ export const it: Record<MessageKey, string> = {
   'widget.gauge.sustainable': 'Ritmo sostenibile: {rate}',
 
   'widget.chart.title': 'Consumo giornaliero vs budget ({days}gg)',
+  'widget.chart.titleEmpty': 'Consumo giornaliero vs budget',
   'widget.chart.ideal': 'quota ideale {value}/giorno',
   'widget.chart.notApplicable': 'Non applicabile su finestre di poche ore — vedi il consumo istantaneo.',
   'widget.chart.noData': '{date}: nessun dato',
@@ -110,6 +111,8 @@ export const it: Record<MessageKey, string> = {
   'windows.premium_interactions': 'Crediti AI Copilot',
   'windows.chat': 'Chat Copilot',
   'windows.completions': 'Completamento codice Copilot',
+  'windows.claude-5h': 'Limite 5 ore',
+  'windows.claude-7d': 'Limite settimanale',
   'windows.codex-5h': 'Limite 5 ore',
   'windows.codex-7d': 'Limite settimanale',
   'windows.codexHours': 'Limite {n} ore',
@@ -150,7 +153,7 @@ export const it: Record<MessageKey, string> = {
   'settings.accounts.statusConnected': 'Connesso',
   'settings.accounts.statusConnectedAs': 'Connesso come {user}',
   'settings.accounts.statusNotConnected': 'Non connesso',
-  'settings.accounts.statusClaudeLocalOnly': 'Solo local insights',
+  'settings.accounts.statusClaudeSignIn': 'Accesso Claude Code di questo computer',
   'settings.accounts.statusCodexSignIn': 'Accesso Codex di questo computer',
   'settings.accounts.enabledAria': 'Account {name} attivo',
   'settings.accounts.detailTitle': 'Configura «{name}»',
@@ -171,7 +174,10 @@ export const it: Record<MessageKey, string> = {
   'settings.account.scopeOrg': 'Aziendale (seat organizzazione)',
   'settings.account.renewalDay': 'Giorno di rinnovo (del mese)',
 
-  'settings.claude.quotasUnavailable': "Le quote di Claude non sono disponibili in questa versione: Anthropic non consente alle app di terzi di accedere a claude.ai. Questo account mostra solo le local insights.",
+  'settings.claude.signInHint': 'L’utilizzo viene letto tramite Claude Code con accesso su questo computer (la CLI claude o l’estensione di VS Code): ogni lettura apre una breve sessione di Claude Code che chiede solo /usage, senza richieste al modello. Accedi lì con il tuo abbonamento Claude; l’app non salva sessioni di claude.ai. Un solo account Claude può essere attivo, perché c’è un solo accesso a Claude Code per computer.',
+  'settings.claude.binaryPath': 'Programma Claude Code (facoltativo)',
+  'settings.claude.binaryPathHint': 'Lascia vuoto: l’app trova Claude Code da sola (nel PATH, ~/.local/bin, installazione npm globale, estensione di VS Code). Compilalo solo se Claude Code è installato altrove: il percorso completo del programma claude.',
+  'settings.claude.binaryPathPlaceholder': 'Trovato automaticamente',
   'settings.claude.localInsights': 'Attribuisci a questo account le sessioni Claude Code di questa macchina (insight locali, sperimentale)',
   'settings.claude.localInsightsHint': 'Legge le sessioni Claude Code locali (CLI ed estensione VS Code — stessa sorgente) per mostrare quanto del tuo utilizzo avviene a contesto molto ampio o in sessioni molto lunghe, quali tool/server MCP usi di più e quanti token produci per ogni punto di quota. Legge solo conteggi di token e nomi di tool — mai il contenuto dei messaggi. Le sessioni locali non dicono a quale account appartengono: attivalo su un solo account Claude, quello che usi con Claude Code. Le sessioni più vecchie di circa 30 giorni non sono più disponibili.',
 

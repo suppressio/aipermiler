@@ -5,7 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { computeClaudeLocalInsights } from './claudeLocalSessions';
+import { computeClaudeLocalInsights, ranIn } from './claudeLocalSessions';
 import type { LocalSessionsDeps } from './claudeLocalSessions';
 import type { SDKSessionInfo, SessionMessage } from '@anthropic-ai/claude-agent-sdk';
 import { at } from '../tests/support/at';
@@ -164,4 +164,38 @@ test('computeClaudeLocalInsights records the earliest session start of each day 
   } finally {
     Date.now = original;
   }
+});
+
+// #180: the core's Claude probe sessions are not the user's work.
+test('computeClaudeLocalInsights skips the sessions that ran in the probe folder', async () => {
+  const probe = '/synthetic/cache/aipermiler/claude-probe';
+  const early = Date.now() - 3 * HOUR;
+  const work = session({ sessionId: 'work', cwd: '/synthetic/project', createdAt: Date.now() - HOUR });
+  const probeRun = session({ sessionId: 'probe', cwd: probe, createdAt: early, lastModified: early + 5000 });
+  const deps = makeDeps([work, probeRun], {
+    work: [assistantMessage({ output_tokens: 100, input_tokens: 10 })],
+    probe: [assistantMessage({ output_tokens: 1, input_tokens: 10 })],
+  });
+  const result = await computeClaudeLocalInsights(7, deps, probe);
+  assert.equal(result?.sessionsAnalyzed, 1);
+  assert.equal(result.totalOutputTokens, 100);
+  // The probe would otherwise move the day's first session start earlier.
+  assert.equal(result.firstSessionStartByDay?.[localDateKey(new Date(work.createdAt ?? 0))], new Date(work.createdAt ?? 0).toISOString());
+
+  const all = await computeClaudeLocalInsights(7, deps, null);
+  assert.equal(all?.sessionsAnalyzed, 2);
+});
+
+test('ranIn: resolved paths, case-insensitive on Windows and macOS only', () => {
+  assert.equal(ranIn('/c/aipermiler/claude-probe/', '/c/aipermiler/claude-probe', 'linux'), true);
+  assert.equal(ranIn('/c/aipermiler/x/../claude-probe', '/c/aipermiler/claude-probe', 'linux'), true);
+  assert.equal(ranIn('/c/Aipermiler/claude-probe', '/c/aipermiler/claude-probe', 'linux'), false);
+  assert.equal(ranIn('/c/Aipermiler/claude-probe', '/c/aipermiler/claude-probe', 'darwin'), true);
+  assert.equal(ranIn('C:\\Users\\X\\AppData\\Local\\aipermiler\\claude-probe', 'c:\\users\\x\\appdata\\local\\aipermiler\\claude-probe', 'win32'), true);
+  assert.equal(ranIn('/c/aipermiler/claude-probe/sub', '/c/aipermiler/claude-probe', 'linux'), false);
+  assert.equal(ranIn(undefined, '/c/aipermiler/claude-probe', 'linux'), false);
+  assert.equal(ranIn('/c/aipermiler/claude-probe', null, 'linux'), false);
+  // A linked cache folder: the probe folder named through the link is still matched.
+  const links = (value: string) => value.replace('/home/u/.cache', '/data/cache');
+  assert.equal(ranIn('/data/cache/aipermiler/claude-probe', '/home/u/.cache/aipermiler/claude-probe', 'linux', links), true);
 });

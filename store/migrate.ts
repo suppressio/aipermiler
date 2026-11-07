@@ -37,13 +37,16 @@ export function defaultClaudeAccount(id: AccountId, label = PROVIDER_DISPLAY_NAM
     id,
     provider: 'claude',
     label,
-    enabled: false,
+    // Enabled from the start: there is no Connect step, the core uses the Claude Code
+    // sign-in of this computer (#180).
+    enabled: true,
     subscription: { renewalRule: { type: 'dayOfMonth', day: 1 } },
     workSchedule: structuredClone(DEFAULT_WORK_SCHEDULE),
     authMethod: 'password',
     session: { sessionKey: null, organizationId: null, capturedAt: null, expiresAt: null },
     partition: claudePartitionFor(id),
     localInsights: false,
+    binaryPath: null,
   };
 }
 
@@ -131,8 +134,8 @@ const COPILOT_OBSOLETE_FIELDS = ['planTier'];
 // The captured chatgpt.com session (#82) is gone since Codex is read through the core (#178).
 const CODEX_OBSOLETE_FIELDS = ['session'];
 
-/** A codex binary path from disk or Settings: absolute, trimmed, else auto-detection (null). */
-export function normalizeCodexBinaryPath(value: unknown): string | null {
+/** A claude/codex binary path from disk or Settings: absolute, trimmed, else auto-detection (null). */
+export function normalizeBinaryPath(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const trimmed = value.trim();
   return trimmed !== '' && path.isAbsolute(trimmed) ? trimmed : null;
@@ -189,34 +192,50 @@ export function migrateAccounts(rawAccounts: unknown, legacyLocalInsightsEnabled
 }
 
 /**
- * At most one Claude account can have `localInsights: true`: local Claude Code
- * sessions do not say which account they belong to. If more have it (patch from the
- * renderer), the first in order wins.
+ * Providers read through the one sign-in of this computer by the core: Codex (#178)
+ * and Claude Code (#180).
  */
+export const SIGN_IN_PROVIDERS: readonly ProviderId[] = ['codex', 'claude'];
+
 /**
- * At most one enabled Codex account (#178): the core reads the one Codex sign-in of
- * this computer, so two enabled accounts would show the same data under two names (and
- * accounts migrated from separate ChatGPT logins would all get it). The first enabled
- * one is kept; reading another login per account is #188.
+ * The enabled account of each sign-in provider that stays enabled: the Claude account
+ * with the local insights when it is enabled (its insights would stop otherwise, #180),
+ * else the first enabled one.
  */
-export function enforceSingleCodexAccount(accounts: AccountConfig[]): AccountConfig[] {
-  let seen = false;
-  return accounts.map((a) => {
-    if (a.provider !== 'codex' || !a.enabled) return a;
-    if (seen) return { ...a, enabled: false };
-    seen = true;
-    return a;
-  });
+export function signInKeepers(accounts: readonly AccountConfig[]): Set<AccountId> {
+  const keepers = new Map<ProviderId, AccountId>();
+  for (const a of accounts) {
+    if (a.provider === 'claude' && a.enabled && a.localInsights) keepers.set('claude', a.id);
+  }
+  for (const a of accounts) {
+    if (SIGN_IN_PROVIDERS.includes(a.provider) && a.enabled && !keepers.has(a.provider)) keepers.set(a.provider, a.id);
+  }
+  return new Set(keepers.values());
 }
 
+/**
+ * At most one enabled account per sign-in provider (#178, #180): the core reads the one
+ * Codex or Claude Code sign-in of this computer, so two enabled accounts would show the
+ * same data under two names (and accounts migrated from separate logins would all get
+ * it). signInKeepers chooses the one kept; reading another Codex login per account is
+ * #188. Accounts are only disabled: history and settings stay.
+ */
+export function enforceSingleSignInAccounts(accounts: AccountConfig[]): AccountConfig[] {
+  const keepers = signInKeepers(accounts);
+  return accounts.map((a) => (SIGN_IN_PROVIDERS.includes(a.provider) && a.enabled && !keepers.has(a.id) ? { ...a, enabled: false } : a));
+}
+
+/**
+ * At most one Claude account can have `localInsights: true`: local Claude Code
+ * sessions do not say which account they belong to. If more have it (patch from the
+ * renderer), an enabled one wins, else the first in order.
+ */
 export function enforceSingleLocalInsights(accounts: AccountConfig[]): AccountConfig[] {
-  let seen = false;
-  return accounts.map((a) => {
-    if (a.provider !== 'claude' || !a.localInsights) return a;
-    if (seen) return { ...a, localInsights: false };
-    seen = true;
-    return a;
-  });
+  // An enabled account keeps the flag over a disabled one listed first (#180: the flag
+  // on a disabled account computes nothing).
+  const flagged = accounts.filter((a) => a.provider === 'claude' && a.localInsights);
+  const keeper = (flagged.find((a) => a.enabled) ?? flagged[0])?.id;
+  return accounts.map((a) => (a.provider === 'claude' && a.localInsights && a.id !== keeper ? { ...a, localInsights: false } : a));
 }
 
 /**
@@ -254,7 +273,14 @@ export function normalizeAccounts(rawAccounts: unknown[], inheritedSchedule?: un
     const id = raw.id;
     if (raw.provider === 'claude') {
       const cfg = withoutObsoleteFields(mergeWithDefaults(defaultClaudeAccount(id), raw), CLAUDE_OBSOLETE_FIELDS) as ClaudeAccountSettings;
-      result.push({ ...cfg, id, provider: 'claude', partition: claudePartitionFor(id), workSchedule: scheduleFor(raw, inheritedSchedule) });
+      result.push({
+        ...cfg,
+        id,
+        provider: 'claude',
+        partition: claudePartitionFor(id),
+        binaryPath: normalizeBinaryPath(cfg.binaryPath),
+        workSchedule: scheduleFor(raw, inheritedSchedule),
+      });
     } else if (raw.provider === 'codex') {
       const cfg = withoutObsoleteFields(mergeWithDefaults(defaultCodexAccount(id), raw), CODEX_OBSOLETE_FIELDS) as CodexAccountSettings;
       result.push({
@@ -262,7 +288,7 @@ export function normalizeAccounts(rawAccounts: unknown[], inheritedSchedule?: un
         id,
         provider: 'codex',
         partition: claudePartitionFor(id),
-        binaryPath: normalizeCodexBinaryPath(cfg.binaryPath),
+        binaryPath: normalizeBinaryPath(cfg.binaryPath),
         workSchedule: scheduleFor(raw, inheritedSchedule),
       });
     } else if (raw.provider === 'copilot') {
@@ -272,7 +298,7 @@ export function normalizeAccounts(rawAccounts: unknown[], inheritedSchedule?: un
       result.push({ ...cfg, id, provider: 'copilot', host, workSchedule: scheduleFor(raw, inheritedSchedule) });
     }
   }
-  return enforceSingleCodexAccount(enforceSingleLocalInsights(result));
+  return enforceSingleSignInAccounts(enforceSingleLocalInsights(result));
 }
 
 /** Migrates the old string preference; null window defers only an uncached legacy choice. */

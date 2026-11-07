@@ -21,7 +21,7 @@ npm start
 
 `npm start` compila TypeScript (main process + renderer), compila il core Go in `core-bin/` (`scripts/build-core.js`) e avvia Electron. Per usare un core compilato altrove imposta `AIPERMILER_CORE_BIN` al suo percorso assoluto: `npm start` salta la build Go e l'app esegue quel binario. Impostazioni → Diagnostica mostra la versione del core, o perché non può essere eseguito. Al primo avvio non ci sono account: apri le Impostazioni e aggiungine uno.
 
-L'esecuzione dai sorgenti usa la stessa cartella userData dell'app installata, quindi il primo avvio su una macchina con IA Hypermiler (≤ v0.4.18) installato ne sposta le impostazioni e ne cancella la vecchia cartella ([ARCHITETTURA §1](ARCHITECTURE.it.md#1-impostazioni-settings--schema-dati)). Per lasciare intatta una copia installata, avvia con un'altra cartella di configurazione, per esempio `XDG_CONFIG_HOME=$(mktemp -d) npm start` su Linux.
+L'esecuzione dai sorgenti usa la stessa cartella userData dell'app installata, quindi legge e scrive le impostazioni dell'app installata. Per lasciare intatta una copia installata, avvia con un'altra cartella di configurazione, per esempio `XDG_CONFIG_HOME=$(mktemp -d) npm start` su Linux.
 
 ## Build, lint e test
 
@@ -38,7 +38,7 @@ npm run coverage   # test con la coverage integrata di Node
 
 ## Controlli del core Go
 
-Il core Go sta in `gocore/` (modulo a sé, `go.mod` fissa la versione di Go; i pacchetti ne includono il binario, vedi *Packaging*). Servono Go 1.24+ e [golangci-lint](https://golangci-lint.run/) v2. Da `gocore/`:
+Il core Go sta in `gocore/` (modulo a sé, `go.mod` fissa la versione di Go; i pacchetti ne includono il binario, vedi *Packaging*). Servono Go 1.26+ e [golangci-lint](https://golangci-lint.run/) v2. Da `gocore/`:
 
 ```bash
 gofmt -l .           # non deve stampare nulla
@@ -71,6 +71,7 @@ npm run package:test  # build di prova locale: lint + test, poi pacchetti .deb e
 
 - I pacchetti contengono la CLI del core Go: `npm run build:core` (`scripts/build-core.js`, senza cgo, versione da `package.json` o `AIPERMILER_CORE_VERSION`; `--target win32-x64` e simili per la cross-compilazione) scrive `core-bin/aipermiler[.exe]`, e `extraResources` di electron-builder lo copia in `<resources>/core/`. L'app lo esegue con `execFile` (`main/coreClient.ts`, vedi [CORE-CLI](CORE-CLI.it.md)). `core-bin/` contiene un solo binario alla volta, così un core Linux non finisce mai in un pacchetto Windows.
 - `npm run package`: build + core + `electron-builder` → `.dmg` su macOS, `.exe`/NSIS su Windows, `.AppImage` e `.deb` su Linux, in `release/`.
+- Bundle del processo principale (#36): l'hook `beforePack` di electron-builder (`scripts/bundle-main.js`) sostituisce `dist/main.js`, `dist/preload.js` e `dist/services/claudeLocalSessions.worker.js` con bundle esbuild (CommonJS, `node24` per Electron 45), e `build.files` impacchetta solo quei tre file e `dist/renderer/`. `date-fns`, `electron-store` e le loro dipendenze stanno nei bundle, quindi sono dipendenze di sviluppo; solo `@anthropic-ai/claude-agent-sdk` resta una dipendenza di runtime, esterna al bundle (ESM, caricato con un `import()` nativo). I percorsi di renderer, preload e worker vengono da `main/appDir.ts` (la cartella dell'entry point), mai dal `__dirname` del singolo modulo, che è diverso tra il bundle e l'output tsc semplice usato da `npm start` e dai test. L'asar è passato da 18 MB a 5,6 MB.
 - `npm run package:test`: versione `<versione>.dev.<timestamp>` (la stessa per il core), mai pubblicata; il core viene cross-compilato per ogni pacchetto subito prima. L'`.exe` NSIS per Windows richiede Wine (o Windows); senza, uno `.zip` pronto da avviare. È il modo consigliato per provare una modifica su una macchina reale.
 - Linux: i centri software leggono i metadati AppStream, non il file `control` del `.deb`. `build/linux/com.suppressio.aipermiler.metainfo.xml` (licenza, autore, descrizione EN + IT, release) viene installato in `/usr/share/metainfo/` dalla configurazione `deb.fpm` in `package.json`; la voce `.desktop` ha `Name=AIpermiler`. Aggiornare le `<release>` del file a ogni versione e validarlo con `appstreamcli validate`.
 

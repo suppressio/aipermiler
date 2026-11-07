@@ -26,10 +26,10 @@ Instructions for every coding agent (Claude Code, Codex, pi, Copilot). Read it i
 | Build | `tsc` (three configs: `tsconfig.json` main/preload/core/services/store/budget/agents/tests — CommonJS; `tsconfig.renderer.json` renderer — ES modules; `tsconfig.renderer.test.json` renderer tests only, adds Node types) + `scripts/copy-assets.js` |
 | Lint | ESLint 10 + typescript-eslint `strictTypeChecked` (`eslint.config.mjs`) |
 | Tests | `node:test` + `node:assert` (no external test library); coverage via Node's built-in `--experimental-test-coverage` |
-| Packaging | electron-builder |
+| Packaging | electron-builder; the main process, preload and worker are bundled with esbuild at pack time (`beforePack`, `scripts/bundle-main.js`, #36) |
 | Runtime | Node.js 22 LTS |
 
-**Do not add dependencies without asking.** Every new library must be justified and agreed before installing it. (Agreed so far: TypeScript, `@types/node`, `@anthropic-ai/claude-agent-sdk`, ESLint + `@eslint/js` + `typescript-eslint` as dev dependencies; in the Go core, `github.com/zalando/go-keyring` for the OS keyring, approved on #179.)
+**Do not add dependencies without asking.** Every new library must be justified and agreed before installing it. (Agreed so far: TypeScript, `@types/node`, `@anthropic-ai/claude-agent-sdk`, ESLint + `@eslint/js` + `typescript-eslint` and esbuild (#36) as dev dependencies; in the Go core, `github.com/zalando/go-keyring` for the OS keyring, approved on #179.)
 
 ---
 
@@ -40,6 +40,9 @@ aipermiler/
 ├── AGENTS.md                    ← this file (English only)
 ├── CLAUDE.md                    ← only `@AGENTS.md`, so Claude Code reads the same file
 ├── LICENSE                      ← MIT
+├── .editorconfig, .vscode/      ← editor settings and recommended extensions
+├── .claude/settings.json        ← shared Claude Code project settings
+├── .github/                     ← dependabot.yml (github-actions, gomod, npm) + workflows/ci.yml (lint + tests on PRs) and workflows/build.yml (cross-platform packages)
 ├── README.md / README.it.md     ← user guide only: what the app does, install, how to read every indicator (EN primary, IT secondary)
 ├── docs/                        ← every other document, EN + .it.md
 │   ├── DEVELOPMENT.md           ← build from source, tests, packaging, CI, project structure and status
@@ -49,7 +52,10 @@ aipermiler/
 │   ├── RESEARCH.md              ← what the Claude/Copilot APIs really expose (Day 1 + addenda)
 │   ├── EVOLUTION.md             ← retrospective and future directions with cost/benefit analysis
 │   ├── PLAN.md                  ← the original 3-day plan (historical)
+│   ├── SPIKE-CLAUDE-USAGE-PTY.md ← spike: Claude `/usage` panel read through a PTY (#141, #183)
+│   ├── SPIKE-CODEX-APP-SERVER.md ← spike: Codex rate limits through `codex app-server` (#142)
 │   └── screenshots/             ← README screenshots, synthetic data only
+├── package.json, package-lock.json ← scripts, dependencies, electron-builder config
 ├── tsconfig.json                ← main-process TS config (CommonJS)
 ├── tsconfig.renderer.json       ← renderer TS config (ES modules, isolated, no Node types)
 ├── tsconfig.renderer.test.json  ← renderer unit tests (adds Node types; emitted as ES modules)
@@ -58,10 +64,14 @@ aipermiler/
 ├── types/ipc.ts                 ← IPC contract: every channel with its argument/result types + AipermilerBridge (runtime-free)
 ├── scripts/
 │   ├── copy-assets.js           ← copies renderer html/css into dist/renderer/ + writes dist/renderer/package.json {type: module}
+│   ├── bundle-main.js           ← electron-builder beforePack hook: esbuild bundles of dist/main.js, preload.js and the insights worker, written in place (#36)
 │   ├── build-core.js            ← builds the Go core CLI into core-bin/ (gitignored; electron-builder extraResources → <resources>/core/), --target to cross-compile, --dev honours AIPERMILER_CORE_BIN
-│   └── generate-icons.js        ← one-off "gauge" icon generator (build/icon.png, build/icons/*, renderer/assets/*.png)
+│   ├── generate-icons.js        ← one-off "gauge" icon generator (build/icon.png, build/icons/*, renderer/assets/*.png)
+│   ├── test-build.js            ← `npm run package:test`: local lint + tests + dev-version packages in release/test/
+│   ├── measure-resources.js     ← measures the app's memory/CPU footprint (tray-only, #27)
+│   ├── probe-copilot-shape.js   ← prints the structure (never values) of a Copilot usage response
+│   └── spikes/                  ← throwaway research code for the Claude/Codex reads: claude-usage-pty.py, claude-usage-pty-go/ (own Go module), codex-rate-limits.js
 ├── build/                       ← electron-builder resources (icons) — TRACKED, not an output (packages go to release/)
-├── entry.ts                     ← Electron entry point (package.json main): userData migration (#200), then loads main.ts
 ├── main.ts                      ← Electron main process: wiring only (lifecycle, windows, tray, IPC, timers, notifications, update checks)
 ├── preload.ts                   ← contextBridge renderer ↔ main
 ├── gocore/                      ← Go core module (#145), strict lint + depguard; CI job `go-checks`
@@ -70,30 +80,34 @@ aipermiler/
 │   └── internal/
 │       ├── buildinfo/           ← binary name and build-time version
 │       ├── cli/                 ← command dispatch and exit codes
+│       ├── claude/              ← Claude adapter (#147): binary discovery (#219), PTY session to the /usage panel (#220), status line sink, mapping and transcript cleanup (#221), Windows ConPTY and job object (#223)
 │       ├── codex/               ← native binary discovery, one-shot app-server probe and quota mapping
 │       ├── copilot/             ← Copilot usage (port of services/copilot.ts), token set/delete, OAuth PKCE login, raw response
 │       ├── github/              ← allowed GitHub hosts (github.com, <tenant>.ghe.com) and JSON client with a 10 s timeout
-│       ├── secrets/             ← OS keyring (go-keyring): the Copilot token, never in argv or documents; reads the pre-rename service `hypermiler` as a fallback, moves it on the next set (#200)
+│       ├── secrets/             ← OS keyring (go-keyring): the Copilot token, never in argv or documents
 │       ├── config/              ← OS config directory and development override
 │       ├── logging/             ← stderr text logger and level selection
 │       ├── pacing/              ← pure pacing model
+│       ├── pathlist/            ← PATH splitting for a given OS (shared by the binary discoveries)
 │       ├── provider/            ← provider interface and per-run registry factories
 │       └── usage/               ← usage model, JSON contract, errors and text rendering
 ├── core/
 │   └── usage.ts                 ← fetch orchestration + snapshot computation (createUsageCore, computeAccountSnapshot…): store, provider fetch, local insights, clock and error reporting injected, no Electron (+ usage.test.ts)
 ├── main/
 │   ├── ipc.ts                   ← typed handle/listen/sendToRenderer wrappers keyed on types/ipc.ts
+│   ├── appDir.ts                ← folder of the main entry (dist/): base of the renderer, preload and worker paths in the bundle and in the tsc output
 │   ├── core.ts                  ← the app's one core client (binary resolved per call)
 │   ├── coreRequests.ts          ← provider flags of the core commands from an account config (pure, + test)
 │   ├── coreClient.ts            ← runs the bundled core CLI (execFile, no shell, timeout, --json, secrets on stdin) and parses contract v1 against gocore/contract/v1 (+ test)
 │   ├── windows.ts               ← main window (skins filled/filled-dark/transparent-digital) and Settings window
 │   ├── tray.ts                  ← cross-platform tray; createTray returns { tray, refreshMenu }
+│   ├── traySummary.ts           ← tray tooltip: one usage line per account (+ test)
+│   ├── windowLabel.ts           ← localized quota-window labels for notifications and tray
 │   ├── trayBadge.ts             ← tray usage badge: account choice, tone, icon bitmap (+ test)
 │   ├── claude-auth.ts           ← cleanup of claude.ai sessions stored by earlier versions (no Claude sign-in since #140)
 │   ├── providers.ts             ← provider-specific part of the account registry (connection, fetch, disconnect, secret redaction)
 │   ├── refreshPolicy.ts         ← adaptive refresh pace, per-account backoff, manual-refresh cache (+ test)
-│   ├── userDataMigration.ts     ← moves the store from the pre-rename userData folder `ia-hypermiler` (#200, + test)
-│   ├── userDataBootstrap.ts     ← runs that migration once at import (entry.ts first, before the store exists)
+│   ├── *.test.ts                ← unit tests next to the module (coreClient, tray, refreshLifecycle, …)
 │   └── i18n/                    ← main-process strings (tray, notifications, dialogs, OAuth page): en.ts, it.ts, index.ts (+ test)
 ├── renderer/
 │   ├── index.html, style.css, app.ts           ← widget
@@ -103,6 +117,14 @@ aipermiler/
 │   ├── windowLabel.ts           ← localized quota-window labels, including Codex limits (+ test)
 │   ├── gauge.ts                 ← log-scale position of the instant pace against its target (+ test)
 │   ├── visibility.ts            ← which indicators are shown (autonomy, peak/average, streak) (+ test)
+│   ├── renewal.ts               ← whether the manual renewal day is needed or the provider reports the reset (+ test)
+│   ├── severity.ts              ← warning colour of a percent-of-quota value from the notification threshold (+ test)
+│   ├── dates.ts                 ← local day keys (copy of the budget.ts helpers, the renderer project is isolated) (+ test)
+│   ├── instantFlow.ts           ← animated push/slow-down arrows of the instant bar (+ test)
+│   ├── motion.ts, layoutMotion.ts, odometer.ts ← optional animations: effect state, FLIP layout motion, odometer digits (+ tests)
+│   ├── viewSelection.test.ts    ← test of the widget view selection
+│   ├── settings.test.ts         ← Settings window tests
+│   ├── assets/                  ← app-icon.png, tray-icon.png (generated by generate-icons.js)
 │   └── i18n/                    ← UI strings: en.ts (reference), it.ts, index.ts (t, applyTranslations, Intl formatting) (+ test)
 ├── agents/advisor.ts            ← Claude advice agent (stub)
 ├── services/
@@ -123,6 +145,7 @@ aipermiler/
 │   └── migrate.ts               ← per-provider defaults, legacy {claude, copilot} → AccountConfig[] migration (+ test)
 ├── budget.ts                    ← pure budget/efficiency/projection/verdict/tip/yield logic (+ budget.test.ts)
 ├── tests/
+│   ├── ipcContract.test.ts      ← guards the IPC contract and channel wiring (#71)
 │   ├── support/at.ts            ← at(array, i) helper for tests under noUncheckedIndexedAccess
 ├── dist/                        ← tsc output + copied assets (gitignored)
 └── package.json
@@ -338,6 +361,7 @@ Condensed history; the full session-by-session log is in the git history (CLAUDE
 | 2026-10-24 | v0.4.17-beta | Usage badge on the tray icon with an Auto/Manual view shared with the panel and a critical alert (#33, #122); optional window animations: alarm pulse, odometer, neon refresh border (#119); animated push/slow-down arrows on the instant bar pointing to the target (#66, #125); alarm glow and blink on red values (#125); animated collapsible sections and compact/full switch, compact label (#121); renewal day 29-31 clamped to the last day of shorter months (#111); tests guard the IPC contract and channel wiring (#71) |
 | 2026-10-25 | v0.4.18-beta | Hotfix: no claude.ai sign-in and stored sessions deleted, Anthropic forbids third-party apps from storing claude.ai session tokens; Claude accounts keep the local insights, quotas return with the Go core (#140, #139) |
 | 2026-11-01 | v0.5.0-beta | Renamed to AIpermiler: userData and keyring migrations, in-place upgrade of the Windows installer and the .deb, repository renamed, public roadmap board (#9, #200, #201, #48); Go core CLI with a versioned JSON contract, bundled in the packages, reads Codex (`codex app-server`, no chatgpt.com cookies) and Copilot (token in the OS keyring) (#145, #159, #26, #148, #149, #177, #178, #179); Claude PTY spikes on Linux, Windows, macOS (#141, #183); tray badge cycles every alert (#131), solid skins with visible title bar and styled scrollbar (#133), Electron 45 (#136). macOS package not yet verified (#212) |
+| 2026-11-07 | v0.6.0-beta | Claude quotas back through the Go core: `claude /usage` driven in a PTY (Linux, Windows via ConPTY and a job object) with the user's own Claude Code sign-in, quotas read from the status line (#147, #219-#221, #223, #228, #229), shown in the app (#180); IA Hypermiler → AIpermiler migrations removed, upgrades from ≤ v0.4.x go through v0.5.0 (#204); main process bundled with esbuild (#36); Dependabot for GitHub Actions and Go modules (#208); fixes from the release tests (#242). macOS not verified, moved to v0.7.0 (#212) |
 
 ### Lessons learned (still relevant)
 - **Codex login User-Agent** (historical: the chatgpt.com login route was removed in #178): Google refuses embedded login when a rewritten User-Agent contradicts the client hints. Never change the UA of the Codex login window or its partition.
@@ -357,9 +381,9 @@ Condensed history; the full session-by-session log is in the git history (CLAUDE
 - **UTC day keys**: `toISOString().slice(0, 10)` is the UTC day, `new Date('YYYY-MM-DD')` is UTC midnight — both wrong for local working days → `localDateKey`/`parseDateKey`.
 
 ### Open items
-- Claude quotas are not read since #140; they return through an allowed source with the standalone core in Go (#139, milestone v0.6.0).
+- Claude quotas are read through the Go core's `claude /usage` adapter (#147) since #180, with the user's own Claude Code sign-in; between #140 and #180 they were not read. The standalone core in Go (#139) is milestone v0.7.0.
 - Provider reads live in the Go core (`gocore/`, CLI and JSON contract in docs/CORE-CLI.md); `core/usage.ts` (#23) still owns orchestration and snapshots until pacing moves to Go (#75, #160). New orchestration/snapshot logic goes test-first in `core/` or the Go core, not in `main.ts`.
-- **Milestone v0.6.0** (GitHub): Claude quotas through the Go core (#147, #180), migrations of the rename removed (#204), macOS package verified (#212). **Milestone v1.0.0** (out of beta): signed Windows/macOS installers (#11).
+- **Milestone v0.7.0** (GitHub): standalone core in Go with the Electron UI as optional client (#139), budget logic in Go (#75), pace-based indicators (#63), and the checks that need an Apple Silicon Mac (#174, #193, #212). **Milestone v1.0.0** (out of beta): signed Windows/macOS installers (#11).
 - `agents/advisor.ts` is a stub.
 - Copilot tab occasionally not clickable right after login (not reproduced; if it happens, open the widget DevTools and check the console).
 - Verify with real use the pacing constants (`PACE_ALERT_RATIO` 1.5×, 2h minimum of observed work, 50/50 recent-pace blend, preliminary below 2 working units, redistribution verdict bands 0.5× / ±5%, `NEGLIGIBLE_UTILIZATION` 0.1%) and the `consumptionCause` thresholds, and with the next release the packaged icon and the update notification end to end.

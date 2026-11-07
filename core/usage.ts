@@ -48,12 +48,6 @@ export interface UsageCoreDeps {
   /** Calls the provider service with the account credentials (main/providers.ts). */
   fetchUsage(cfg: AccountConfig): Promise<RawAccountUsage>;
   isConnected(cfg: AccountConfig): boolean;
-  /**
-   * Message for an account whose provider exposes no quotas (Claude since #140): the
-   * account is shown with it and never fetched, so no retries, backoff or log noise.
-   * null = fetch normally.
-   */
-  quotasUnavailable(cfg: AccountConfig): string | null;
   /** Local Claude Code insights, cached by the caller; only asked for opted-in Claude accounts. */
   localInsights(): Promise<ClaudeLocalInsights | null>;
   /** Readable message of a fetch error, shown with the stale data. */
@@ -486,27 +480,22 @@ export function createUsageCore(deps: UsageCoreDeps): { buildUsageSnapshot(mode:
       // yield needs it) and shown even if the provider did not answer.
       const localInsights = cfg.provider === 'claude' && cfg.localInsights ? await deps.localInsights() : null;
       let account: AccountSnapshot;
-      const unavailable = deps.quotasUnavailable(cfg);
-      if (unavailable !== null) {
-        account = emptyAccountSnapshot(cfg, { lastError: unavailable });
-      } else {
-        try {
-          // An account in backoff, or fetched moments ago, keeps its last result: nothing
-          // new is learned, so no sample is recorded (a repeated old value at a new time
-          // would read as a pause in the instant pace).
-          const lastGood = store.history().lastGood?.[cfg.id];
-          const fetchNow = !lastGood || refreshPolicy.shouldFetchAccount(accountFetchStates.get(cfg.id), mode, now.getTime(), intervalMs);
-          const raw = fetchNow
-            ? await fetchAccountOrFallback(cfg)
-            : cachedUsage(lastGood, accountFetchErrors.get(cfg.id));
-          const fresh = fetchNow && !raw.stale;
-          if (fetchNow) consumptionRose = consumptionRose === true || (fresh && windowsRose(draft, cfg.id, raw.quotaWindows));
-          account = computeAccountSnapshot(draft, raw, cfg, now, localInsights, fresh);
-        } catch (err) {
-          const problem = describeProblem(err);
-          deps.logError(`[main] ${cfg.label} unavailable and no previous data:`, 'notice' in problem ? problem.notice : problem.lastError);
-          account = emptyAccountSnapshot(cfg, problem);
-        }
+      try {
+        // An account in backoff, or fetched moments ago, keeps its last result: nothing
+        // new is learned, so no sample is recorded (a repeated old value at a new time
+        // would read as a pause in the instant pace).
+        const lastGood = store.history().lastGood?.[cfg.id];
+        const fetchNow = !lastGood || refreshPolicy.shouldFetchAccount(accountFetchStates.get(cfg.id), mode, now.getTime(), intervalMs);
+        const raw = fetchNow
+          ? await fetchAccountOrFallback(cfg)
+          : cachedUsage(lastGood, accountFetchErrors.get(cfg.id));
+        const fresh = fetchNow && !raw.stale;
+        if (fetchNow) consumptionRose = consumptionRose === true || (fresh && windowsRose(draft, cfg.id, raw.quotaWindows));
+        account = computeAccountSnapshot(draft, raw, cfg, now, localInsights, fresh);
+      } catch (err) {
+        const problem = describeProblem(err);
+        deps.logError(`[main] ${cfg.label} unavailable and no previous data:`, 'notice' in problem ? problem.notice : problem.lastError);
+        account = emptyAccountSnapshot(cfg, problem);
       }
       if (localInsights) account.localInsights = localInsights;
       snapshot.accounts.push(account);

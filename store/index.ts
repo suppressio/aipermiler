@@ -21,14 +21,19 @@ import Store from 'electron-store';
 import type { AppSettings } from '../types/index';
 import { normalizeSettings } from './normalize';
 import { DEFAULTS } from './defaults';
-import { STORE_NAME } from '../main/userDataMigration';
 
 export { DEFAULTS };
+
+const STORE_NAME = 'aipermiler-config';
 
 const store = new Store<AppSettings>({
   name: STORE_NAME,
   encryptionKey: 'dev-only-placeholder-change-before-release',
   defaults: DEFAULTS,
+  // Owner-only (#242): conf's default 0o666 is applied by its atomic write with an
+  // explicit chmod, so the umask never narrows it. Every write re-applies the mode,
+  // so a file written earlier is fixed on the next save.
+  configFileMode: 0o600,
 });
 
 // Normalization at startup (store/normalize.ts): brings the file on disk back to the
