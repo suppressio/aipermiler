@@ -28,7 +28,7 @@ if (-not (Test-Path -LiteralPath $legacyStore -PathType Leaf)) {
   Fail "no IA Hypermiler settings found in ${legacyDir}: nothing to migrate."
 }
 
-if (Get-Process -Name 'AIpermiler', 'IA Hypermiler', 'aipermiler' -ErrorAction SilentlyContinue) {
+if (Get-Process -Name 'AIpermiler', 'aipermiler', 'IA Hypermiler', 'ia-hypermiler' -ErrorAction SilentlyContinue) {
   Fail 'AIpermiler or IA Hypermiler is running. Quit it (tray menu, Quit) and run this script again.'
 }
 
