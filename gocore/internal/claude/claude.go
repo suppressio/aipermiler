@@ -84,7 +84,7 @@ func (p *Provider) Fetch(ctx context.Context, _ string) (usage.Usage, error) {
 		return usage.Usage{}, err
 	}
 	if status.credits && read.runs > 0 && read.latest == nil {
-		return usage.Usage{}, unavailableBecause(ReasonUsageCredits, "Claude Code is signed in on a plan billed through usage credits, which has no quota windows")
+		return mapCredits(status.panel, time.Now())
 	}
 	return mapUsage(read)
 }
