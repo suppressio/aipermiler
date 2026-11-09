@@ -23,7 +23,7 @@ import path from 'path';
 import { fetchLatestUpdate, guideUrl, TRUSTED_DOWNLOAD_PREFIX } from './services/updates';
 import { DEFAULT_GITHUB_HOST, githubOAuthBase, normalizeGithubHost } from './services/githubHost';
 import type { TrayHandle } from './main/tray';
-import { FormatDriftError, shapeSignature } from './services/_shape';
+import { FormatDriftError, liveSignatures, shapeSignature } from './services/_shape';
 import { CoreBinaryError, CoreOutputError, CoreProviderError, CoreTimeoutError } from './main/coreClient';
 import { core } from './main/core';
 import { binaryPathChanged, copilotAccountFlags } from './main/coreRequests';
@@ -295,7 +295,7 @@ function applyMainLocale(): void {
 // services/_shape.ts), we open a pre-filled GitHub issue draft in the browser — NEVER
 // real values, only structure (field names/types) — that the user must review and
 // submit by hand. Deduplicated by structure signature: the same draft is not reopened
-// on every refresh (every 30 minutes).
+// on every refresh, only once its signature is older than 24 hours (liveSignatures, #259).
 // ---------------------------------------------------------------------------
 function maybeReportFormatDrift(provider: ProviderId, err: unknown): void {
   if (!(err instanceof FormatDriftError)) return;
@@ -303,8 +303,9 @@ function maybeReportFormatDrift(provider: ProviderId, err: unknown): void {
   if (!diagnostics.autoReportFormatDrift) return;
 
   const signature = shapeSignature(err.shape);
-  const reported = { ...diagnostics.reportedSignatures };
-  if (reported[signature]) return; // already reported for this shape: do not reopen
+  const now = new Date();
+  const reported = liveSignatures(diagnostics.reportedSignatures, now);
+  if (reported[signature] !== undefined) return; // reported for this shape in the last 24 hours
 
   const url = buildFormatDriftIssueUrl({ provider, endpointLabel: err.endpointLabel, shape: err.shape });
   shell.openExternal(url).catch((openErr: unknown) => {
@@ -318,7 +319,7 @@ function maybeReportFormatDrift(provider: ProviderId, err: unknown): void {
     }).show();
   }
 
-  reported[signature] = new Date().toISOString();
+  reported[signature] = now.toISOString();
   store.set('diagnostics.reportedSignatures', reported);
 }
 // ---------------------------------------------------------------------------

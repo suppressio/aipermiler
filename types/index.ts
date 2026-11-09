@@ -448,11 +448,12 @@ export interface HistorySettings {
  * Automatic "format drift" report (see services/_shape.ts, main.ts,
  * diagnostics/githubIssue.ts): when a service no longer recognizes an endpoint
  * format, the app opens a pre-filled GitHub issue draft (never real values, only
- * structure) and deduplicates it by signature so it is not reopened on every refresh.
+ * structure) and deduplicates it by signature so it is not reopened on every refresh;
+ * a signature is forgotten 24 hours after its draft (#259).
  */
 export interface DiagnosticsSettings {
   autoReportFormatDrift: boolean;
-  reportedSignatures: Record<string, string>; // signature -> ISO timestamp of the first report
+  reportedSignatures: Record<string, string>; // signature -> ISO timestamp of the last draft opened, expired entries dropped on write
 }
 
 /** New version available — see services/updates.ts (issue #5). */
