@@ -91,15 +91,17 @@ func TestFetch(t *testing.T) {
 		reason  string
 		windows int
 		started bool
+		panel   string // "" for screenPanel
 	}{
-		{"usage", "statusline-2.1.316", `{"loggedIn":true}`, "", "", 2, true},
-		{"no rate_limits", "statusline-2.1.316-start", `{"loggedIn":true}`, usage.CodeFormatDrift, "", 0, true},
-		{"pro without rate_limits", "statusline-2.1.319-enterprise", `{"loggedIn":true,"subscriptionType":"pro"}`, usage.CodeFormatDrift, "", 0, true},
-		{"enterprise on usage credits", "statusline-2.1.319-enterprise", `{"loggedIn":true,"subscriptionType":"enterprise"}`, usage.CodeUnavailable, claude.ReasonUsageCredits, 0, true},
-		{"enterprise with quota windows", "statusline-2.1.316", `{"loggedIn":true,"subscriptionType":"enterprise"}`, "", "", 2, true},
-		{"enterprise, status line never ran", "", `{"loggedIn":true,"subscriptionType":"enterprise"}`, usage.CodeFormatDrift, "", 0, true},
-		{"status line never ran", "", `{"loggedIn":true}`, usage.CodeFormatDrift, "", 0, true},
-		{"signed out", "", `{"loggedIn":false}`, usage.CodeSignedOut, "", 0, false},
+		{"usage", "statusline-2.1.316", `{"loggedIn":true}`, "", "", 2, true, ""},
+		{"no rate_limits", "statusline-2.1.316-start", `{"loggedIn":true}`, usage.CodeFormatDrift, "", 0, true, ""},
+		{"pro without rate_limits", "statusline-2.1.319-enterprise", `{"loggedIn":true,"subscriptionType":"pro"}`, usage.CodeFormatDrift, "", 0, true, ""},
+		{"enterprise on usage credits", "statusline-2.1.319-enterprise", `{"loggedIn":true,"subscriptionType":"enterprise"}`, "", "", 1, true, screenCreditsPanel},
+		{"enterprise, no Usage credits block", "statusline-2.1.319-enterprise", `{"loggedIn":true,"subscriptionType":"enterprise"}`, usage.CodeUnavailable, claude.ReasonUsageCredits, 0, true, ""},
+		{"enterprise with quota windows", "statusline-2.1.316", `{"loggedIn":true,"subscriptionType":"enterprise"}`, "", "", 2, true, ""},
+		{"enterprise, status line never ran", "", `{"loggedIn":true,"subscriptionType":"enterprise"}`, usage.CodeFormatDrift, "", 0, true, ""},
+		{"status line never ran", "", `{"loggedIn":true}`, usage.CodeFormatDrift, "", 0, true, ""},
+		{"signed out", "", `{"loggedIn":false}`, usage.CodeSignedOut, "", 0, false, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -133,9 +135,9 @@ func TestFetch(t *testing.T) {
 							runStatusLine(t, sink, withStatus(t, testdata(t, tt.status), dir, transcript))
 						}
 					}
-					panel := screenPanel
-					if tt.reason == claude.ReasonUsageCredits {
-						panel = screenCreditsPanel
+					panel := tt.panel
+					if panel == "" {
+						panel = screenPanel
 					}
 					showPanel(f, key, panel)
 				}), nil

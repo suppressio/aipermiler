@@ -34,7 +34,18 @@ var TestTiming = timing{
 
 // DriveForTest drives a fake terminal with TestTiming.
 func DriveForTest(ctx context.Context, term Terminal, afterEsc func(context.Context) error) error {
-	return drive(ctx, term, TestTiming, afterEsc)
+	_, err := drive(ctx, term, TestTiming, afterEsc)
+	return err
+}
+
+// PanelForTest drives a fake terminal and returns the normalized panel text.
+func PanelForTest(ctx context.Context, term Terminal) (string, error) {
+	return drive(ctx, term, TestTiming, nil)
+}
+
+// CreditsForTest reads the Usage credits block of a normalized panel at now.
+func CreditsForTest(panel string, now time.Time) (usage.Usage, error) {
+	return mapCredits(panel, now)
 }
 
 // ProbeForTest runs a probe with fake start and auth.

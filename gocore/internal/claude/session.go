@@ -98,20 +98,20 @@ func signedOut() *usage.Error {
 // probe runs one `claude` session in dir up to the /usage panel and out again.
 // statusLine is the command Claude runs as its status line; afterEsc runs once the
 // panel is closed, before /exit. It returns what `auth status` reported, also with an
-// error: the transcript cleanup needs its projects folder.
-func (p prober) probe(ctx context.Context, bin, dir, statusLine string, afterEsc func(context.Context) error) (authStatus, error) {
+// error (the transcript cleanup needs its projects folder), and the panel text.
+func (p prober) probe(ctx context.Context, bin, dir, statusLine string, afterEsc func(context.Context) error) (probeResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	// The trust prompt is answered only for this folder: it must hold nothing to trust.
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return authStatus{}, unavailable("claude probe folder: " + err.Error())
+		return probeResult{}, unavailable("claude probe folder: " + err.Error())
 	}
 	if len(entries) > 0 {
-		return authStatus{}, unavailable("claude probe folder is not empty: " + dir)
+		return probeResult{}, unavailable("claude probe folder is not empty: " + dir)
 	}
 	env := childEnv(p.environ())
-	status := parseAuthStatus(p.auth(ctx, bin, dir, env))
+	status := probeResult{authStatus: parseAuthStatus(p.auth(ctx, bin, dir, env))}
 	if status.known && !status.loggedIn {
 		return status, signedOut()
 	}
@@ -122,7 +122,14 @@ func (p prober) probe(ctx context.Context, bin, dir, statusLine string, afterEsc
 	if err != nil {
 		return status, unavailable("cannot start claude: " + err.Error())
 	}
-	return status, drive(ctx, term, p.timing, afterEsc)
+	status.panel, err = drive(ctx, term, p.timing, afterEsc)
+	return status, err
+}
+
+// probeResult is what one probe learned besides the status line runs.
+type probeResult struct {
+	authStatus
+	panel string // the /usage panel as normalize returns it, "" when not reached
 }
 
 // cacheBase is the core's own cache folder, <UserCacheDir>/aipermiler.
@@ -275,16 +282,18 @@ type driver struct {
 	raw    []byte // output since the last key
 	last   time.Time
 	exited bool
+	panel  string // normalized output of the /usage panel, kept before Esc
 }
 
 // drive takes a started session to the /usage panel, closes it, runs afterEsc and
-// leaves through /exit; the process tree is killed at the end in every case.
-func drive(ctx context.Context, term terminal, t timing, afterEsc func(context.Context) error) error {
+// leaves through /exit; the process tree is killed at the end in every case. It
+// returns the normalized panel text, "" when the panel was not reached.
+func drive(ctx context.Context, term terminal, t timing, afterEsc func(context.Context) error) (string, error) {
 	d := &driver{term: term, t: t, out: make(chan []byte, 64)}
 	go d.pump()
 	err := d.run(ctx, afterEsc)
 	d.leave(err == nil)
-	return err
+	return d.panel, err
 }
 
 func (d *driver) pump() {
@@ -424,6 +433,7 @@ func (d *driver) run(ctx context.Context, afterEsc func(context.Context) error) 
 			return notReady("no usage panel after /usage")
 		}
 	}
+	d.panel = normalize(d.raw)
 	if err := d.send(keyEsc); err != nil {
 		return err
 	}
