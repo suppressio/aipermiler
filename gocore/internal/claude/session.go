@@ -222,8 +222,10 @@ var noQuotaMethods = map[string]bool{"api_key": true, "third_party": true}
 
 // creditsSubscriptions are the subscriptionType values seen without quota windows: the
 // /usage panel shows only "Usage credits" and the status line carries no rate_limits
-// (enterprise on 2.1.319, #249). Such a plan may still have windows, so the probe runs
-// and this only explains a missing rate_limits.
+// (enterprise on 2.1.319, #249). The status line docs list rate_limits only for Pro,
+// Max and Ultra, or behind a Claude apps gateway with a spend limit
+// (https://code.claude.com/docs/en/statusline). A gateway may still send it, so the
+// probe runs and this only explains a missing rate_limits.
 var creditsSubscriptions = map[string]bool{"enterprise": true}
 
 func parseAuthStatus(out []byte) authStatus {
