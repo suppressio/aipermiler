@@ -133,7 +133,11 @@ func TestFetch(t *testing.T) {
 							runStatusLine(t, sink, withStatus(t, testdata(t, tt.status), dir, transcript))
 						}
 					}
-					signedIn(f, key)
+					panel := screenPanel
+					if tt.reason == claude.ReasonUsageCredits {
+						panel = screenCreditsPanel
+					}
+					showPanel(f, key, panel)
 				}), nil
 			}
 			if tt.status == "" && tt.code == usage.CodeFormatDrift {
