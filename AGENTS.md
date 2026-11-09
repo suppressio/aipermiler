@@ -54,6 +54,7 @@ aipermiler/
 │   ├── PLAN.md                  ← the original 3-day plan (historical)
 │   ├── SPIKE-CLAUDE-USAGE-PTY.md ← spike: Claude `/usage` panel read through a PTY (#141, #183)
 │   ├── SPIKE-CODEX-APP-SERVER.md ← spike: Codex rate limits through `codex app-server` (#142)
+│   ├── UPGRADE-FROM-0.4.md      ← user guide: settings from IA Hypermiler v0.4.x after skipping v0.5.0 (#260)
 │   └── screenshots/             ← README screenshots, synthetic data only
 ├── package.json, package-lock.json ← scripts, dependencies, electron-builder config
 ├── tsconfig.json                ← main-process TS config (CommonJS)
@@ -70,6 +71,7 @@ aipermiler/
 │   ├── test-build.js            ← `npm run package:test`: local lint + tests + dev-version packages in release/test/
 │   ├── measure-resources.js     ← measures the app's memory/CPU footprint (tray-only, #27)
 │   ├── probe-copilot-shape.js   ← prints the structure (never values) of a Copilot usage response
+│   ├── migrate-legacy/          ← user scripts (sh, PowerShell) that move IA Hypermiler v0.4.x settings to AIpermiler after skipping v0.5.0 (#260, docs/UPGRADE-FROM-0.4.md)
 │   └── spikes/                  ← throwaway research code for the Claude/Codex reads: claude-usage-pty.py, claude-usage-pty-go/ (own Go module), codex-rate-limits.js
 ├── build/                       ← electron-builder resources (icons) — TRACKED, not an output (packages go to release/)
 ├── main.ts                      ← Electron main process: wiring only (lifecycle, windows, tray, IPC, timers, notifications, update checks)
