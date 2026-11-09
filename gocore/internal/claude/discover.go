@@ -41,6 +41,8 @@ const (
 	ReasonNotInstalled = "not_installed"
 	// Signed in with an API key or a cloud provider: no subscription quota.
 	ReasonNoSubscription = "no_subscription"
+	// Signed in on a plan billed through usage credits: no quota windows (#249).
+	ReasonUsageCredits = "usage_credits"
 	// Claude Code waits for the user to answer about an API key in its environment.
 	ReasonAPIKeyQuestion = "api_key_question"
 )

@@ -97,32 +97,32 @@ func signedOut() *usage.Error {
 
 // probe runs one `claude` session in dir up to the /usage panel and out again.
 // statusLine is the command Claude runs as its status line; afterEsc runs once the
-// panel is closed, before /exit. It returns Claude's projects folder as `auth status`
-// reported it ("" when unknown), also with an error: the transcript cleanup needs it.
-func (p prober) probe(ctx context.Context, bin, dir, statusLine string, afterEsc func(context.Context) error) (string, error) {
+// panel is closed, before /exit. It returns what `auth status` reported, also with an
+// error: the transcript cleanup needs its projects folder.
+func (p prober) probe(ctx context.Context, bin, dir, statusLine string, afterEsc func(context.Context) error) (authStatus, error) {
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	// The trust prompt is answered only for this folder: it must hold nothing to trust.
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return "", unavailable("claude probe folder: " + err.Error())
+		return authStatus{}, unavailable("claude probe folder: " + err.Error())
 	}
 	if len(entries) > 0 {
-		return "", unavailable("claude probe folder is not empty: " + dir)
+		return authStatus{}, unavailable("claude probe folder is not empty: " + dir)
 	}
 	env := childEnv(p.environ())
 	status := parseAuthStatus(p.auth(ctx, bin, dir, env))
 	if status.known && !status.loggedIn {
-		return status.projects, signedOut()
+		return status, signedOut()
 	}
 	if status.noQuota {
-		return status.projects, unavailableBecause(ReasonNoSubscription, "Claude Code is signed in with an API key or a cloud provider, which has no subscription quota")
+		return status, unavailableBecause(ReasonNoSubscription, "Claude Code is signed in with an API key or a cloud provider, which has no subscription quota")
 	}
 	term, err := p.start(bin, claudeArgs(statusLine), env, dir)
 	if err != nil {
-		return status.projects, unavailable("cannot start claude: " + err.Error())
+		return status, unavailable("cannot start claude: " + err.Error())
 	}
-	return status.projects, drive(ctx, term, p.timing, afterEsc)
+	return status, drive(ctx, term, p.timing, afterEsc)
 }
 
 // cacheBase is the core's own cache folder, <UserCacheDir>/aipermiler.
@@ -211,6 +211,7 @@ type authStatus struct {
 	loggedIn bool
 	known    bool   // false when the output is not usable: the PTY markers then decide
 	noQuota  bool   // signed in without a subscription: no rate_limits to read
+	credits  bool   // a plan that may bill through usage credits instead of quota windows
 	projects string // absolute projects folder, "" when not reported
 }
 
@@ -219,16 +220,28 @@ type authStatus struct {
 // value run the probe.
 var noQuotaMethods = map[string]bool{"api_key": true, "third_party": true}
 
+// creditsSubscriptions are the subscriptionType values seen without quota windows: the
+// /usage panel shows only "Usage credits" and the status line carries no rate_limits
+// (enterprise on 2.1.319, #249). Such a plan may still have windows, so the probe runs
+// and this only explains a missing rate_limits.
+var creditsSubscriptions = map[string]bool{"enterprise": true}
+
 func parseAuthStatus(out []byte) authStatus {
 	var status struct {
-		LoggedIn *bool  `json:"loggedIn"`
-		Method   string `json:"authMethod"`
-		Projects string `json:"projectsDirectory"`
+		LoggedIn     *bool  `json:"loggedIn"`
+		Method       string `json:"authMethod"`
+		Subscription string `json:"subscriptionType"`
+		Projects     string `json:"projectsDirectory"`
 	}
 	if json.Unmarshal(out, &status) != nil || status.LoggedIn == nil {
 		return authStatus{}
 	}
-	result := authStatus{loggedIn: *status.LoggedIn, known: true, noQuota: *status.LoggedIn && noQuotaMethods[status.Method]}
+	result := authStatus{
+		loggedIn: *status.LoggedIn,
+		known:    true,
+		noQuota:  *status.LoggedIn && noQuotaMethods[status.Method],
+		credits:  *status.LoggedIn && creditsSubscriptions[status.Subscription],
+	}
 	if filepath.IsAbs(status.Projects) {
 		result.projects = status.Projects
 	}

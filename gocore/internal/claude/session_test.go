@@ -435,26 +435,29 @@ func TestParseAuthStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	tests := []struct {
-		in                       string
-		loggedIn, known, noQuota bool
-		projects                 string
+		in                                string
+		loggedIn, known, noQuota, credits bool
+		projects                          string
 	}{
-		{`{"loggedIn":true,"authMethod":"claude.ai","email":"synthetic@example.invalid","projectsDirectory":` + string(quoted) + `}`, true, true, false, projects},
-		{`{"loggedIn":true,"authMethod":"oauth_token","apiProvider":"firstParty"}`, true, true, false, ""},
-		{`{"loggedIn":true,"authMethod":"api_key","apiProvider":"firstParty"}`, true, true, true, ""},
-		{`{"loggedIn":true,"authMethod":"third_party","apiProvider":"bedrock"}`, true, true, true, ""},
-		{`{"loggedIn":true,"authMethod":"something_new"}`, true, true, false, ""},
-		{`{"loggedIn":false,"authMethod":"api_key"}`, false, true, false, ""},
-		{`{"loggedIn":true,"projectsDirectory":"relative/projects"}`, true, true, false, ""},
-		{`{"loggedIn":false}`, false, true, false, ""},
-		{`{"authMethod":"claude.ai","projectsDirectory":"/synthetic"}`, false, false, false, ""},
-		{``, false, false, false, ""},
-		{`Logged in`, false, false, false, ""},
+		{`{"loggedIn":true,"authMethod":"claude.ai","email":"synthetic@example.invalid","projectsDirectory":` + string(quoted) + `}`, true, true, false, false, projects},
+		{`{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"pro"}`, true, true, false, false, ""},
+		{`{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"enterprise","planTier":"other"}`, true, true, false, true, ""},
+		{`{"loggedIn":false,"subscriptionType":"enterprise"}`, false, true, false, false, ""},
+		{`{"loggedIn":true,"authMethod":"oauth_token","apiProvider":"firstParty"}`, true, true, false, false, ""},
+		{`{"loggedIn":true,"authMethod":"api_key","apiProvider":"firstParty"}`, true, true, true, false, ""},
+		{`{"loggedIn":true,"authMethod":"third_party","apiProvider":"bedrock"}`, true, true, true, false, ""},
+		{`{"loggedIn":true,"authMethod":"something_new"}`, true, true, false, false, ""},
+		{`{"loggedIn":false,"authMethod":"api_key"}`, false, true, false, false, ""},
+		{`{"loggedIn":true,"projectsDirectory":"relative/projects"}`, true, true, false, false, ""},
+		{`{"loggedIn":false}`, false, true, false, false, ""},
+		{`{"authMethod":"claude.ai","projectsDirectory":"/synthetic"}`, false, false, false, false, ""},
+		{``, false, false, false, false, ""},
+		{`Logged in`, false, false, false, false, ""},
 	}
 	for _, tt := range tests {
-		loggedIn, known, noQuota, projects := claude.ParseAuthStatusForTest([]byte(tt.in))
-		if loggedIn != tt.loggedIn || known != tt.known || noQuota != tt.noQuota || projects != tt.projects {
-			t.Errorf("parseAuthStatus(%q) = %v, %v, %v, %q; want %v, %v, %v, %q", tt.in, loggedIn, known, noQuota, projects, tt.loggedIn, tt.known, tt.noQuota, tt.projects)
+		loggedIn, known, noQuota, credits, projects := claude.ParseAuthStatusForTest([]byte(tt.in))
+		if loggedIn != tt.loggedIn || known != tt.known || noQuota != tt.noQuota || credits != tt.credits || projects != tt.projects {
+			t.Errorf("parseAuthStatus(%q) = %v, %v, %v, %v, %q; want %v, %v, %v, %v, %q", tt.in, loggedIn, known, noQuota, credits, projects, tt.loggedIn, tt.known, tt.noQuota, tt.credits, tt.projects)
 		}
 	}
 }

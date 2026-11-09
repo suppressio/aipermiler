@@ -69,9 +69,9 @@ func RealProbeForTest(ctx context.Context, bin, dir string, extraEnv []string) e
 }
 
 // ParseAuthStatusForTest returns what the probe reads from `auth status`.
-func ParseAuthStatusForTest(out []byte) (loggedIn, known, noQuota bool, projects string) {
+func ParseAuthStatusForTest(out []byte) (loggedIn, known, noQuota, credits bool, projects string) {
 	s := parseAuthStatus(out)
-	return s.loggedIn, s.known, s.noQuota, s.projects
+	return s.loggedIn, s.known, s.noQuota, s.credits, s.projects
 }
 
 // TestStatusWait is the providers' wait for the status line in tests.
