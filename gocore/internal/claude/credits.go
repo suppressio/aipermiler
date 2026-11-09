@@ -35,11 +35,12 @@ func mapCredits(panel string, now time.Time) (usage.Usage, error) {
 	if !strings.Contains(panel, markerCredits) {
 		return usage.Usage{}, notice
 	}
-	all := creditsBlock.FindAllStringSubmatch(panel, -1)
-	if len(all) == 0 {
+	// Only the last redraw of the block counts: an earlier complete one must not hide
+	// a last one that does not read.
+	m := creditsBlock.FindStringSubmatch(panel[strings.LastIndex(panel, markerCredits):])
+	if m == nil {
 		return usage.Usage{}, creditsDrift()
 	}
-	m := all[len(all)-1] // the last redraw of the panel
 	if m[1] != "$" || m[3] != "$" {
 		return usage.Usage{}, notice
 	}
@@ -47,10 +48,13 @@ func mapCredits(panel string, now time.Time) (usage.Usage, error) {
 	limit, okLimit := amount(m[4])
 	month, okMonth := months[m[5]]
 	day, err := strconv.Atoi(m[6])
-	if !okUsed || !okLimit || limit <= 0 || !okMonth || err != nil || day < 1 || day > 31 {
+	if !okUsed || !okLimit || limit <= 0 || !okMonth || err != nil {
 		return usage.Usage{}, creditsDrift()
 	}
-	reset := nextReset(month, day, now)
+	reset, ok := nextReset(month, day, now)
+	if !ok {
+		return usage.Usage{}, creditsDrift()
+	}
 	length := 1.0
 	return usage.Usage{QuotaWindows: []usage.QuotaWindow{{
 		ID: "spend", Label: "Spend limit", PeriodType: usage.PeriodBillingCycle, PeriodLength: &length,
@@ -66,13 +70,16 @@ func amount(s string) (float64, bool) {
 
 // nextReset is the next occurrence of month/day after now, at local midnight: the
 // panel gives no year or time, and the zone it shows is this machine's (inferred).
-func nextReset(month time.Month, day int, now time.Time) time.Time {
-	local := now.In(time.Local)
-	reset := time.Date(local.Year(), month, day, 0, 0, 0, 0, time.Local)
-	if !reset.After(now) {
-		reset = time.Date(local.Year()+1, month, day, 0, 0, 0, 0, time.Local)
+// A date that exists in no year (apr 31) is false; feb 29 waits for a leap year.
+func nextReset(month time.Month, day int, now time.Time) (time.Time, bool) {
+	year := now.In(time.Local).Year()
+	for y := year; y <= year+8; y++ {
+		reset := time.Date(y, month, day, 0, 0, 0, 0, time.Local)
+		if reset.Month() == month && reset.Day() == day && reset.After(now) {
+			return reset.UTC(), true
+		}
 	}
-	return reset.UTC()
+	return time.Time{}, false
 }
 
 func creditsDrift() *usage.Error {

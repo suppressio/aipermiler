@@ -37,6 +37,11 @@ func TestCredits(t *testing.T) {
 		{"panel not reached", "", nov, usage.CodeUnavailable, claude.ReasonUsageCredits, 0, 0, time.Time{}},
 		{"garbled block", block("creditsunavailable"), nov, usage.CodeFormatDrift, "", 0, 0, time.Time{}},
 		{"zero limit", block("$0.00/$0.00spent·resetsdec1(utc)"), nov, usage.CodeFormatDrift, "", 0, 0, time.Time{}},
+		{"last redraw incomplete", block("$1.00/$10.00spent·resetsdec1(utc)") + block("$2.00/$10.00spent"), nov, usage.CodeFormatDrift, "", 0, 0, time.Time{}},
+		{"april 31", block("$1.00/$10.00spent·resetsapr31(utc)"), nov, usage.CodeFormatDrift, "", 0, 0, time.Time{}},
+		{"february 30", block("$1.00/$10.00spent·resetsfeb30(utc)"), nov, usage.CodeFormatDrift, "", 0, 0, time.Time{}},
+		{"day 0", block("$1.00/$10.00spent·resetsdec0(utc)"), nov, usage.CodeFormatDrift, "", 0, 0, time.Time{}},
+		{"february 29 waits for a leap year", block("$1.00/$10.00spent·resetsfeb29(utc)"), nov, "", "", 1, 10, midnight(2028, time.February, 29)},
 		{"unknown month", block("$1.00/$10.00spent·resetsxyz1(utc)"), nov, usage.CodeFormatDrift, "", 0, 0, time.Time{}},
 	}
 	for _, tt := range tests {
