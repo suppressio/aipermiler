@@ -14,6 +14,7 @@ test('accountNoticeKey: Claude states with what to do (#180)', () => {
   assert.equal(accountNoticeKey(new CoreProviderError('unavailable', 'x', 'claude', 'not_installed')), 'error.claudeNotInstalled');
   assert.equal(accountNoticeKey(new CoreProviderError('unavailable', 'x', 'claude', 'no_subscription')), 'error.claudeNoSubscription');
   assert.equal(accountNoticeKey(new CoreProviderError('unavailable', 'x', 'claude', 'api_key_question')), 'error.claudeApiKeyQuestion');
+  assert.equal(accountNoticeKey(new CoreProviderError('unavailable', 'x', 'claude', 'usage_credits')), 'error.claudeUsageCredits');
 });
 
 test('accountNoticeKey: real failures stay errors', () => {

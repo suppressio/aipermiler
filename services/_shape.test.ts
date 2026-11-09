@@ -4,7 +4,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { extractShape, shapeSignature, FormatDriftError } from './_shape';
+import { extractShape, liveSignatures, REPORTED_SIGNATURE_TTL_MS, shapeSignature, FormatDriftError } from './_shape';
 
 test('extractShape reduces scalar values to their typeof', () => {
   const shape = extractShape({ used_dollars: 389.19, label: 'Cinder Cove', active: true, resets_at: null });
@@ -69,4 +69,24 @@ test('FormatDriftError carries endpointLabel and shape, never the original paylo
   assert.equal(err.endpointLabel, 'claude.ai/api/organizations/{id}/usage');
   assert.deepEqual(err.shape, { used_dollars: 'number' });
   assert.ok(err instanceof Error);
+});
+
+test('liveSignatures keeps signatures reported less than 24 hours ago and drops the others (#259)', () => {
+  const now = new Date('2026-11-10T12:00:00.000Z');
+  const at = (msAgo: number): string => new Date(now.getTime() - msAgo).toISOString();
+  const reported = {
+    sig_fresh: at(60 * 1000),
+    sig_almost: at(REPORTED_SIGNATURE_TTL_MS - 1),
+    sig_expired: at(REPORTED_SIGNATURE_TTL_MS),
+    sig_old: at(7 * REPORTED_SIGNATURE_TTL_MS),
+    sig_future: at(-60 * 1000),
+    sig_garbled: 'not a date',
+  };
+  assert.deepEqual(liveSignatures(reported, now), { sig_fresh: reported.sig_fresh, sig_almost: reported.sig_almost });
+});
+
+test('liveSignatures does not modify the map it reads', () => {
+  const reported = { sig_old: '2020-01-01T00:00:00.000Z' };
+  liveSignatures(reported, new Date('2026-11-10T12:00:00.000Z'));
+  assert.deepEqual(reported, { sig_old: '2020-01-01T00:00:00.000Z' });
 });

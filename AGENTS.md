@@ -54,6 +54,7 @@ aipermiler/
 │   ├── PLAN.md                  ← the original 3-day plan (historical)
 │   ├── SPIKE-CLAUDE-USAGE-PTY.md ← spike: Claude `/usage` panel read through a PTY (#141, #183)
 │   ├── SPIKE-CODEX-APP-SERVER.md ← spike: Codex rate limits through `codex app-server` (#142)
+│   ├── UPGRADE-FROM-0.4.md      ← user guide: settings from IA Hypermiler v0.4.x after skipping v0.5.0 (#260)
 │   └── screenshots/             ← README screenshots, synthetic data only
 ├── package.json, package-lock.json ← scripts, dependencies, electron-builder config
 ├── tsconfig.json                ← main-process TS config (CommonJS)
@@ -70,6 +71,7 @@ aipermiler/
 │   ├── test-build.js            ← `npm run package:test`: local lint + tests + dev-version packages in release/test/
 │   ├── measure-resources.js     ← measures the app's memory/CPU footprint (tray-only, #27)
 │   ├── probe-copilot-shape.js   ← prints the structure (never values) of a Copilot usage response
+│   ├── migrate-legacy/          ← user scripts (sh, PowerShell) that move IA Hypermiler v0.4.x settings to AIpermiler after skipping v0.5.0 (#260, docs/UPGRADE-FROM-0.4.md)
 │   └── spikes/                  ← throwaway research code for the Claude/Codex reads: claude-usage-pty.py, claude-usage-pty-go/ (own Go module), codex-rate-limits.js
 ├── build/                       ← electron-builder resources (icons) — TRACKED, not an output (packages go to release/)
 ├── main.ts                      ← Electron main process: wiring only (lifecycle, windows, tray, IPC, timers, notifications, update checks)
@@ -188,7 +190,7 @@ When a service receives a response whose format no longer matches the expected o
 
 - **Never automatic publishing**: only a pre-filled GitHub issue draft opens in the system browser (`shell.openExternal`, via `diagnostics/githubIssue.ts`); the user must always review and submit it by hand. The app has and uses no GitHub token.
 - **Never real values in the report**: the issue body contains only the response "shape" (field names + `typeof`, from `extractShape()`), never usage percentages, amounts or real dates. The body is in English (public repository).
-- **Deduplicated by structure signature** (`shapeSignature()`): the same shape does not reopen a draft on every refresh. Reported signatures live in `store.diagnostics.reportedSignatures`.
+- **Deduplicated by structure signature** (`shapeSignature()`): the same shape does not reopen a draft on every refresh. Reported signatures live in `store.diagnostics.reportedSignatures` and expire 24 hours after their draft (`liveSignatures()`, #259): a persistent drift reopens its draft at most once a day, and a drift sharing another one's signature (the key has neither provider nor endpoint) waits at most that long.
 - **Can be disabled** in Settings (`diagnostics.autoReportFormatDrift`, default `true`).
 
 **Manual diagnostic report** (Settings → Diagnostics, "Create diagnostic report"): after an explicit confirmation (native dialog listing what goes in and that nothing is sent), one text file in Downloads (`diagnostics/report.ts`) with, per connected account (enabled or not, named "<Provider> #n"): the raw usage response redacted by `redactResponse()` (`diagnostics/githubIssue.ts` — numbers, booleans, null, short enum-like fields and ISO dates under reset/timing keys kept, other dates and strings redacted, any value under an id key replaced whatever its type), the settings that affect pacing (no labels, host only as github.com/"a .ghe.com tenant"), the app's reading of the data (last snapshot), 7 days of history and today's samples; plus environment, a `system` section (`main.ts reportSystem`: time zone, screens and scaling, widget size, memory/CPU of the app's processes, last refresh and local-insights durations, core count, RAM rounded to GB — never CPU/GPU models, computer/user names, paths or ids) and the last 50 main-process errors/warnings (`diagnostics/logBuffer.ts`, memory only). Free texts go through `neutralize()` (labels/ids → neutral names, single pass) and `shortError()` (no response bodies). The folder is shown and a short GitHub issue draft opens: the user attaches the file by hand, or not. Unlike the automatic drift report it **does** carry usage values; never credentials, ids, names or free text.
@@ -362,6 +364,7 @@ Condensed history; the full session-by-session log is in the git history (CLAUDE
 | 2026-10-25 | v0.4.18-beta | Hotfix: no claude.ai sign-in and stored sessions deleted, Anthropic forbids third-party apps from storing claude.ai session tokens; Claude accounts keep the local insights, quotas return with the Go core (#140, #139) |
 | 2026-11-01 | v0.5.0-beta | Renamed to AIpermiler: userData and keyring migrations, in-place upgrade of the Windows installer and the .deb, repository renamed, public roadmap board (#9, #200, #201, #48); Go core CLI with a versioned JSON contract, bundled in the packages, reads Codex (`codex app-server`, no chatgpt.com cookies) and Copilot (token in the OS keyring) (#145, #159, #26, #148, #149, #177, #178, #179); Claude PTY spikes on Linux, Windows, macOS (#141, #183); tray badge cycles every alert (#131), solid skins with visible title bar and styled scrollbar (#133), Electron 45 (#136). macOS package not yet verified (#212) |
 | 2026-11-07 | v0.6.0-beta | Claude quotas back through the Go core: `claude /usage` driven in a PTY (Linux, Windows via ConPTY and a job object) with the user's own Claude Code sign-in, quotas read from the status line (#147, #219-#221, #223, #228, #229), shown in the app (#180); IA Hypermiler → AIpermiler migrations removed, upgrades from ≤ v0.4.x go through v0.5.0 (#204); main process bundled with esbuild (#36); Dependabot for GitHub Actions and Go modules (#208); fixes from the release tests (#242). macOS not verified, moved to v0.7.0 (#212) |
+| 2026-11-10 | v0.6.1-beta | Claude on an Enterprise plan billed through usage credits: no false format drift (#249, #253), the Usage credits block of `/usage` shown as the `spend` window as in v0.4.x (#255, #257); format-drift draft signatures expire after 24 hours (#259); migration script for upgrades from IA Hypermiler v0.4.x that skipped v0.5.0 (#260) |
 
 ### Lessons learned (still relevant)
 - **Codex login User-Agent** (historical: the chatgpt.com login route was removed in #178): Google refuses embedded login when a rewritten User-Agent contradicts the client hints. Never change the UA of the Codex login window or its partition.

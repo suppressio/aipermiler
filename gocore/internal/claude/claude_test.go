@@ -3,6 +3,7 @@ package claude_test
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"flag"
 	"os"
 	"path/filepath"
@@ -87,13 +88,20 @@ func TestFetch(t *testing.T) {
 		status  string // testdata sent on Esc, "" for none
 		auth    string
 		code    usage.Code
+		reason  string
 		windows int
 		started bool
+		panel   string // "" for screenPanel
 	}{
-		{"usage", "statusline-2.1.316", `{"loggedIn":true}`, "", 2, true},
-		{"no rate_limits", "statusline-2.1.316-start", `{"loggedIn":true}`, usage.CodeFormatDrift, 0, true},
-		{"status line never ran", "", `{"loggedIn":true}`, usage.CodeFormatDrift, 0, true},
-		{"signed out", "", `{"loggedIn":false}`, usage.CodeSignedOut, 0, false},
+		{"usage", "statusline-2.1.316", `{"loggedIn":true}`, "", "", 2, true, ""},
+		{"no rate_limits", "statusline-2.1.316-start", `{"loggedIn":true}`, usage.CodeFormatDrift, "", 0, true, ""},
+		{"pro without rate_limits", "statusline-2.1.319-enterprise", `{"loggedIn":true,"subscriptionType":"pro"}`, usage.CodeFormatDrift, "", 0, true, ""},
+		{"enterprise on usage credits", "statusline-2.1.319-enterprise", `{"loggedIn":true,"subscriptionType":"enterprise"}`, "", "", 1, true, screenCreditsPanel},
+		{"enterprise, no Usage credits block", "statusline-2.1.319-enterprise", `{"loggedIn":true,"subscriptionType":"enterprise"}`, usage.CodeUnavailable, claude.ReasonUsageCredits, 0, true, ""},
+		{"enterprise with quota windows", "statusline-2.1.316", `{"loggedIn":true,"subscriptionType":"enterprise"}`, "", "", 2, true, ""},
+		{"enterprise, status line never ran", "", `{"loggedIn":true,"subscriptionType":"enterprise"}`, usage.CodeFormatDrift, "", 0, true, ""},
+		{"status line never ran", "", `{"loggedIn":true}`, usage.CodeFormatDrift, "", 0, true, ""},
+		{"signed out", "", `{"loggedIn":false}`, usage.CodeSignedOut, "", 0, false, ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -127,7 +135,11 @@ func TestFetch(t *testing.T) {
 							runStatusLine(t, sink, withStatus(t, testdata(t, tt.status), dir, transcript))
 						}
 					}
-					signedIn(f, key)
+					panel := tt.panel
+					if panel == "" {
+						panel = screenPanel
+					}
+					showPanel(f, key, panel)
 				}), nil
 			}
 			if tt.status == "" && tt.code == usage.CodeFormatDrift {
@@ -147,6 +159,10 @@ func TestFetch(t *testing.T) {
 			got, err := p.Fetch(context.Background(), "")
 			if tt.code != "" {
 				assertCode(t, err, tt.code)
+				var uerr *usage.Error
+				if errors.As(err, &uerr) && uerr.Reason != tt.reason {
+					t.Errorf("reason = %q, want %q", uerr.Reason, tt.reason)
+				}
 			} else if err != nil {
 				t.Fatal(err)
 			}

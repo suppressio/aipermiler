@@ -74,14 +74,17 @@ func (p *Provider) Fetch(ctx context.Context, _ string) (usage.Usage, error) {
 	if err != nil {
 		return usage.Usage{}, err
 	}
-	projects, err := p.prober.probe(ctx, bin, dir, command, func(ctx context.Context) error {
+	status, err := p.prober.probe(ctx, bin, dir, command, func(ctx context.Context) error {
 		waitForRateLimits(ctx.Done(), path, p.statusWait)
 		return nil
 	})
 	read := readStatus(path)
-	removeTranscripts(read.transcripts, dir, projects)
+	removeTranscripts(read.transcripts, dir, status.projects)
 	if err != nil {
 		return usage.Usage{}, err
+	}
+	if status.credits && read.runs > 0 && read.latest == nil {
+		return mapCredits(status.panel, time.Now())
 	}
 	return mapUsage(read)
 }

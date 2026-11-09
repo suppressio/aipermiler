@@ -97,32 +97,39 @@ func signedOut() *usage.Error {
 
 // probe runs one `claude` session in dir up to the /usage panel and out again.
 // statusLine is the command Claude runs as its status line; afterEsc runs once the
-// panel is closed, before /exit. It returns Claude's projects folder as `auth status`
-// reported it ("" when unknown), also with an error: the transcript cleanup needs it.
-func (p prober) probe(ctx context.Context, bin, dir, statusLine string, afterEsc func(context.Context) error) (string, error) {
+// panel is closed, before /exit. It returns what `auth status` reported, also with an
+// error (the transcript cleanup needs its projects folder), and the panel text.
+func (p prober) probe(ctx context.Context, bin, dir, statusLine string, afterEsc func(context.Context) error) (probeResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	// The trust prompt is answered only for this folder: it must hold nothing to trust.
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return "", unavailable("claude probe folder: " + err.Error())
+		return probeResult{}, unavailable("claude probe folder: " + err.Error())
 	}
 	if len(entries) > 0 {
-		return "", unavailable("claude probe folder is not empty: " + dir)
+		return probeResult{}, unavailable("claude probe folder is not empty: " + dir)
 	}
 	env := childEnv(p.environ())
-	status := parseAuthStatus(p.auth(ctx, bin, dir, env))
+	status := probeResult{authStatus: parseAuthStatus(p.auth(ctx, bin, dir, env))}
 	if status.known && !status.loggedIn {
-		return status.projects, signedOut()
+		return status, signedOut()
 	}
 	if status.noQuota {
-		return status.projects, unavailableBecause(ReasonNoSubscription, "Claude Code is signed in with an API key or a cloud provider, which has no subscription quota")
+		return status, unavailableBecause(ReasonNoSubscription, "Claude Code is signed in with an API key or a cloud provider, which has no subscription quota")
 	}
 	term, err := p.start(bin, claudeArgs(statusLine), env, dir)
 	if err != nil {
-		return status.projects, unavailable("cannot start claude: " + err.Error())
+		return status, unavailable("cannot start claude: " + err.Error())
 	}
-	return status.projects, drive(ctx, term, p.timing, afterEsc)
+	status.panel, err = drive(ctx, term, p.timing, afterEsc)
+	return status, err
+}
+
+// probeResult is what one probe learned besides the status line runs.
+type probeResult struct {
+	authStatus
+	panel string // the /usage panel as normalize returns it, "" when not reached
 }
 
 // cacheBase is the core's own cache folder, <UserCacheDir>/aipermiler.
@@ -211,6 +218,7 @@ type authStatus struct {
 	loggedIn bool
 	known    bool   // false when the output is not usable: the PTY markers then decide
 	noQuota  bool   // signed in without a subscription: no rate_limits to read
+	credits  bool   // a plan that may bill through usage credits instead of quota windows
 	projects string // absolute projects folder, "" when not reported
 }
 
@@ -219,16 +227,30 @@ type authStatus struct {
 // value run the probe.
 var noQuotaMethods = map[string]bool{"api_key": true, "third_party": true}
 
+// creditsSubscriptions are the subscriptionType values seen without quota windows: the
+// /usage panel shows only "Usage credits" and the status line carries no rate_limits
+// (enterprise on 2.1.319, #249). The status line docs list rate_limits only for Pro,
+// Max and Ultra, or behind a Claude apps gateway with a spend limit
+// (https://code.claude.com/docs/en/statusline). A gateway may still send it, so the
+// probe runs and this only explains a missing rate_limits.
+var creditsSubscriptions = map[string]bool{"enterprise": true}
+
 func parseAuthStatus(out []byte) authStatus {
 	var status struct {
-		LoggedIn *bool  `json:"loggedIn"`
-		Method   string `json:"authMethod"`
-		Projects string `json:"projectsDirectory"`
+		LoggedIn     *bool  `json:"loggedIn"`
+		Method       string `json:"authMethod"`
+		Subscription string `json:"subscriptionType"`
+		Projects     string `json:"projectsDirectory"`
 	}
 	if json.Unmarshal(out, &status) != nil || status.LoggedIn == nil {
 		return authStatus{}
 	}
-	result := authStatus{loggedIn: *status.LoggedIn, known: true, noQuota: *status.LoggedIn && noQuotaMethods[status.Method]}
+	result := authStatus{
+		loggedIn: *status.LoggedIn,
+		known:    true,
+		noQuota:  *status.LoggedIn && noQuotaMethods[status.Method],
+		credits:  *status.LoggedIn && creditsSubscriptions[status.Subscription],
+	}
 	if filepath.IsAbs(status.Projects) {
 		result.projects = status.Projects
 	}
@@ -260,16 +282,18 @@ type driver struct {
 	raw    []byte // output since the last key
 	last   time.Time
 	exited bool
+	panel  string // normalized output of the /usage panel, kept before Esc
 }
 
 // drive takes a started session to the /usage panel, closes it, runs afterEsc and
-// leaves through /exit; the process tree is killed at the end in every case.
-func drive(ctx context.Context, term terminal, t timing, afterEsc func(context.Context) error) error {
+// leaves through /exit; the process tree is killed at the end in every case. It
+// returns the normalized panel text, "" when the panel was not reached.
+func drive(ctx context.Context, term terminal, t timing, afterEsc func(context.Context) error) (string, error) {
 	d := &driver{term: term, t: t, out: make(chan []byte, 64)}
 	go d.pump()
 	err := d.run(ctx, afterEsc)
 	d.leave(err == nil)
-	return err
+	return d.panel, err
 }
 
 func (d *driver) pump() {
@@ -409,6 +433,7 @@ func (d *driver) run(ctx context.Context, afterEsc func(context.Context) error) 
 			return notReady("no usage panel after /usage")
 		}
 	}
+	d.panel = normalize(d.raw)
 	if err := d.send(keyEsc); err != nil {
 		return err
 	}

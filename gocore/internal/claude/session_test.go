@@ -26,6 +26,9 @@ const (
 	screenTheme     = "\x1b[2J\x1b[HLet's get started.\r\nChoose the text style that looks best with your terminal\r\n"
 	screenAPIKey    = "\x1b[2J\x1b[H\x1b[1mDetected\x1b[12Ga\x1b[14Gcustom\x1b[21GAPI\x1b[25Gkey in your environment\x1b[22m\r\nANTHROPIC_API_KEY: sk-ant-...-synthetic\r\nDo you want to use this API key?\r\n  Yes\r\n❯ No (recommended)\r\n"
 	screenPanel     = "\x1b[2J\x1b[H Usage\r\n Current\x1b[1Csession\r\n \x1b[38;5;2m███\x1b[0m 12%\x1b[1Cused\r\n Resets 3pm (UTC)\r\n"
+	// A plan billed through usage credits (#249, 2.1.319): no session or week windows,
+	// only the credits bar, whose "NN% used" is what tells the panel has opened.
+	screenCreditsPanel = "\x1b[2J\x1b[H Usage\r\n Usage\x1b[1Ccredits\r\n \x1b[38;5;2m█\x1b[0m 9%\x1b[1Cused\r\n $1.00 / $10.00 spent · Resets Dec 1 (UTC)\r\n"
 )
 
 // fake is a scripted claude: react answers every key the probe types.
@@ -83,7 +86,10 @@ func (f *fake) typed() []string {
 }
 
 // signedIn reacts like a signed-in claude: the panel after /usage, and /exit ends it.
-func signedIn(f *fake, key string) {
+func signedIn(f *fake, key string) { showPanel(f, key, screenPanel) }
+
+// showPanel answers /usage with panel and /exit by exiting.
+func showPanel(f *fake, key, panel string) {
 	last := f.typed()
 	prev := ""
 	if len(last) > 1 {
@@ -91,7 +97,7 @@ func signedIn(f *fake, key string) {
 	}
 	switch {
 	case key == "\r" && prev == "/usage":
-		go f.print(screenPanel)
+		go f.print(panel)
 	case key == "\r" && prev == "/exit":
 		go f.exit()
 	}
@@ -435,26 +441,29 @@ func TestParseAuthStatus(t *testing.T) {
 		t.Fatal(err)
 	}
 	tests := []struct {
-		in                       string
-		loggedIn, known, noQuota bool
-		projects                 string
+		in                                string
+		loggedIn, known, noQuota, credits bool
+		projects                          string
 	}{
-		{`{"loggedIn":true,"authMethod":"claude.ai","email":"synthetic@example.invalid","projectsDirectory":` + string(quoted) + `}`, true, true, false, projects},
-		{`{"loggedIn":true,"authMethod":"oauth_token","apiProvider":"firstParty"}`, true, true, false, ""},
-		{`{"loggedIn":true,"authMethod":"api_key","apiProvider":"firstParty"}`, true, true, true, ""},
-		{`{"loggedIn":true,"authMethod":"third_party","apiProvider":"bedrock"}`, true, true, true, ""},
-		{`{"loggedIn":true,"authMethod":"something_new"}`, true, true, false, ""},
-		{`{"loggedIn":false,"authMethod":"api_key"}`, false, true, false, ""},
-		{`{"loggedIn":true,"projectsDirectory":"relative/projects"}`, true, true, false, ""},
-		{`{"loggedIn":false}`, false, true, false, ""},
-		{`{"authMethod":"claude.ai","projectsDirectory":"/synthetic"}`, false, false, false, ""},
-		{``, false, false, false, ""},
-		{`Logged in`, false, false, false, ""},
+		{`{"loggedIn":true,"authMethod":"claude.ai","email":"synthetic@example.invalid","projectsDirectory":` + string(quoted) + `}`, true, true, false, false, projects},
+		{`{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"pro"}`, true, true, false, false, ""},
+		{`{"loggedIn":true,"authMethod":"claude.ai","subscriptionType":"enterprise","planTier":"other"}`, true, true, false, true, ""},
+		{`{"loggedIn":false,"subscriptionType":"enterprise"}`, false, true, false, false, ""},
+		{`{"loggedIn":true,"authMethod":"oauth_token","apiProvider":"firstParty"}`, true, true, false, false, ""},
+		{`{"loggedIn":true,"authMethod":"api_key","apiProvider":"firstParty"}`, true, true, true, false, ""},
+		{`{"loggedIn":true,"authMethod":"third_party","apiProvider":"bedrock"}`, true, true, true, false, ""},
+		{`{"loggedIn":true,"authMethod":"something_new"}`, true, true, false, false, ""},
+		{`{"loggedIn":false,"authMethod":"api_key"}`, false, true, false, false, ""},
+		{`{"loggedIn":true,"projectsDirectory":"relative/projects"}`, true, true, false, false, ""},
+		{`{"loggedIn":false}`, false, true, false, false, ""},
+		{`{"authMethod":"claude.ai","projectsDirectory":"/synthetic"}`, false, false, false, false, ""},
+		{``, false, false, false, false, ""},
+		{`Logged in`, false, false, false, false, ""},
 	}
 	for _, tt := range tests {
-		loggedIn, known, noQuota, projects := claude.ParseAuthStatusForTest([]byte(tt.in))
-		if loggedIn != tt.loggedIn || known != tt.known || noQuota != tt.noQuota || projects != tt.projects {
-			t.Errorf("parseAuthStatus(%q) = %v, %v, %v, %q; want %v, %v, %v, %q", tt.in, loggedIn, known, noQuota, projects, tt.loggedIn, tt.known, tt.noQuota, tt.projects)
+		loggedIn, known, noQuota, credits, projects := claude.ParseAuthStatusForTest([]byte(tt.in))
+		if loggedIn != tt.loggedIn || known != tt.known || noQuota != tt.noQuota || credits != tt.credits || projects != tt.projects {
+			t.Errorf("parseAuthStatus(%q) = %v, %v, %v, %v, %q; want %v, %v, %v, %v, %q", tt.in, loggedIn, known, noQuota, credits, projects, tt.loggedIn, tt.known, tt.noQuota, tt.credits, tt.projects)
 		}
 	}
 }

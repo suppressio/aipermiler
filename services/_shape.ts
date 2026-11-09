@@ -42,6 +42,24 @@ export function shapeSignature(shape: unknown): string {
   return `sig_${(hash >>> 0).toString(16)}`;
 }
 
+/** A reported signature is forgotten this long after its draft opened (#259). */
+export const REPORTED_SIGNATURE_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The reported signatures still in force at `now`: opened less than
+ * REPORTED_SIGNATURE_TTL_MS ago. Expired, unreadable or future timestamps are dropped,
+ * so a drift that persists reopens its draft at most once a day and a drift sharing
+ * another one's signature waits at most that long (see main.ts).
+ */
+export function liveSignatures(reported: Readonly<Record<string, string>>, now: Date): Record<string, string> {
+  const live: Record<string, string> = {};
+  for (const [signature, at] of Object.entries(reported)) {
+    const age = now.getTime() - Date.parse(at);
+    if (age >= 0 && age < REPORTED_SIGNATURE_TTL_MS) live[signature] = at;
+  }
+  return live;
+}
+
 /**
  * Error thrown by services when an endpoint response does not match the expected
  * format. It carries only `shape` (never the original payload): whoever catches this

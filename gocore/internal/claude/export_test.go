@@ -34,7 +34,18 @@ var TestTiming = timing{
 
 // DriveForTest drives a fake terminal with TestTiming.
 func DriveForTest(ctx context.Context, term Terminal, afterEsc func(context.Context) error) error {
-	return drive(ctx, term, TestTiming, afterEsc)
+	_, err := drive(ctx, term, TestTiming, afterEsc)
+	return err
+}
+
+// PanelForTest drives a fake terminal and returns the normalized panel text.
+func PanelForTest(ctx context.Context, term Terminal) (string, error) {
+	return drive(ctx, term, TestTiming, nil)
+}
+
+// CreditsForTest reads the Usage credits block of a normalized panel at now.
+func CreditsForTest(panel string, now time.Time) (usage.Usage, error) {
+	return mapCredits(panel, now)
 }
 
 // ProbeForTest runs a probe with fake start and auth.
@@ -69,9 +80,9 @@ func RealProbeForTest(ctx context.Context, bin, dir string, extraEnv []string) e
 }
 
 // ParseAuthStatusForTest returns what the probe reads from `auth status`.
-func ParseAuthStatusForTest(out []byte) (loggedIn, known, noQuota bool, projects string) {
+func ParseAuthStatusForTest(out []byte) (loggedIn, known, noQuota, credits bool, projects string) {
 	s := parseAuthStatus(out)
-	return s.loggedIn, s.known, s.noQuota, s.projects
+	return s.loggedIn, s.known, s.noQuota, s.credits, s.projects
 }
 
 // TestStatusWait is the providers' wait for the status line in tests.
