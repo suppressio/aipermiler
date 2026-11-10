@@ -34,13 +34,14 @@ const (
 
 // fake is a scripted claude: react answers every key the probe types.
 type fake struct {
-	mu     sync.Mutex
-	pr     *io.PipeReader
-	pw     *io.PipeWriter
-	keys   []string
-	killed bool
-	noEcho bool // a dialog: typed text is not shown
-	react  func(f *fake, key string)
+	mu       sync.Mutex
+	pr       *io.PipeReader
+	pw       *io.PipeWriter
+	keys     []string
+	killed   bool
+	killedAt time.Time
+	noEcho   bool // a dialog: typed text is not shown
+	react    func(f *fake, key string)
 	// echoDelay delays the echo of a typed command (a slow machine).
 	echoDelay time.Duration
 	// onKey runs on every key, before the reaction.
@@ -92,7 +93,7 @@ func (f *fake) Write(p []byte) (int, error) {
 
 func (f *fake) Kill() error {
 	f.mu.Lock()
-	f.killed = true
+	f.killed, f.killedAt = true, time.Now()
 	f.mu.Unlock()
 	f.exit()
 	return nil
@@ -402,8 +403,9 @@ func TestDriveTimeoutInThePanel(t *testing.T) {
 	assertCode(t, claude.DriveReadyForTest(ctx, f, func() bool { return true }), usage.CodeTimeout)
 }
 
-// #266: a read that ends close to the deadline leaves within it, also when /exit is
-// ignored and the process tree never ends.
+// #266: the exit grace never reaches into the time kept for the kill, typing /exit
+// included (keyGap well above the tick here), and the core answers by the deadline
+// even when /exit is ignored and the process tree never ends.
 func TestDriveLeavesWithinTheDeadlineAfterARead(t *testing.T) {
 	t.Parallel()
 	f := newFake(screenPrompt, func(f *fake, key string) {
@@ -413,21 +415,21 @@ func TestDriveLeavesWithinTheDeadlineAfterARead(t *testing.T) {
 	})
 	f.hang = make(chan struct{})
 	defer close(f.hang)
-	// A slow echo makes the read end where the exit grace no longer fits whole.
-	f.echoDelay = 130 * time.Millisecond
-	const deadline = 300 * time.Millisecond
+	const deadline, keyGap = 600 * time.Millisecond, 40 * time.Millisecond
 	ctx, cancel := context.WithTimeout(context.Background(), deadline)
 	defer cancel()
 	start := time.Now()
-	// Under load the read itself may reach the deadline: then a timeout, bounded the same.
-	if err := claude.DriveReadyForTest(ctx, f, func() bool { return true }); err != nil {
-		assertCode(t, err, usage.CodeTimeout)
+	// An exit grace longer than the deadline: always cut by it.
+	reserve, err := claude.DriveSlowKeysForTest(ctx, f, func() bool { return true }, keyGap, time.Hour)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if elapsed := time.Since(start); elapsed > deadline+30*time.Millisecond {
+	if elapsed := time.Since(start); elapsed > deadline+10*time.Millisecond {
 		t.Fatalf("answered after %v; deadline %v", elapsed, deadline)
 	}
-	if !f.killed {
-		t.Fatal("process not killed")
+	killed := f.killedAt.Sub(start)
+	if f.killedAt.IsZero() || killed > deadline-reserve+keyGap/4 {
+		t.Fatalf("killed after %v; the grace ends at %v", killed, deadline-reserve)
 	}
 }
 
