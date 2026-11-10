@@ -6,6 +6,9 @@
   "main": "dist/main.js",
   "type": "commonjs",
   "scripts": {
+    "metainfo:sync": "node scripts/sync-metainfo.js",
+    "metainfo:check": "node scripts/sync-metainfo.js --check",
+    "version": "node scripts/sync-metainfo.js && git add build/linux/com.suppressio.aipermiler.metainfo.xml",
     "build:main": "tsc -p tsconfig.json",
     "build:renderer": "tsc -p tsconfig.renderer.json && tsc -p tsconfig.renderer.test.json",
     "copy-assets": "node scripts/copy-assets.js",
