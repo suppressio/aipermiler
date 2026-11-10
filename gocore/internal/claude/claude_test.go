@@ -100,8 +100,8 @@ func TestFetch(t *testing.T) {
 		{"enterprise on usage credits", "statusline-2.1.319-enterprise", `{"loggedIn":true,"subscriptionType":"enterprise"}`, "", "", 1, true, screenCreditsPanel},
 		{"enterprise, no Usage credits block", "statusline-2.1.319-enterprise", `{"loggedIn":true,"subscriptionType":"enterprise"}`, usage.CodeUnavailable, claude.ReasonUsageCredits, 0, true, ""},
 		{"enterprise with quota windows", "statusline-2.1.316", `{"loggedIn":true,"subscriptionType":"enterprise"}`, "", "", 2, true, ""},
-		{"enterprise, status line never ran", "", `{"loggedIn":true,"subscriptionType":"enterprise"}`, usage.CodeNotReady, "", 0, true, ""},
-		{"status line never ran", "", `{"loggedIn":true}`, usage.CodeNotReady, "", 0, true, ""},
+		{"enterprise, status line never ran", "", `{"loggedIn":true,"subscriptionType":"enterprise"}`, usage.CodeTimeout, "", 0, true, ""},
+		{"status line never ran", "", `{"loggedIn":true}`, usage.CodeTimeout, "", 0, true, ""},
 		{"signed out", "", `{"loggedIn":false}`, usage.CodeSignedOut, "", 0, false, ""},
 	}
 	for _, tt := range tests {
@@ -145,7 +145,7 @@ func TestFetch(t *testing.T) {
 					showPanel(f, key, panel)
 				}), nil
 			}
-			if tt.status == "" && tt.code == usage.CodeNotReady {
+			if tt.status == "" && tt.code == usage.CodeTimeout {
 				// Not even the start run reaches the sink: the prompt is never ready.
 				start = func(_ string, args, _ []string, _ string) (claude.Terminal, error) {
 					started = true
@@ -161,7 +161,8 @@ func TestFetch(t *testing.T) {
 			}
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			if tt.code == usage.CodeNotReady {
+			if tt.code == usage.CodeTimeout {
+				// Only the caller's deadline ends the wait for a prompt that never comes.
 				ctx, cancel = context.WithTimeout(context.Background(), 400*time.Millisecond)
 				defer cancel()
 			}
@@ -192,7 +193,8 @@ func TestFetch(t *testing.T) {
 }
 
 // #266: Claude ran the status line at the prompt but not after /usage (frozen, for
-// one): no data came, which is not_ready, not a format drift.
+// one): the run is awaited until the caller's deadline, which is a timeout, not a
+// format drift (which would open a drift report).
 func TestFetchNoStatusLineAfterUsage(t *testing.T) {
 	t.Parallel()
 	base := t.TempDir()
@@ -207,18 +209,18 @@ func TestFetchNoStatusLineAfterUsage(t *testing.T) {
 	if err := fs.Parse([]string{"--claude-bin", nativeStub(t)}); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
 	defer cancel()
 	_, err := p.Fetch(ctx, "")
-	assertCode(t, err, usage.CodeNotReady)
-	if !strings.Contains(err.Error(), "no status line after /usage") {
+	assertCode(t, err, usage.CodeTimeout)
+	if !strings.Contains(err.Error(), "after /usage") {
 		t.Fatalf("err = %v", err)
 	}
 }
 
-// #266: when the deadline cuts the wait for rate_limits, the answer is a timeout, not
-// a format drift (which would open a drift report).
-func TestFetchRateLimitsCutByTheDeadline(t *testing.T) {
+// #266: a status line run that comes late after /usage (PowerShell starting it on a
+// loaded Windows) is awaited: no fixed wait cuts it.
+func TestFetchWaitsForALateStatusLine(t *testing.T) {
 	t.Parallel()
 	base := t.TempDir()
 	start := func(_ string, args, _ []string, dir string) (claude.Terminal, error) {
@@ -226,8 +228,10 @@ func TestFetchRateLimitsCutByTheDeadline(t *testing.T) {
 		runStatusLine(t, sink, withStatus(t, testdata(t, "statusline-2.1.316-start"), dir, ""))
 		return newFake(screenPrompt, func(f *fake, key string) {
 			if key == "\x1b" {
-				// Only the start run, without rate_limits: they would come later.
-				runStatusLine(t, sink, withStatus(t, testdata(t, "statusline-2.1.316-start"), dir, ""))
+				go func() {
+					time.Sleep(time.Second)
+					runStatusLine(t, sink, withStatus(t, testdata(t, "statusline-2.1.316"), dir, ""))
+				}()
 			}
 			showPanel(f, key, screenPanel)
 		}), nil
@@ -238,11 +242,15 @@ func TestFetchRateLimitsCutByTheDeadline(t *testing.T) {
 	if err := fs.Parse([]string{"--claude-bin", nativeStub(t)}); err != nil {
 		t.Fatal(err)
 	}
-	// The read ends well inside this deadline; the rate_limits wait would not.
-	ctx, cancel := context.WithTimeout(context.Background(), 450*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	_, err := p.Fetch(ctx, "")
-	assertCode(t, err, usage.CodeTimeout)
+	got, err := p.Fetch(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.QuotaWindows) != 2 {
+		t.Fatalf("windows = %d", len(got.QuotaWindows))
+	}
 }
 
 func TestFetchWithoutBinary(t *testing.T) {

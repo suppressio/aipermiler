@@ -21,23 +21,18 @@ func countRuns(path string) int {
 	return bytes.Count(data, []byte{'\n'})
 }
 
-// statusWait is how long the probe waits, after the panel closed, for a status line
-// run with rate_limits (measured well under a second on #183).
-const statusWait = 3 * time.Second
-
 // Provider runs one `claude` probe per fetch, using Claude Code's own sign-in.
 type Provider struct {
-	binary     string
-	discovery  discovery
-	prober     prober
-	self       func() (string, error)
-	base       func() (string, error)
-	statusWait time.Duration
+	binary    string
+	discovery discovery
+	prober    prober
+	self      func() (string, error)
+	base      func() (string, error)
 }
 
 // New creates an independently configured Claude provider.
 func New() *Provider {
-	return &Provider{discovery: systemDiscovery(), prober: systemProber(), self: os.Executable, base: cacheBase, statusWait: statusWait}
+	return &Provider{discovery: systemDiscovery(), prober: systemProber(), self: os.Executable, base: cacheBase}
 }
 
 // ID is the stable provider identifier.
@@ -85,26 +80,13 @@ func (p *Provider) Fetch(ctx context.Context, _ string) (usage.Usage, error) {
 	if err != nil {
 		return usage.Usage{}, err
 	}
-	// The deadline came while rate_limits were awaited: their absence then says
-	// nothing about the format (#266).
-	cut := false
-	status, err := p.prober.probe(ctx, bin, dir, command, func() int { return countRuns(path) }, func(ctx context.Context) error {
-		cut = waitForRateLimits(ctx.Done(), path, p.statusWait)
-		return nil
+	status, err := p.prober.probe(ctx, bin, dir, command, func() int { return countRuns(path) }, func(ctx context.Context, promptRuns int) error {
+		return waitForStatusAfterUsage(ctx, path, promptRuns)
 	})
 	read := readStatus(path)
 	removeTranscripts(read.transcripts, dir, status.projects)
 	if err != nil {
 		return usage.Usage{}, err
-	}
-	if cut && read.latest == nil && (!status.credits || read.runs == 0) {
-		return usage.Usage{}, &usage.Error{Code: usage.CodeTimeout, Message: "claude probe timed out before the status line carried rate_limits"}
-	}
-	if read.latest == nil && read.runs <= status.promptRuns && !status.credits {
-		// Claude ran the status line at the prompt but not after /usage (it runs it
-		// again as the panel closes, with rate_limits): no data came, so nothing says
-		// the format changed (#266).
-		return usage.Usage{}, notReady("claude ran no status line after /usage")
 	}
 	if status.credits && read.runs > 0 && read.latest == nil {
 		return mapCredits(status.panel, time.Now())

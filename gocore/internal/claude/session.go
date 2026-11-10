@@ -46,16 +46,15 @@ var (
 )
 
 // timing holds the waits of a probe; tests shorten them. The probe waits for events
-// (the status line run, the echo, the panel) up to its deadline; these are only the
-// settle times around those events, never a guess that one happened (#266).
+// (the status line run, the echo, the panel) with no time limit of its own: only the
+// caller's deadline ends it, a guard against a claude that hangs. These are the
+// settle times around those events, never a guess that one happened, and the bounds
+// of leaving, which never fail a read (#266).
 type timing struct {
 	tick        time.Duration // how often the output is looked at
 	quiet       time.Duration // no output for this long: the trust prompt is drawn
 	readySettle time.Duration // no output for this long after the status line ran
-	panelSettle time.Duration // no output for this long after the panel showed
-	afterPanel  time.Duration // kept after the panel: escSettle, the rate_limits wait, a margin
-	echoWait    time.Duration // no /usage echoed this long after typing it: keys lost
-	escSettle   time.Duration // longest wait for the panel to close
+	panelSettle time.Duration // no output for this long after the panel showed or closed
 	exitGrace   time.Duration // time /exit gets before the kill
 	killWait    time.Duration // longest wait for the process tree after the kill
 	keyGap      time.Duration // between a command and its Enter
@@ -66,23 +65,10 @@ var defaultTiming = timing{
 	quiet:       1200 * time.Millisecond,
 	readySettle: 500 * time.Millisecond,
 	panelSettle: 700 * time.Millisecond,
-	afterPanel:  escSettle + statusWait + 500*time.Millisecond,
-	echoWait:    10 * time.Second,
-	escSettle:   escSettle,
 	exitGrace:   5 * time.Second,
 	killWait:    2 * time.Second,
 	keyGap:      300 * time.Millisecond,
 }
-
-// leaveReserve is the part of the probe deadline kept for leaving: the kill and the
-// bounded wait for the process tree, so the core answers within its own deadline.
-func (t timing) leaveReserve() time.Duration { return t.killWait + t.tick }
-
-// escSettle is the longest wait for the panel to close (timing.escSettle).
-const escSettle = 2 * time.Second
-
-// probeTimeout bounds a whole probe, auth pre-check and leaving included.
-const probeTimeout = 25 * time.Second
 
 // terminal is the child in its PTY: Read is its output, Write sends keys.
 type terminal interface {
@@ -115,12 +101,10 @@ func signedOut() *usage.Error {
 // probe runs one `claude` session in dir up to the /usage panel and out again.
 // statusLine is the command Claude runs as its status line; runs counts its runs so
 // far (one means Claude drew its prompt); afterEsc runs once the panel is closed,
-// before /exit.
+// before /exit, with the runs counted at the prompt. ctx bounds the whole probe.
 // It returns what `auth status` reported, also with an error (the transcript cleanup
 // needs its projects folder), and the panel text.
-func (p prober) probe(ctx context.Context, bin, dir, statusLine string, runs func() int, afterEsc func(context.Context) error) (probeResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
-	defer cancel()
+func (p prober) probe(ctx context.Context, bin, dir, statusLine string, runs func() int, afterEsc afterEscFunc) (probeResult, error) {
 	// The trust prompt is answered only for this folder: it must hold nothing to trust.
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -309,26 +293,22 @@ type driver struct {
 	panel      string // normalized output of the /usage panel, kept before Esc
 }
 
+// afterEscFunc runs once the panel is closed, with the status line runs counted at
+// the prompt: the runs after them follow /usage.
+type afterEscFunc func(ctx context.Context, promptRuns int) error
+
 // drive takes a started session to the /usage panel, closes it, runs afterEsc and
 // leaves through /exit; the process tree is killed at the end in every case. It
 // returns the normalized panel text, "" when the panel was not reached, and the status
-// line runs counted when the prompt was ready. Reading stops
-// leaveReserve before the deadline of ctx, which must have one, so leaving fits in it
-// too (#266).
-func drive(ctx context.Context, term terminal, t timing, runs func() int, afterEsc func(context.Context) error) (string, int, error) {
+// line runs counted when the prompt was ready. Only ctx ends the waits (#266).
+func drive(ctx context.Context, term terminal, t timing, runs func() int, afterEsc afterEscFunc) (string, int, error) {
 	if runs == nil {
 		runs = func() int { return 0 }
 	}
-	deadline, ok := ctx.Deadline()
-	if !ok {
-		return "", 0, unavailable("internal: claude probe started without a deadline")
-	}
 	d := &driver{term: term, t: t, runs: runs, out: make(chan []byte, 64)}
 	go d.pump()
-	runCtx, cancel := context.WithDeadline(ctx, deadline.Add(-t.leaveReserve()))
-	err := d.run(runCtx, afterEsc)
-	cancel()
-	d.leave(err == nil, deadline)
+	err := d.run(ctx, afterEsc)
+	d.leave(err == nil)
 	return d.panel, d.promptRuns, err
 }
 
@@ -412,7 +392,7 @@ func (d *driver) failure(err error, where string) error {
 	return err
 }
 
-func (d *driver) run(ctx context.Context, afterEsc func(context.Context) error) error {
+func (d *driver) run(ctx context.Context, afterEsc afterEscFunc) error {
 	started := time.Now()
 	// The prompt is ready when Claude ran our status line, which it does as it draws
 	// the prompt (#266): never silence alone, a pause in a slow start looks the same.
@@ -422,10 +402,7 @@ func (d *driver) run(ctx context.Context, afterEsc func(context.Context) error) 
 	trusted, baseline := false, 0
 	for ready := false; !ready; {
 		if err := d.wait(ctx); err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				return notReady("claude did not draw its prompt (no status line run) within " + since(started))
-			}
-			return d.failure(err, "before the prompt")
+			return d.failure(err, "before the prompt (no status line run) after "+since(started))
 		}
 		switch {
 		case d.has(markersSignedOut...):
@@ -450,20 +427,14 @@ func (d *driver) run(ctx context.Context, afterEsc func(context.Context) error) 
 	}
 	// Enter only once the prompt shows /usage: a dialog drawn over the prompt does not
 	// echo it, and an Enter there would confirm its preselected answer in the user's
-	// Claude Code (#228). The echo gets echoWait, for a loaded machine. Never typed
-	// again: a late echo of both would send /usage/usage to Claude.
+	// Claude Code (#228). Never typed again: a late echo of both would send
+	// /usage/usage to Claude.
 	if err := d.send(cmdUsage); err != nil {
 		return err
 	}
 	for typed := time.Now(); !d.has(cmdUsage); {
-		if time.Since(typed) > d.t.echoWait {
-			return notReady("claude did not show /usage at its prompt within " + since(typed))
-		}
 		if err := d.wait(ctx); err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				return notReady("claude did not show /usage at its prompt within " + since(typed))
-			}
-			return d.failure(err, "before the prompt showed /usage")
+			return d.failure(err, "before the prompt showed /usage, typed "+since(typed)+" earlier")
 		}
 		if d.has(markersSignedOut...) {
 			return signedOut()
@@ -473,31 +444,13 @@ func (d *driver) run(ctx context.Context, afterEsc func(context.Context) error) 
 			return unavailableBecause(ReasonAPIKeyQuestion, "Claude Code asks whether to use the API key in its environment; answer it in claude, then retry")
 		}
 	}
-	// The panel is awaited up to afterPanel before the deadline: closing it and the
-	// status line run with rate_limits (afterEsc) need that time once it showed.
-	deadline, _ := ctx.Deadline()
-	panelDeadline := deadline.Add(-d.t.afterPanel)
-	if time.Until(panelDeadline) <= d.t.keyGap {
-		return &usage.Error{Code: usage.CodeTimeout, Message: "claude probe timed out: no time left for the usage panel"}
-	}
 	time.Sleep(d.t.keyGap)
 	if err := d.send(keyEnter); err != nil {
 		return err
 	}
-	panelCtx, cancelPanel := context.WithDeadline(ctx, panelDeadline)
-	defer cancelPanel()
-	sent := time.Now()
-	for {
-		if err := d.wait(panelCtx); err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				if d.has(markerPanel) {
-					// Shown but still redrawing: what it shows is kept.
-					break
-				}
-				// The usage tab without windows (macOS over SSH) or no tab at all.
-				return notReady("no usage panel within " + since(sent) + " after /usage")
-			}
-			return d.failure(err, "before the usage panel")
+	for sent := time.Now(); ; {
+		if err := d.wait(ctx); err != nil {
+			return d.failure(err, "before the usage panel, "+since(sent)+" after /usage")
 		}
 		if d.has(markersSignedOut...) {
 			return signedOut()
@@ -516,18 +469,15 @@ func (d *driver) run(ctx context.Context, afterEsc func(context.Context) error) 
 		return err
 	}
 	// Let the panel close: /exit typed during its redraw is lost (verified on Linux,
-	// 2.1.316: the exit then waited for the kill).
-	// At the deadline the panel already read is kept: afterEsc gets what came.
-	for closed := time.Now(); !d.quiet(d.t.panelSettle) && time.Since(closed) < d.t.escSettle; {
+	// 2.1.316: the exit then waited for the kill). Quiet counts from the Esc, so a
+	// close that draws nothing settles too.
+	for d.last = time.Now(); !d.quiet(d.t.panelSettle); {
 		if err := d.wait(ctx); err != nil {
-			if errors.Is(err, context.DeadlineExceeded) {
-				break
-			}
 			return d.failure(err, "while the usage panel closed")
 		}
 	}
 	if afterEsc != nil {
-		return afterEsc(ctx)
+		return afterEsc(ctx, d.promptRuns)
 	}
 	return nil
 }
@@ -542,14 +492,12 @@ func since(start time.Time) string {
 }
 
 // leave types /exit after a successful read and gives claude exitGrace to end by
-// itself (it then finishes its own writes), never past the probe deadline less the
-// time the kill needs; the process tree is killed in any case, and its end is
-// awaited at most killWait and never past the deadline, so the core always answers
-// in time (#266). Every bound is an absolute time: typing /exit takes keyGap too.
-func (d *driver) leave(graceful bool, deadline time.Time) {
-	graceEnd := minTime(time.Now().Add(d.t.keyGap+d.t.exitGrace), deadline.Add(-d.t.leaveReserve()))
-	if graceful && time.Until(graceEnd) > d.t.keyGap && !d.exited && d.send(cmdExit, keyEnter) == nil {
-		timer := time.NewTimer(time.Until(graceEnd))
+// itself (it then finishes its own writes); the process tree is killed in any case,
+// and its end is awaited at most killWait. The read is done by then: these bounds
+// only keep a stuck exit from holding the answer.
+func (d *driver) leave(graceful bool) {
+	if graceful && !d.exited && d.send(cmdExit, keyEnter) == nil {
+		timer := time.NewTimer(d.t.exitGrace)
 	wait:
 		for {
 			select {
@@ -575,17 +523,10 @@ func (d *driver) leave(graceful bool, deadline time.Time) {
 		_ = d.term.Wait()
 		close(ended)
 	}()
-	timer := time.NewTimer(time.Until(minTime(time.Now().Add(d.t.killWait), deadline)))
+	timer := time.NewTimer(d.t.killWait)
 	defer timer.Stop()
 	select {
 	case <-ended:
 	case <-timer.C:
 	}
-}
-
-func minTime(a, b time.Time) time.Time {
-	if b.Before(a) {
-		return b
-	}
-	return a
 }

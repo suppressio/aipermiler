@@ -159,7 +159,7 @@ test('usage(): --json, the core deadline and the provider flags; a secret only o
   const ok = { exitCode: 0, stdout: fixture('usage-ok') };
   const plain = recordingRunner(ok);
   await createCoreClient({ binary: () => '/opt/core/aipermiler', run: plain.runner }).usage({ provider: 'fake', flags: ['--host', 'github.com'] });
-  assert.deepEqual(plain.calls, [{ binary: '/opt/core/aipermiler', args: ['usage', 'fake', '--json', '--timeout', '25s', '--host', 'github.com'], stdin: null, timeoutMs: 30000 }]);
+  assert.deepEqual(plain.calls, [{ binary: '/opt/core/aipermiler', args: ['usage', 'fake', '--json', '--timeout', '120s', '--host', 'github.com'], stdin: null, timeoutMs: 135000 }]);
 
   const withSecret = recordingRunner(ok);
   await createCoreClient({ binary: () => '/opt/core/aipermiler', run: withSecret.runner }).usage({ provider: 'fake', flags: [], secret: 'synthetic-token-value' });
@@ -264,12 +264,12 @@ test('tokenSet/tokenDelete/raw/login: arguments, token and client secret only on
   assert.equal(await client.tokenSet({ provider: 'fake', flags: ['--account', 'a1'], token: 'synthetic-pat', verify: true }), 'octo');
   await client.tokenSet({ provider: 'fake', flags: ['--account', 'a1'], token: 'synthetic-pat', verify: false });
   assert.deepEqual(rec.calls.map((c) => [c.args, c.stdin]), [
-    [['token', 'set', 'fake', '--json', '--timeout', '25s', '--account', 'a1'], 'synthetic-pat'],
-    [['token', 'set', 'fake', '--json', '--timeout', '25s', '--account', 'a1', '--no-verify'], 'synthetic-pat'],
+    [['token', 'set', 'fake', '--json', '--timeout', '120s', '--account', 'a1'], 'synthetic-pat'],
+    [['token', 'set', 'fake', '--json', '--timeout', '120s', '--account', 'a1', '--no-verify'], 'synthetic-pat'],
   ]);
   const del = recordingRunner({ exitCode: 0, stdout: fixture('account-deleted') });
   await createCoreClient({ binary: () => 'core', run: del.runner }).tokenDelete({ provider: 'fake', flags: ['--account', 'a1'] });
-  assert.deepEqual(del.calls.map((c) => [c.args, c.stdin]), [[['token', 'delete', 'fake', '--json', '--timeout', '25s', '--account', 'a1'], null]]);
+  assert.deepEqual(del.calls.map((c) => [c.args, c.stdin]), [[['token', 'delete', 'fake', '--json', '--timeout', '120s', '--account', 'a1'], null]]);
 
   const streamed: { args: string[]; stdin: string | null; timeoutMs: number }[] = [];
   const urls: string[] = [];
