@@ -74,7 +74,8 @@ func (p *Provider) Fetch(ctx context.Context, _ string) (usage.Usage, error) {
 	if err != nil {
 		return usage.Usage{}, err
 	}
-	status, err := p.prober.probe(ctx, bin, dir, command, func(ctx context.Context) error {
+	ran := func() bool { return readStatus(path).runs > 0 }
+	status, err := p.prober.probe(ctx, bin, dir, command, ran, func(ctx context.Context) error {
 		waitForRateLimits(ctx.Done(), path, p.statusWait)
 		return nil
 	})

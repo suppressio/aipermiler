@@ -41,30 +41,40 @@ var (
 	markerPanel   = "%used"
 )
 
-// timing holds the waits of a probe; tests shorten them.
+// timing holds the waits of a probe; tests shorten them. The probe waits for events
+// (the status line run, the echo, the panel) up to its deadline; these are only the
+// settle times around those events and the fallbacks (#266).
 type timing struct {
-	tick         time.Duration // how often the output is looked at
-	quiet        time.Duration // no output for this long: the prompt is ready
-	panelSettle  time.Duration // no output for this long after the panel showed
-	panelTimeout time.Duration // no panel this long after /usage: not_ready
-	echoTimeout  time.Duration // no /usage echoed this long: not the prompt, not_ready
-	escSettle    time.Duration // longest wait for the panel to close
-	exitGrace    time.Duration // time /exit gets before the kill
-	keyGap       time.Duration // between a command and its Enter
+	tick          time.Duration // how often the output is looked at
+	quiet         time.Duration // fallback readiness: no output for this long...
+	readyFallback time.Duration // ...once this long passed without a status line run
+	readySettle   time.Duration // no output for this long after the status line ran
+	panelSettle   time.Duration // no output for this long after the panel showed
+	echoTimeout   time.Duration // fallback readiness only: no /usage echoed this long, a dialog
+	escSettle     time.Duration // longest wait for the panel to close
+	exitGrace     time.Duration // time /exit gets before the kill
+	killWait      time.Duration // longest wait for the process tree after the kill
+	keyGap        time.Duration // between a command and its Enter
 }
 
 var defaultTiming = timing{
-	tick:         100 * time.Millisecond,
-	quiet:        1200 * time.Millisecond,
-	panelSettle:  700 * time.Millisecond,
-	panelTimeout: 12 * time.Second,
-	echoTimeout:  3 * time.Second,
-	escSettle:    2 * time.Second,
-	exitGrace:    5 * time.Second,
-	keyGap:       300 * time.Millisecond,
+	tick:          100 * time.Millisecond,
+	quiet:         1200 * time.Millisecond,
+	readyFallback: 8 * time.Second,
+	readySettle:   500 * time.Millisecond,
+	panelSettle:   700 * time.Millisecond,
+	echoTimeout:   3 * time.Second,
+	escSettle:     2 * time.Second,
+	exitGrace:     5 * time.Second,
+	killWait:      2 * time.Second,
+	keyGap:        300 * time.Millisecond,
 }
 
-// probeTimeout bounds a whole probe, auth pre-check included.
+// leaveReserve is the part of the probe deadline kept for leaving: the kill and the
+// bounded wait for the process tree, so the core answers within its own deadline.
+func (t timing) leaveReserve() time.Duration { return t.killWait + t.tick }
+
+// probeTimeout bounds a whole probe, auth pre-check and leaving included.
 const probeTimeout = 25 * time.Second
 
 // terminal is the child in its PTY: Read is its output, Write sends keys.
@@ -96,10 +106,10 @@ func signedOut() *usage.Error {
 }
 
 // probe runs one `claude` session in dir up to the /usage panel and out again.
-// statusLine is the command Claude runs as its status line; afterEsc runs once the
-// panel is closed, before /exit. It returns what `auth status` reported, also with an
+// statusLine is the command Claude runs as its status line; ready reports whether it
+// ran (Claude drew its prompt); afterEsc runs once the panel is closed, before /exit. It returns what `auth status` reported, also with an
 // error (the transcript cleanup needs its projects folder), and the panel text.
-func (p prober) probe(ctx context.Context, bin, dir, statusLine string, afterEsc func(context.Context) error) (probeResult, error) {
+func (p prober) probe(ctx context.Context, bin, dir, statusLine string, ready func() bool, afterEsc func(context.Context) error) (probeResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	// The trust prompt is answered only for this folder: it must hold nothing to trust.
@@ -122,7 +132,7 @@ func (p prober) probe(ctx context.Context, bin, dir, statusLine string, afterEsc
 	if err != nil {
 		return status, unavailable("cannot start claude: " + err.Error())
 	}
-	status.panel, err = drive(ctx, term, p.timing, afterEsc)
+	status.panel, err = drive(ctx, term, p.timing, ready, afterEsc)
 	return status, err
 }
 
@@ -278,6 +288,7 @@ const maxOutput = 1 << 20
 type driver struct {
 	term   terminal
 	t      timing
+	ready  func() bool // the status line ran: Claude drew its prompt
 	out    chan []byte
 	raw    []byte // output since the last key
 	last   time.Time
@@ -287,12 +298,22 @@ type driver struct {
 
 // drive takes a started session to the /usage panel, closes it, runs afterEsc and
 // leaves through /exit; the process tree is killed at the end in every case. It
-// returns the normalized panel text, "" when the panel was not reached.
-func drive(ctx context.Context, term terminal, t timing, afterEsc func(context.Context) error) (string, error) {
-	d := &driver{term: term, t: t, out: make(chan []byte, 64)}
+// returns the normalized panel text, "" when the panel was not reached. Reading stops
+// leaveReserve before the deadline of ctx, so leaving fits in it too (#266).
+func drive(ctx context.Context, term terminal, t timing, ready func() bool, afterEsc func(context.Context) error) (string, error) {
+	if ready == nil {
+		ready = func() bool { return false }
+	}
+	d := &driver{term: term, t: t, ready: ready, out: make(chan []byte, 64)}
 	go d.pump()
-	err := d.run(ctx, afterEsc)
-	d.leave(err == nil)
+	runCtx, cancel := ctx, context.CancelFunc(func() {})
+	deadline, bounded := ctx.Deadline()
+	if bounded {
+		runCtx, cancel = context.WithDeadline(ctx, deadline.Add(-t.leaveReserve()))
+	}
+	err := d.run(runCtx, afterEsc)
+	cancel()
+	d.leave(err == nil, deadline, bounded)
 	return d.panel, err
 }
 
@@ -370,11 +391,12 @@ func (d *driver) failure(err error, where string) error {
 }
 
 func (d *driver) run(ctx context.Context, afterEsc func(context.Context) error) error {
-	trusted := false
+	started := time.Now()
+	trusted, signalled := false, false
 	for ready := false; !ready; {
 		if err := d.wait(ctx); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) {
-				return notReady("claude did not reach its prompt (an unknown screen?)")
+				return notReady("claude did not reach its prompt within " + since(started))
 			}
 			return d.failure(err, "before the prompt")
 		}
@@ -393,21 +415,32 @@ func (d *driver) run(ctx context.Context, afterEsc func(context.Context) error) 
 					return err
 				}
 			}
-		case d.quiet(d.t.quiet):
+		case d.ready():
+			// Claude ran the status line: it drew its prompt. A short settle lets the
+			// first frame finish (#266).
+			signalled = true
+			ready = d.quiet(d.t.readySettle)
+		case d.quiet(d.t.quiet) && time.Since(started) >= d.t.readyFallback:
+			// No status line run yet: silence alone, and only after a long wait, since
+			// a pause in a slow start looks the same (#266).
 			ready = true
 		}
 	}
 	// Enter only once the prompt shows /usage: a quiet screen may be a dialog instead,
 	// and an Enter there would confirm its preselected answer in the user's Claude
-	// Code (#228). A selection dialog does not echo the text.
+	// Code (#228). A selection dialog does not echo the text. After the status line
+	// ran the prompt is there: its echo is awaited up to the deadline.
 	if err := d.send(cmdUsage); err != nil {
 		return err
 	}
 	for typed := time.Now(); !d.has(cmdUsage); {
-		if time.Since(typed) > d.t.echoTimeout {
-			return notReady("claude did not show /usage at its prompt (an unknown screen?)")
+		if !signalled && time.Since(typed) > d.t.echoTimeout {
+			return notReady("claude did not show /usage at its prompt within " + since(typed) + " (a dialog?)")
 		}
 		if err := d.wait(ctx); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				return notReady("claude did not show /usage at its prompt within " + since(typed))
+			}
 			return d.failure(err, "before the prompt showed /usage")
 		}
 		if d.has(markersSignedOut...) {
@@ -421,6 +454,10 @@ func (d *driver) run(ctx context.Context, afterEsc func(context.Context) error) 
 	sent := time.Now()
 	for {
 		if err := d.wait(ctx); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) && !d.has(markerPanel) {
+				// The usage tab without windows (macOS over SSH) or no tab at all.
+				return notReady("no usage panel within " + since(sent) + " after /usage")
+			}
 			return d.failure(err, "before the usage panel")
 		}
 		if d.has(markersSignedOut...) {
@@ -428,9 +465,6 @@ func (d *driver) run(ctx context.Context, afterEsc func(context.Context) error) 
 		}
 		if d.has(markerPanel) && d.quiet(d.t.panelSettle) {
 			break
-		}
-		if time.Since(sent) > d.t.panelTimeout {
-			return notReady("no usage panel after /usage")
 		}
 	}
 	d.panel = normalize(d.raw)
@@ -450,11 +484,26 @@ func (d *driver) run(ctx context.Context, afterEsc func(context.Context) error) 
 	return nil
 }
 
+// since is the time elapsed from start, in whole seconds (tenths under ten).
+func since(start time.Time) string {
+	elapsed := time.Since(start)
+	if elapsed < 10*time.Second {
+		return elapsed.Round(100 * time.Millisecond).String()
+	}
+	return elapsed.Round(time.Second).String()
+}
+
 // leave types /exit after a successful read and gives claude exitGrace to end by
-// itself (it then finishes its own writes); the process tree is killed in any case.
-func (d *driver) leave(graceful bool) {
-	if graceful && !d.exited && d.send(cmdExit, keyEnter) == nil {
-		timer := time.NewTimer(d.t.exitGrace)
+// itself (it then finishes its own writes), never past the probe deadline less the
+// time the kill needs; the process tree is killed in any case, and its end is
+// awaited at most killWait, so the core always answers in time (#266).
+func (d *driver) leave(graceful bool, deadline time.Time, bounded bool) {
+	grace := d.t.exitGrace
+	if bounded {
+		grace = min(grace, time.Until(deadline)-d.t.leaveReserve())
+	}
+	if graceful && grace > 0 && !d.exited && d.send(cmdExit, keyEnter) == nil {
+		timer := time.NewTimer(grace)
 	wait:
 		for {
 			select {
@@ -475,5 +524,15 @@ func (d *driver) leave(graceful bool) {
 		for range d.out {
 		}
 	}()
-	_ = d.term.Wait()
+	ended := make(chan struct{})
+	go func() {
+		_ = d.term.Wait()
+		close(ended)
+	}()
+	timer := time.NewTimer(d.t.killWait)
+	defer timer.Stop()
+	select {
+	case <-ended:
+	case <-timer.C:
+	}
 }
