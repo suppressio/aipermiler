@@ -85,12 +85,16 @@ func fakeClaude(mode string, args []string) int {
 		}
 	}
 	fmt.Print(screenPrompt)
+	// Claude runs the status line as it draws the prompt (#266).
+	if runStatusCommand(args[1], false) != nil {
+		return 4
+	}
 	lines := bufio.NewScanner(os.Stdin)
 	for lines.Scan() {
 		switch line := lines.Text(); {
 		case strings.Contains(line, "/usage"):
 			fmt.Print(screenPanel)
-			if mode == "statusline" && runStatusCommand(args[1]) != nil {
+			if mode == "statusline" && runStatusCommand(args[1], true) != nil {
 				return 4
 			}
 		case strings.Contains(line, "/exit") && mode != "stuck":
@@ -101,8 +105,9 @@ func fakeClaude(mode string, args []string) int {
 }
 
 // runStatusCommand runs the status line command of the settings through sh, as
-// Claude does, with a synthetic document reporting a transcript it wrote.
-func runStatusCommand(settings string) error {
+// Claude does, with a synthetic document reporting a transcript it wrote, and the
+// rate limits when limits is set (Claude sends them only after /usage).
+func runStatusCommand(settings string, limits bool) error {
 	var s struct {
 		StatusLine struct {
 			Command string `json:"command"`
@@ -123,10 +128,14 @@ func runStatusCommand(settings string) error {
 	if err := os.WriteFile(transcript, []byte("{}\n"), 0o600); err != nil {
 		return err
 	}
-	doc, err := json.Marshal(map[string]any{"cwd": cwd, "transcript_path": transcript, "rate_limits": map[string]any{
-		"five_hour": map[string]any{"used_percentage": 12, "resets_at": 1793570400},
-		"seven_day": map[string]any{"used_percentage": 34, "resets_at": 1794070800},
-	}})
+	status := map[string]any{"cwd": cwd, "transcript_path": transcript}
+	if limits {
+		status["rate_limits"] = map[string]any{
+			"five_hour": map[string]any{"used_percentage": 12, "resets_at": 1793570400},
+			"seven_day": map[string]any{"used_percentage": 34, "resets_at": 1794070800},
+		}
+	}
+	doc, err := json.Marshal(status)
 	if err != nil {
 		return err
 	}

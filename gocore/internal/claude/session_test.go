@@ -48,6 +48,8 @@ type fake struct {
 	onKey func()
 	// hang, when set, keeps Wait blocked until closed: a tree that does not end.
 	hang chan struct{}
+	// runs counts the prompts drawn: Claude runs the status line as it draws one.
+	runs atomic.Int32
 }
 
 func newFake(first string, react func(f *fake, key string)) *fake {
@@ -59,7 +61,15 @@ func newFake(first string, react func(f *fake, key string)) *fake {
 	return f
 }
 
-func (f *fake) print(s string)             { _, _ = f.pw.Write([]byte(s)) }
+func (f *fake) print(s string) {
+	_, _ = f.pw.Write([]byte(s))
+	if strings.Contains(s, "╭") {
+		f.runs.Add(1)
+	}
+}
+
+// StatusRuns is how many times the fake claude ran its status line.
+func (f *fake) StatusRuns() int            { return int(f.runs.Load()) }
 func (f *fake) exit()                      { _ = f.pw.Close() }
 func (f *fake) Read(p []byte) (int, error) { return f.pr.Read(p) }
 func (f *fake) Wait() error {
@@ -181,8 +191,8 @@ func TestDriveAnswersTheTrustPromptOnce(t *testing.T) {
 
 func TestDriveAnswersTrustOnlyOnce(t *testing.T) {
 	t.Parallel()
-	// The answer does not take: the prompt is drawn again. No second answer; /usage
-	// then opens no panel.
+	// The answer does not take: the trust prompt is drawn again. No second answer, and
+	// no prompt ever comes: nothing else is typed.
 	f := newFake(screenTrust, func(f *fake, key string) {
 		if key == "\r" {
 			go f.print(screenTrust)
@@ -191,7 +201,7 @@ func TestDriveAnswersTrustOnlyOnce(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
 	defer cancel()
 	assertCode(t, claude.DriveForTest(ctx, f, nil), usage.CodeNotReady)
-	assertKeys(t, f, "\x1b[B", "\r", "/usage", "\r")
+	assertKeys(t, f, "\x1b[B", "\r")
 	if !f.killed {
 		t.Fatal("process not killed")
 	}
@@ -238,9 +248,27 @@ func TestDriveLeavesTheAPIKeyQuestion(t *testing.T) {
 // no Enter (it would confirm the dialog's preselected answer), not_ready.
 func TestDriveNoEnterIntoAnUnknownDialog(t *testing.T) {
 	t.Parallel()
+	// A dialog, no prompt: Claude never runs the status line, nothing is typed.
 	f := newFake("\x1b[2J\x1b[HSomething new?\r\n❯ 1. Accept\r\n  2. Decline\r\n", nil)
 	f.noEcho = true
-	assertCode(t, claude.DriveForTest(context.Background(), f, nil), usage.CodeNotReady)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	assertCode(t, claude.DriveForTest(ctx, f, nil), usage.CodeNotReady)
+	assertKeys(t, f)
+}
+
+// #228: a dialog drawn over the prompt does not echo /usage: no Enter, not_ready.
+func TestDriveNoEnterIntoADialogOverThePrompt(t *testing.T) {
+	t.Parallel()
+	f := newFake(screenPrompt, func(f *fake, key string) {
+		if key == "/usage" {
+			go f.print("\x1b[2J\x1b[HSomething new?\r\n❯ 1. Accept\r\n  2. Decline\r\n")
+		}
+	})
+	f.noEcho = true
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	assertCode(t, claude.DriveForTest(ctx, f, nil), usage.CodeNotReady)
 	assertKeys(t, f, "/usage")
 }
 
@@ -268,19 +296,44 @@ func TestDriveSignedOutInThePanel(t *testing.T) {
 
 func TestDriveNoPanelIsNotReady(t *testing.T) {
 	t.Parallel()
-	// The macOS-over-SSH case: the usage tab opens without windows. The panel is
-	// awaited up to the deadline, then not_ready (not a timeout: no panel to settle).
+	// The macOS-over-SSH case: the usage tab opens without windows. Said at once.
 	f := newFake(screenPrompt, func(f *fake, key string) {
 		if key == "\r" {
 			go f.print("\x1b[2J\x1b[H Session\r\n Total cost: $0.0000\r\n")
 		}
 	})
-	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	start := time.Now()
 	err := claude.DriveForTest(ctx, f, nil)
 	assertCode(t, err, usage.CodeNotReady)
-	if !strings.Contains(err.Error(), "no usage panel within") {
-		t.Fatalf("err = %v", err)
+	if !strings.Contains(err.Error(), "no quota windows") || time.Since(start) > time.Second {
+		t.Fatalf("err = %v after %v", err, time.Since(start))
+	}
+}
+
+// The usage tab reloading its windows is awaited, not taken for an empty tab.
+func TestDriveWaitsForTheUsageTabToRefresh(t *testing.T) {
+	t.Parallel()
+	f := newFake(screenPrompt, func(f *fake, key string) {
+		if key == "\r" && len(f.typed()) == 2 {
+			go func() {
+				f.print("\x1b[2J\x1b[H Session\r\n Total cost: $0.0000\r\n Refreshing…\r\n")
+				time.Sleep(150 * time.Millisecond)
+				f.print(screenPanel)
+			}()
+			return
+		}
+		signedIn(f, key)
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	panel, err := claude.PanelForTest(ctx, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(panel, "12%used") {
+		t.Fatalf("panel = %q", panel)
 	}
 }
 
@@ -316,7 +369,7 @@ func TestDriveWaitsForTheStatusLineThroughASlowStart(t *testing.T) {
 func TestDriveWaitsForASlowEcho(t *testing.T) {
 	t.Parallel()
 	f := newFake(screenPrompt, signedIn)
-	f.echoDelay = 2 * claude.WaitsForTest().EchoTimeout
+	f.echoDelay = 300 * time.Millisecond
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if err := claude.DriveReadyForTest(ctx, f, func() bool { return true }); err != nil {
@@ -325,25 +378,19 @@ func TestDriveWaitsForASlowEcho(t *testing.T) {
 	assertKeys(t, f, "/usage", "\r", "\x1b", "/exit", "\r")
 }
 
-// Without a status line run, silence counts as the prompt only after the fallback wait.
-func TestDriveFallsBackToSilence(t *testing.T) {
+// #266: silence is never the prompt: without a status line run nothing is typed.
+func TestDriveNeedsAStatusLineRun(t *testing.T) {
 	t.Parallel()
-	f := newFake(screenPrompt, signedIn)
-	start := time.Now()
-	var firstKey time.Duration
-	f.onKey = func() {
-		if firstKey == 0 {
-			firstKey = time.Since(start)
-		}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	// A quiet screen that looks like a prompt, drawn without running the status line.
+	f := newFake("\x1b[2J\x1b[H> \r\n", signedIn)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
-	if err := claude.DriveForTest(ctx, f, nil); err != nil {
-		t.Fatal(err)
+	err := claude.DriveForTest(ctx, f, nil)
+	assertCode(t, err, usage.CodeNotReady)
+	if !strings.Contains(err.Error(), "no status line run") {
+		t.Fatalf("err = %v", err)
 	}
-	if firstKey < claude.WaitsForTest().ReadyFallback {
-		t.Fatalf("typed after %v, before the fallback %v", firstKey, claude.WaitsForTest().ReadyFallback)
-	}
+	assertKeys(t, f)
 }
 
 // #266: the core answers within its deadline even when the process tree never ends.
@@ -422,29 +469,14 @@ func TestDriveNoTimeLeftForThePanel(t *testing.T) {
 }
 
 // #266: a status line run before the trust answer does not make the prompt after it
-// ready: only silence after the fallback wait does, since no new run came.
+// ready: without a new run, nothing is typed after the answer.
 func TestDriveStatusLineRunBeforeTrustDoesNotCount(t *testing.T) {
 	t.Parallel()
-	start := time.Now()
-	var afterTrust time.Duration
-	f := newFake(screenTrust, func(f *fake, key string) {
-		if key == "\r" && len(f.typed()) == 2 {
-			go f.print(screenPrompt)
-			return
-		}
-		if key == "/usage" && afterTrust == 0 {
-			afterTrust = time.Since(start)
-		}
-		signedIn(f, key)
-	})
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	f := newFake(screenTrust, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
 	defer cancel()
-	if err := claude.DriveRunsForTest(ctx, f, func() int { return 1 }); err != nil {
-		t.Fatal(err)
-	}
-	if afterTrust < claude.WaitsForTest().ReadyFallback {
-		t.Fatalf("/usage typed after %v, before the fallback %v", afterTrust, claude.WaitsForTest().ReadyFallback)
-	}
+	assertCode(t, claude.DriveRunsForTest(ctx, f, func() int { return 1 }), usage.CodeNotReady)
+	assertKeys(t, f, "\x1b[B", "\r")
 }
 
 // #266: the exit grace never reaches into the time kept for the kill, typing /exit

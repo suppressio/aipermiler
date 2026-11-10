@@ -100,8 +100,8 @@ func TestFetch(t *testing.T) {
 		{"enterprise on usage credits", "statusline-2.1.319-enterprise", `{"loggedIn":true,"subscriptionType":"enterprise"}`, "", "", 1, true, screenCreditsPanel},
 		{"enterprise, no Usage credits block", "statusline-2.1.319-enterprise", `{"loggedIn":true,"subscriptionType":"enterprise"}`, usage.CodeUnavailable, claude.ReasonUsageCredits, 0, true, ""},
 		{"enterprise with quota windows", "statusline-2.1.316", `{"loggedIn":true,"subscriptionType":"enterprise"}`, "", "", 2, true, ""},
-		{"enterprise, status line never ran", "", `{"loggedIn":true,"subscriptionType":"enterprise"}`, usage.CodeFormatDrift, "", 0, true, ""},
-		{"status line never ran", "", `{"loggedIn":true}`, usage.CodeFormatDrift, "", 0, true, ""},
+		{"enterprise, status line never ran", "", `{"loggedIn":true,"subscriptionType":"enterprise"}`, usage.CodeNotReady, "", 0, true, ""},
+		{"status line never ran", "", `{"loggedIn":true}`, usage.CodeNotReady, "", 0, true, ""},
 		{"signed out", "", `{"loggedIn":false}`, usage.CodeSignedOut, "", 0, false, ""},
 	}
 	for _, tt := range tests {
@@ -129,6 +129,8 @@ func TestFetch(t *testing.T) {
 				if err := os.WriteFile(transcript, []byte("{}\n"), 0o600); err != nil {
 					t.Fatal(err)
 				}
+				// Claude runs the status line as it draws the prompt (#266).
+				runStatusLine(t, sink, withStatus(t, testdata(t, "statusline-2.1.316-start"), dir, transcript))
 				return newFake(screenPrompt, func(f *fake, key string) {
 					if key == "\x1b" {
 						runStatusLine(t, sink, withStatus(t, testdata(t, "statusline-2.1.316-start"), dir, transcript))
@@ -143,8 +145,8 @@ func TestFetch(t *testing.T) {
 					showPanel(f, key, panel)
 				}), nil
 			}
-			if tt.status == "" && tt.code == usage.CodeFormatDrift {
-				// Not even the start run reaches the sink.
+			if tt.status == "" && tt.code == usage.CodeNotReady {
+				// Not even the start run reaches the sink: the prompt is never ready.
 				start = func(_ string, args, _ []string, _ string) (claude.Terminal, error) {
 					started = true
 					statusLineCommand(t, args)
@@ -157,7 +159,13 @@ func TestFetch(t *testing.T) {
 			if err := fs.Parse([]string{"--claude-bin", nativeStub(t)}); err != nil {
 				t.Fatal(err)
 			}
-			got, err := p.Fetch(context.Background(), "")
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if tt.code == usage.CodeNotReady {
+				ctx, cancel = context.WithTimeout(context.Background(), 400*time.Millisecond)
+				defer cancel()
+			}
+			got, err := p.Fetch(ctx, "")
 			if tt.code != "" {
 				assertCode(t, err, tt.code)
 				var uerr *usage.Error
@@ -183,6 +191,31 @@ func TestFetch(t *testing.T) {
 	}
 }
 
+// #266: Claude ran the status line at the prompt but not after /usage (frozen, for
+// one): no data came, which is not_ready, not a format drift.
+func TestFetchNoStatusLineAfterUsage(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	start := func(_ string, args, _ []string, dir string) (claude.Terminal, error) {
+		sink := sinkPath(t, statusLineCommand(t, args))
+		runStatusLine(t, sink, withStatus(t, testdata(t, "statusline-2.1.316-start"), dir, ""))
+		return newFake(screenPrompt, signedIn), nil
+	}
+	p := claude.ProviderForTest(start, func() []byte { return []byte(`{"loggedIn":true}`) }, base, "/synthetic/core")
+	fs := flag.NewFlagSet("usage", flag.ContinueOnError)
+	p.BindFlags(fs)
+	if err := fs.Parse([]string{"--claude-bin", nativeStub(t)}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, err := p.Fetch(ctx, "")
+	assertCode(t, err, usage.CodeNotReady)
+	if !strings.Contains(err.Error(), "no status line after /usage") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
 // #266: when the deadline cuts the wait for rate_limits, the answer is a timeout, not
 // a format drift (which would open a drift report).
 func TestFetchRateLimitsCutByTheDeadline(t *testing.T) {
@@ -190,6 +223,7 @@ func TestFetchRateLimitsCutByTheDeadline(t *testing.T) {
 	base := t.TempDir()
 	start := func(_ string, args, _ []string, dir string) (claude.Terminal, error) {
 		sink := sinkPath(t, statusLineCommand(t, args))
+		runStatusLine(t, sink, withStatus(t, testdata(t, "statusline-2.1.316-start"), dir, ""))
 		return newFake(screenPrompt, func(f *fake, key string) {
 			if key == "\x1b" {
 				// Only the start run, without rate_limits: they would come later.
