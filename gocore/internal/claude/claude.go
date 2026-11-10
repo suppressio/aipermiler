@@ -100,6 +100,12 @@ func (p *Provider) Fetch(ctx context.Context, _ string) (usage.Usage, error) {
 	if cut && read.latest == nil && (!status.credits || read.runs == 0) {
 		return usage.Usage{}, &usage.Error{Code: usage.CodeTimeout, Message: "claude probe timed out before the status line carried rate_limits"}
 	}
+	if read.latest == nil && read.runs <= status.promptRuns && !status.credits {
+		// Claude ran the status line at the prompt but not after /usage (it runs it
+		// again as the panel closes, with rate_limits): no data came, so nothing says
+		// the format changed (#266).
+		return usage.Usage{}, notReady("claude ran no status line after /usage")
+	}
 	if status.credits && read.runs > 0 && read.latest == nil {
 		return mapCredits(status.panel, time.Now())
 	}
