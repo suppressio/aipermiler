@@ -210,7 +210,8 @@ func readStatus(path string) statusRead {
 }
 
 // waitForRateLimits polls the sink until a run with rate_limits arrived or wait ran out.
-func waitForRateLimits(done <-chan struct{}, path string, wait time.Duration) {
+// It reports whether done ended it first: then a missing rate_limits says nothing.
+func waitForRateLimits(done <-chan struct{}, path string, wait time.Duration) (cut bool) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	deadline := time.NewTimer(wait)
@@ -218,12 +219,13 @@ func waitForRateLimits(done <-chan struct{}, path string, wait time.Duration) {
 	for readStatus(path).latest == nil {
 		select {
 		case <-done:
-			return
+			return true
 		case <-deadline.C:
-			return
+			return false
 		case <-ticker.C:
 		}
 	}
+	return false
 }
 
 func drift(message string, shape any) *usage.Error {

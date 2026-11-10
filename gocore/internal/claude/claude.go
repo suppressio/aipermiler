@@ -89,8 +89,7 @@ func (p *Provider) Fetch(ctx context.Context, _ string) (usage.Usage, error) {
 	// nothing about the format (#266).
 	cut := false
 	status, err := p.prober.probe(ctx, bin, dir, command, func() int { return countRuns(path) }, func(ctx context.Context) error {
-		waitForRateLimits(ctx.Done(), path, p.statusWait)
-		cut = ctx.Err() != nil
+		cut = waitForRateLimits(ctx.Done(), path, p.statusWait)
 		return nil
 	})
 	read := readStatus(path)
