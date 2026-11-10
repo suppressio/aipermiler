@@ -50,6 +50,7 @@ type timing struct {
 	readyFallback time.Duration // ...once this long passed without a status line run
 	readySettle   time.Duration // no output for this long after the status line ran
 	panelSettle   time.Duration // no output for this long after the panel showed
+	afterPanel    time.Duration // kept after the panel: closing it, the status line run
 	echoTimeout   time.Duration // fallback readiness only: no /usage echoed this long, a dialog
 	escSettle     time.Duration // longest wait for the panel to close
 	exitGrace     time.Duration // time /exit gets before the kill
@@ -60,9 +61,10 @@ type timing struct {
 var defaultTiming = timing{
 	tick:          100 * time.Millisecond,
 	quiet:         1200 * time.Millisecond,
-	readyFallback: 8 * time.Second,
+	readyFallback: 5 * time.Second,
 	readySettle:   500 * time.Millisecond,
 	panelSettle:   700 * time.Millisecond,
+	afterPanel:    3 * time.Second,
 	echoTimeout:   3 * time.Second,
 	escSettle:     2 * time.Second,
 	exitGrace:     5 * time.Second,
@@ -107,8 +109,9 @@ func signedOut() *usage.Error {
 
 // probe runs one `claude` session in dir up to the /usage panel and out again.
 // statusLine is the command Claude runs as its status line; ready reports whether it
-// ran (Claude drew its prompt); afterEsc runs once the panel is closed, before /exit. It returns what `auth status` reported, also with an
-// error (the transcript cleanup needs its projects folder), and the panel text.
+// ran (Claude drew its prompt); afterEsc runs once the panel is closed, before /exit.
+// It returns what `auth status` reported, also with an error (the transcript cleanup
+// needs its projects folder), and the panel text.
 func (p prober) probe(ctx context.Context, bin, dir, statusLine string, ready func() bool, afterEsc func(context.Context) error) (probeResult, error) {
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
@@ -299,21 +302,21 @@ type driver struct {
 // drive takes a started session to the /usage panel, closes it, runs afterEsc and
 // leaves through /exit; the process tree is killed at the end in every case. It
 // returns the normalized panel text, "" when the panel was not reached. Reading stops
-// leaveReserve before the deadline of ctx, so leaving fits in it too (#266).
+// leaveReserve before the deadline of ctx (probeTimeout when ctx has none), so leaving
+// fits in it too (#266).
 func drive(ctx context.Context, term terminal, t timing, ready func() bool, afterEsc func(context.Context) error) (string, error) {
-	if ready == nil {
-		ready = func() bool { return false }
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, probeTimeout)
+		defer cancel()
 	}
+	deadline, _ := ctx.Deadline()
 	d := &driver{term: term, t: t, ready: ready, out: make(chan []byte, 64)}
 	go d.pump()
-	runCtx, cancel := ctx, context.CancelFunc(func() {})
-	deadline, bounded := ctx.Deadline()
-	if bounded {
-		runCtx, cancel = context.WithDeadline(ctx, deadline.Add(-t.leaveReserve()))
-	}
+	runCtx, cancel := context.WithDeadline(ctx, deadline.Add(-t.leaveReserve()))
 	err := d.run(runCtx, afterEsc)
 	cancel()
-	d.leave(err == nil, deadline, bounded)
+	d.leave(err == nil, deadline)
 	return d.panel, err
 }
 
@@ -415,9 +418,9 @@ func (d *driver) run(ctx context.Context, afterEsc func(context.Context) error) 
 					return err
 				}
 			}
-		case d.ready():
+		case signalled || d.ready != nil && d.ready():
 			// Claude ran the status line: it drew its prompt. A short settle lets the
-			// first frame finish (#266).
+			// first frame finish (#266). Remembered: the sink is read once it said so.
 			signalled = true
 			ready = d.quiet(d.t.readySettle)
 		case d.quiet(d.t.quiet) && time.Since(started) >= d.t.readyFallback:
@@ -446,14 +449,25 @@ func (d *driver) run(ctx context.Context, afterEsc func(context.Context) error) 
 		if d.has(markersSignedOut...) {
 			return signedOut()
 		}
+		if d.has(markersAPIKey...) {
+			// A known dialog over the prompt: said at once, not after the deadline.
+			return unavailableBecause(ReasonAPIKeyQuestion, "Claude Code asks whether to use the API key in its environment; answer it in claude, then retry")
+		}
 	}
 	time.Sleep(d.t.keyGap)
 	if err := d.send(keyEnter); err != nil {
 		return err
 	}
+	// The panel is awaited up to afterPanel before the deadline: closing it and the
+	// status line run with rate_limits (afterEsc) need that time once it showed.
+	panelCtx, cancelPanel := ctx, context.CancelFunc(func() {})
+	if deadline, ok := ctx.Deadline(); ok {
+		panelCtx, cancelPanel = context.WithDeadline(ctx, deadline.Add(-d.t.afterPanel))
+	}
+	defer cancelPanel()
 	sent := time.Now()
 	for {
-		if err := d.wait(ctx); err != nil {
+		if err := d.wait(panelCtx); err != nil {
 			if errors.Is(err, context.DeadlineExceeded) && !d.has(markerPanel) {
 				// The usage tab without windows (macOS over SSH) or no tab at all.
 				return notReady("no usage panel within " + since(sent) + " after /usage")
@@ -473,8 +487,12 @@ func (d *driver) run(ctx context.Context, afterEsc func(context.Context) error) 
 	}
 	// Let the panel close: /exit typed during its redraw is lost (verified on Linux,
 	// 2.1.316: the exit then waited for the kill).
+	// At the deadline the panel already read is kept: afterEsc gets what came.
 	for closed := time.Now(); !d.quiet(d.t.panelSettle) && time.Since(closed) < d.t.escSettle; {
 		if err := d.wait(ctx); err != nil {
+			if errors.Is(err, context.DeadlineExceeded) {
+				break
+			}
 			return d.failure(err, "while the usage panel closed")
 		}
 	}
@@ -498,11 +516,8 @@ func since(start time.Time) string {
 // time the kill needs; the process tree is killed in any case, and its end is
 // awaited at most killWait and never past the deadline, so the core always answers
 // in time (#266). Every bound is an absolute time: typing /exit takes keyGap too.
-func (d *driver) leave(graceful bool, deadline time.Time, bounded bool) {
-	graceEnd := time.Now().Add(d.t.keyGap + d.t.exitGrace)
-	if bounded {
-		graceEnd = minTime(graceEnd, deadline.Add(-d.t.leaveReserve()))
-	}
+func (d *driver) leave(graceful bool, deadline time.Time) {
+	graceEnd := minTime(time.Now().Add(d.t.keyGap+d.t.exitGrace), deadline.Add(-d.t.leaveReserve()))
 	if graceful && time.Until(graceEnd) > d.t.keyGap && !d.exited && d.send(cmdExit, keyEnter) == nil {
 		timer := time.NewTimer(max(time.Until(graceEnd), 0))
 	wait:
@@ -530,11 +545,7 @@ func (d *driver) leave(graceful bool, deadline time.Time, bounded bool) {
 		_ = d.term.Wait()
 		close(ended)
 	}()
-	waitEnd := time.Now().Add(d.t.killWait)
-	if bounded {
-		waitEnd = minTime(waitEnd, deadline)
-	}
-	timer := time.NewTimer(max(time.Until(waitEnd), 0))
+	timer := time.NewTimer(max(time.Until(minTime(time.Now().Add(d.t.killWait), deadline)), 0))
 	defer timer.Stop()
 	select {
 	case <-ended:

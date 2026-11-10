@@ -435,6 +435,54 @@ func TestDriveLeavesWithinTheDeadlineAfterARead(t *testing.T) {
 	}
 }
 
+// #266: the API key question over the prompt is reported at once, not at the deadline.
+func TestDriveAPIKeyQuestionWhileWaitingForTheEcho(t *testing.T) {
+	t.Parallel()
+	f := newFake(screenPrompt, func(f *fake, key string) {
+		if key == "/usage" {
+			go f.print(screenAPIKey)
+		}
+	})
+	f.noEcho = true
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	start := time.Now()
+	err := claude.DriveReadyForTest(ctx, f, func() bool { return true })
+	assertReason(t, err, claude.ReasonAPIKeyQuestion)
+	if time.Since(start) > time.Second {
+		t.Fatalf("reported after %v", time.Since(start))
+	}
+	assertKeys(t, f, "/usage")
+}
+
+// #266: a panel read is kept when the deadline comes while it closes.
+func TestDriveKeepsThePanelAtTheDeadline(t *testing.T) {
+	t.Parallel()
+	f := newFake(screenPrompt, func(f *fake, key string) {
+		switch {
+		case key == "\r" && len(f.typed()) == 2:
+			go f.print(screenPanel)
+		case key == "\x1b":
+			// The screen keeps redrawing after Esc, past the deadline.
+			go func() {
+				for range 200 {
+					f.print("\x1b[Hredraw")
+					time.Sleep(5 * time.Millisecond)
+				}
+			}()
+		}
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	panel, err := claude.PanelSlowCloseForTest(ctx, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(panel, "12%used") {
+		t.Fatalf("panel = %q", panel)
+	}
+}
+
 func TestDriveKillsWhenExitIsIgnored(t *testing.T) {
 	t.Parallel()
 	f := newFake(screenPrompt, func(f *fake, key string) {

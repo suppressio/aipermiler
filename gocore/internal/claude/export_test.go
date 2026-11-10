@@ -27,6 +27,7 @@ var TestTiming = timing{
 	readyFallback: 120 * time.Millisecond,
 	readySettle:   20 * time.Millisecond,
 	panelSettle:   20 * time.Millisecond,
+	afterPanel:    60 * time.Millisecond,
 	echoTimeout:   150 * time.Millisecond,
 	escSettle:     100 * time.Millisecond,
 	exitGrace:     80 * time.Millisecond,
@@ -61,6 +62,14 @@ func DriveSlowKeysForTest(ctx context.Context, term Terminal, ready func() bool,
 	t.keyGap, t.exitGrace = keyGap, exitGrace
 	_, err := drive(ctx, term, t, ready, nil)
 	return t.leaveReserve(), err
+}
+
+// PanelSlowCloseForTest drives with TestTiming but an endless wait for the panel
+// to close, so only the deadline ends it, and returns the panel text.
+func PanelSlowCloseForTest(ctx context.Context, term Terminal) (string, error) {
+	t := TestTiming
+	t.escSettle = time.Hour
+	return drive(ctx, term, t, func() bool { return true }, nil)
 }
 
 // PanelForTest drives a fake terminal and returns the normalized panel text.
