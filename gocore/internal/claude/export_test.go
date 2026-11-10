@@ -26,28 +26,29 @@ var TestTiming = timing{
 	quiet:       40 * time.Millisecond,
 	readySettle: 20 * time.Millisecond,
 	panelSettle: 20 * time.Millisecond,
-	afterPanel:  60 * time.Millisecond,
-	echoWait:    time.Second,
-	escSettle:   100 * time.Millisecond,
 	exitGrace:   80 * time.Millisecond,
 	killWait:    50 * time.Millisecond,
 	keyGap:      time.Millisecond,
 }
 
 // WaitsView exposes the TestTiming waits the tests compare against.
-type WaitsView struct{ Quiet, EchoWait time.Duration }
+type WaitsView struct{ Quiet, ExitGrace, KillWait time.Duration }
 
 // WaitsForTest returns those waits.
 func WaitsForTest() WaitsView {
-	return WaitsView{Quiet: TestTiming.quiet, EchoWait: TestTiming.echoWait}
+	return WaitsView{Quiet: TestTiming.quiet, ExitGrace: TestTiming.exitGrace, KillWait: TestTiming.killWait}
 }
 
-// bounded gives ctx the probe deadline when it has none, as probe does.
+// testCeiling bounds a test drive whose ctx has no deadline, so a broken test
+// fails instead of hanging.
+const testCeiling = 10 * time.Second
+
+// bounded gives ctx testCeiling when it has no deadline.
 func bounded(ctx context.Context) (context.Context, context.CancelFunc) {
 	if _, ok := ctx.Deadline(); ok {
 		return ctx, func() {}
 	}
-	return context.WithTimeout(ctx, probeTimeout)
+	return context.WithTimeout(ctx, testCeiling)
 }
 
 // runsOf turns "the status line ran" into the run count drive reads.
@@ -76,7 +77,11 @@ func runsFrom(term Terminal) func() int {
 func DriveForTest(ctx context.Context, term Terminal, afterEsc func(context.Context) error) error {
 	ctx, cancel := bounded(ctx)
 	defer cancel()
-	_, _, err := drive(ctx, term, TestTiming, runsFrom(term), afterEsc)
+	var after afterEscFunc
+	if afterEsc != nil {
+		after = func(ctx context.Context, _ int) error { return afterEsc(ctx) }
+	}
+	_, _, err := drive(ctx, term, TestTiming, runsFrom(term), after)
 	return err
 }
 
@@ -94,28 +99,6 @@ func DriveRunsForTest(ctx context.Context, term Terminal, runs func() int) error
 	defer cancel()
 	_, _, err := drive(ctx, term, TestTiming, runs, nil)
 	return err
-}
-
-// DriveSlowKeysForTest drives with TestTiming but keyGap and exitGrace given, and
-// returns the leave reserve: the part of the deadline kept for the kill.
-func DriveSlowKeysForTest(ctx context.Context, term Terminal, ready func() bool, keyGap, exitGrace time.Duration) (time.Duration, error) {
-	t := TestTiming
-	t.keyGap, t.exitGrace = keyGap, exitGrace
-	ctx, cancel := bounded(ctx)
-	defer cancel()
-	_, _, err := drive(ctx, term, t, runsOf(ready), nil)
-	return t.leaveReserve(), err
-}
-
-// PanelSlowCloseForTest drives with TestTiming but an endless wait for the panel
-// to close, so only the deadline ends it, and returns the panel text.
-func PanelSlowCloseForTest(ctx context.Context, term Terminal) (string, error) {
-	t := TestTiming
-	t.escSettle = time.Hour
-	ctx, cancel := bounded(ctx)
-	defer cancel()
-	panel, _, err := drive(ctx, term, t, func() int { return 1 }, nil)
-	return panel, err
 }
 
 // PanelForTest drives a fake terminal and returns the normalized panel text.
@@ -186,9 +169,6 @@ func ParseAuthStatusForTest(out []byte) (loggedIn, known, noQuota, credits bool,
 	return s.loggedIn, s.known, s.noQuota, s.credits, s.projects
 }
 
-// TestStatusWait is the providers' wait for the status line in tests.
-const TestStatusWait = 300 * time.Millisecond
-
 // ProviderForTest is a provider with a fake terminal and auth, real discovery (pass
 // the binary with --claude-bin), base as the core's cache folder and self as the
 // core binary path.
@@ -202,7 +182,6 @@ func ProviderForTest(start func(bin string, args, env []string, dir string) (Ter
 	}
 	p.base = func() (string, error) { return base, nil }
 	p.self = func() (string, error) { return self, nil }
-	p.statusWait = TestStatusWait
 	return p
 }
 
@@ -213,7 +192,6 @@ func RealProviderForTest(base string, extraEnv []string) *Provider {
 	p.prober.timing = TestTiming
 	p.prober.environ = func() []string { return append(os.Environ(), extraEnv...) }
 	p.base = func() (string, error) { return base, nil }
-	p.statusWait = TestStatusWait
 	return p
 }
 

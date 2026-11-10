@@ -15,10 +15,13 @@ import type { QuotaWindow, RawAccountUsage } from '../types/index';
 
 /** Contract version this client understands (docs/CORE-CLI.md, "Versioning"). */
 export const CORE_SCHEMA_VERSION = 1;
-// The core's own deadline for a fetch, and the client's: a little longer, so that the
-// core answers with its `timeout` document before the client has to kill it.
-export const CORE_FETCH_TIMEOUT_SECONDS = 25;
-const CLIENT_TIMEOUT_MS = (CORE_FETCH_TIMEOUT_SECONDS + 5) * 1000;
+// The core's own deadline for a fetch: only a guard against a hung read, never a
+// guess at how long one takes (a Claude read on a loaded Windows needs well over
+// 25 s, #266). The client's is a little longer, so that the core answers with its
+// `timeout` document before the client has to kill it: the Claude probe may take up
+// to 7 s past its deadline to leave (`/exit`, then the kill).
+export const CORE_FETCH_TIMEOUT_SECONDS = 120;
+const CLIENT_TIMEOUT_MS = (CORE_FETCH_TIMEOUT_SECONDS + 15) * 1000;
 const VERSION_TIMEOUT_MS = 5000;
 // `login` waits for the user in the browser: the core's deadline, and the client's.
 export const CORE_LOGIN_TIMEOUT_SECONDS = 300;
