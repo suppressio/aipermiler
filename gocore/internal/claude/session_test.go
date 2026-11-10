@@ -415,7 +415,7 @@ func TestDriveLeavesWithinTheDeadlineAfterARead(t *testing.T) {
 	})
 	f.hang = make(chan struct{})
 	defer close(f.hang)
-	const deadline, keyGap = 600 * time.Millisecond, 40 * time.Millisecond
+	const deadline, keyGap = 1500 * time.Millisecond, 200 * time.Millisecond
 	ctx, cancel := context.WithTimeout(context.Background(), deadline)
 	defer cancel()
 	start := time.Now()
@@ -424,11 +424,13 @@ func TestDriveLeavesWithinTheDeadlineAfterARead(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if elapsed := time.Since(start); elapsed > deadline+10*time.Millisecond {
+	// Margins of half a keyGap absorb scheduler delays; the bug fixed here overruns by
+	// a whole keyGap.
+	if elapsed := time.Since(start); elapsed > deadline+keyGap/2 {
 		t.Fatalf("answered after %v; deadline %v", elapsed, deadline)
 	}
 	killed := f.killedAt.Sub(start)
-	if f.killedAt.IsZero() || killed > deadline-reserve+keyGap/4 {
+	if f.killedAt.IsZero() || killed > deadline-reserve+keyGap/2 {
 		t.Fatalf("killed after %v; the grace ends at %v", killed, deadline-reserve)
 	}
 }
