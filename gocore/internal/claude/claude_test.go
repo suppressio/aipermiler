@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/suppressio/aipermiler/gocore/internal/claude"
 	"github.com/suppressio/aipermiler/gocore/internal/usage"
@@ -180,6 +181,34 @@ func TestFetch(t *testing.T) {
 			}
 		})
 	}
+}
+
+// #266: when the deadline cuts the wait for rate_limits, the answer is a timeout, not
+// a format drift (which would open a drift report).
+func TestFetchRateLimitsCutByTheDeadline(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	start := func(_ string, args, _ []string, dir string) (claude.Terminal, error) {
+		sink := sinkPath(t, statusLineCommand(t, args))
+		return newFake(screenPrompt, func(f *fake, key string) {
+			if key == "\x1b" {
+				// Only the start run, without rate_limits: they would come later.
+				runStatusLine(t, sink, withStatus(t, testdata(t, "statusline-2.1.316-start"), dir, ""))
+			}
+			showPanel(f, key, screenPanel)
+		}), nil
+	}
+	p := claude.ProviderForTest(start, func() []byte { return []byte(`{"loggedIn":true}`) }, base, "/synthetic/core")
+	fs := flag.NewFlagSet("usage", flag.ContinueOnError)
+	p.BindFlags(fs)
+	if err := fs.Parse([]string{"--claude-bin", nativeStub(t)}); err != nil {
+		t.Fatal(err)
+	}
+	// The read ends well inside this deadline; the rate_limits wait would not.
+	ctx, cancel := context.WithTimeout(context.Background(), 450*time.Millisecond)
+	defer cancel()
+	_, err := p.Fetch(ctx, "")
+	assertCode(t, err, usage.CodeTimeout)
 }
 
 func TestFetchWithoutBinary(t *testing.T) {
