@@ -36,11 +36,14 @@ if (present) {
 
 // A pre-release (0.6.1-beta, 1.0.0-rc.1) is "development" in AppStream.
 const type = version.includes('-') ? 'development' : 'stable';
-const entry = `    <release version="${version}" date="${localDate()}" type="${type}"/>\n`;
-const marker = '  <releases>\n';
-if (!xml.includes(marker)) {
+// A Windows checkout with core.autocrlf has CRLF endings: match either and keep the file's.
+const marker = /( *)<releases>(\r?\n)/;
+const match = xml.match(marker);
+if (!match) {
   console.error('No <releases> element in the metainfo');
   process.exit(1);
 }
-fs.writeFileSync(FILE, xml.replace(marker, marker + entry));
+const [, indent, eol] = match;
+const entry = `${indent}  <release version="${version}" date="${localDate()}" type="${type}"/>${eol}`;
+fs.writeFileSync(FILE, xml.replace(marker, (m) => m + entry));
 console.log(`metainfo: added ${version}`);
