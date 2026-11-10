@@ -22,25 +22,41 @@ type Terminal = terminal
 
 // TestTiming shortens every wait of a probe.
 var TestTiming = timing{
-	tick:         2 * time.Millisecond,
-	quiet:        40 * time.Millisecond,
-	panelSettle:  20 * time.Millisecond,
-	panelTimeout: 300 * time.Millisecond,
-	echoTimeout:  150 * time.Millisecond,
-	escSettle:    100 * time.Millisecond,
-	exitGrace:    80 * time.Millisecond,
-	keyGap:       time.Millisecond,
+	tick:          2 * time.Millisecond,
+	quiet:         40 * time.Millisecond,
+	readyFallback: 120 * time.Millisecond,
+	readySettle:   20 * time.Millisecond,
+	panelSettle:   20 * time.Millisecond,
+	echoTimeout:   150 * time.Millisecond,
+	escSettle:     100 * time.Millisecond,
+	exitGrace:     80 * time.Millisecond,
+	killWait:      50 * time.Millisecond,
+	keyGap:        time.Millisecond,
 }
 
-// DriveForTest drives a fake terminal with TestTiming.
+// WaitsView exposes the TestTiming waits the tests compare against.
+type WaitsView struct{ Quiet, ReadyFallback, EchoTimeout time.Duration }
+
+// WaitsForTest returns those waits.
+func WaitsForTest() WaitsView {
+	return WaitsView{Quiet: TestTiming.quiet, ReadyFallback: TestTiming.readyFallback, EchoTimeout: TestTiming.echoTimeout}
+}
+
+// DriveForTest drives a fake terminal with TestTiming and no status line run.
 func DriveForTest(ctx context.Context, term Terminal, afterEsc func(context.Context) error) error {
-	_, err := drive(ctx, term, TestTiming, afterEsc)
+	_, err := drive(ctx, term, TestTiming, nil, afterEsc)
+	return err
+}
+
+// DriveReadyForTest drives a fake terminal whose status line runs report ready.
+func DriveReadyForTest(ctx context.Context, term Terminal, ready func() bool) error {
+	_, err := drive(ctx, term, TestTiming, ready, nil)
 	return err
 }
 
 // PanelForTest drives a fake terminal and returns the normalized panel text.
 func PanelForTest(ctx context.Context, term Terminal) (string, error) {
-	return drive(ctx, term, TestTiming, nil)
+	return drive(ctx, term, TestTiming, nil, nil)
 }
 
 // CreditsForTest reads the Usage credits block of a normalized panel at now.
@@ -56,7 +72,7 @@ func ProbeForTest(ctx context.Context, start func(bin string, args, env []string
 		environ: func() []string { return environ },
 		timing:  TestTiming,
 	}
-	_, err := p.probe(ctx, "claude", dir, "statusline-sink", nil)
+	_, err := p.probe(ctx, "claude", dir, "statusline-sink", nil, nil)
 	return err
 }
 
@@ -66,16 +82,13 @@ var (
 	ClaudeArgsForTest = claudeArgs
 )
 
-// TestPanelTimeout is TestTiming's wait for the panel.
-var TestPanelTimeout = TestTiming.panelTimeout
-
 // RealProbeForTest runs the real PTY and auth pre-check in dir, with extra
 // environment for the child and TestTiming.
 func RealProbeForTest(ctx context.Context, bin, dir string, extraEnv []string) error {
 	p := systemProber()
 	p.timing = TestTiming
 	p.environ = func() []string { return append(os.Environ(), extraEnv...) }
-	_, err := p.probe(ctx, bin, dir, "true", nil)
+	_, err := p.probe(ctx, bin, dir, "true", nil, nil)
 	return err
 }
 

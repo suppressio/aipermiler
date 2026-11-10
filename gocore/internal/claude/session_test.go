@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -40,6 +41,12 @@ type fake struct {
 	killed bool
 	noEcho bool // a dialog: typed text is not shown
 	react  func(f *fake, key string)
+	// echoDelay delays the echo of a typed command (a slow machine).
+	echoDelay time.Duration
+	// onKey runs on every key, before the reaction.
+	onKey func()
+	// hang, when set, keeps Wait blocked until closed: a tree that does not end.
+	hang chan struct{}
 }
 
 func newFake(first string, react func(f *fake, key string)) *fake {
@@ -54,16 +61,28 @@ func newFake(first string, react func(f *fake, key string)) *fake {
 func (f *fake) print(s string)             { _, _ = f.pw.Write([]byte(s)) }
 func (f *fake) exit()                      { _ = f.pw.Close() }
 func (f *fake) Read(p []byte) (int, error) { return f.pr.Read(p) }
-func (f *fake) Wait() error                { return nil }
+func (f *fake) Wait() error {
+	if f.hang != nil {
+		<-f.hang
+	}
+	return nil
+}
 
 func (f *fake) Write(p []byte) (int, error) {
 	f.mu.Lock()
 	f.keys = append(f.keys, string(p))
 	echo := !f.noEcho && strings.HasPrefix(string(p), "/")
+	delay, onKey := f.echoDelay, f.onKey
 	f.mu.Unlock()
+	if onKey != nil {
+		onKey()
+	}
 	if echo {
 		// The prompt shows a typed command, with its suggestion below.
-		go f.print("\x1b[2K\r> " + string(p) + "\r\n  " + string(p) + "  Show something\r\n")
+		go func() {
+			time.Sleep(delay)
+			f.print("\x1b[2K\r> " + string(p) + "\r\n  " + string(p) + "  Show something\r\n")
+		}()
 	}
 	if f.react != nil {
 		f.react(f, string(p))
@@ -168,7 +187,9 @@ func TestDriveAnswersTrustOnlyOnce(t *testing.T) {
 			go f.print(screenTrust)
 		}
 	})
-	assertCode(t, claude.DriveForTest(context.Background(), f, nil), usage.CodeNotReady)
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	assertCode(t, claude.DriveForTest(ctx, f, nil), usage.CodeNotReady)
 	assertKeys(t, f, "\x1b[B", "\r", "/usage", "\r")
 	if !f.killed {
 		t.Fatal("process not killed")
@@ -246,16 +267,100 @@ func TestDriveSignedOutInThePanel(t *testing.T) {
 
 func TestDriveNoPanelIsNotReady(t *testing.T) {
 	t.Parallel()
-	// The macOS-over-SSH case: the usage tab opens without windows.
+	// The macOS-over-SSH case: the usage tab opens without windows. The panel is
+	// awaited up to the deadline, then not_ready (not a timeout: no panel to settle).
 	f := newFake(screenPrompt, func(f *fake, key string) {
 		if key == "\r" {
 			go f.print("\x1b[2J\x1b[H Session\r\n Total cost: $0.0000\r\n")
 		}
 	})
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	err := claude.DriveForTest(ctx, f, nil)
+	assertCode(t, err, usage.CodeNotReady)
+	if !strings.Contains(err.Error(), "no usage panel within") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// #266: a pause in a slow start is not the prompt. Nothing is typed until Claude ran
+// the status line, then the read succeeds.
+func TestDriveWaitsForTheStatusLineThroughASlowStart(t *testing.T) {
+	t.Parallel()
+	var ran, early atomic.Bool
+	f := newFake("\x1b[2J\x1b[HLoading", signedIn)
+	f.onKey = func() {
+		if !ran.Load() {
+			early.Store(true)
+		}
+	}
+	go func() {
+		// Silent well past quiet, short of the fallback: a slow start.
+		time.Sleep(2 * claude.WaitsForTest().Quiet)
+		f.print(screenPrompt)
+		ran.Store(true)
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := claude.DriveReadyForTest(ctx, f, ran.Load); err != nil {
+		t.Fatal(err)
+	}
+	if early.Load() {
+		t.Fatal("typed before the prompt")
+	}
+	assertKeys(t, f, "/usage", "\r", "\x1b", "/exit", "\r")
+}
+
+// #266: once the status line ran, a slow echo is awaited, not taken for a dialog.
+func TestDriveWaitsForASlowEcho(t *testing.T) {
+	t.Parallel()
+	f := newFake(screenPrompt, signedIn)
+	f.echoDelay = 2 * claude.WaitsForTest().EchoTimeout
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := claude.DriveReadyForTest(ctx, f, func() bool { return true }); err != nil {
+		t.Fatal(err)
+	}
+	assertKeys(t, f, "/usage", "\r", "\x1b", "/exit", "\r")
+}
+
+// Without a status line run, silence counts as the prompt only after the fallback wait.
+func TestDriveFallsBackToSilence(t *testing.T) {
+	t.Parallel()
+	f := newFake(screenPrompt, signedIn)
 	start := time.Now()
-	assertCode(t, claude.DriveForTest(context.Background(), f, nil), usage.CodeNotReady)
-	if time.Since(start) < claude.TestPanelTimeout {
-		t.Fatal("gave up before the panel timeout")
+	var firstKey time.Duration
+	f.onKey = func() {
+		if firstKey == 0 {
+			firstKey = time.Since(start)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := claude.DriveForTest(ctx, f, nil); err != nil {
+		t.Fatal(err)
+	}
+	if firstKey < claude.WaitsForTest().ReadyFallback {
+		t.Fatalf("typed after %v, before the fallback %v", firstKey, claude.WaitsForTest().ReadyFallback)
+	}
+}
+
+// #266: the core answers within its deadline even when the process tree never ends.
+func TestDriveAnswersWithinTheDeadline(t *testing.T) {
+	t.Parallel()
+	f := newFake("", nil)
+	f.hang = make(chan struct{})
+	defer close(f.hang)
+	const deadline = 200 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+	start := time.Now()
+	assertCode(t, claude.DriveForTest(ctx, f, nil), usage.CodeNotReady)
+	if elapsed := time.Since(start); elapsed > deadline+30*time.Millisecond {
+		t.Fatalf("answered after %v; deadline %v", elapsed, deadline)
+	}
+	if !f.killed {
+		t.Fatal("process not killed")
 	}
 }
 
@@ -292,9 +397,9 @@ func TestDriveTimeoutInThePanel(t *testing.T) {
 			}()
 		}
 	})
-	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
-	assertCode(t, claude.DriveForTest(ctx, f, nil), usage.CodeTimeout)
+	assertCode(t, claude.DriveReadyForTest(ctx, f, func() bool { return true }), usage.CodeTimeout)
 }
 
 func TestDriveKillsWhenExitIsIgnored(t *testing.T) {
