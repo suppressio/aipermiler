@@ -314,7 +314,10 @@ func drive(ctx context.Context, term terminal, t timing, runs func() int, afterE
 	if runs == nil {
 		runs = func() int { return 0 }
 	}
-	deadline, _ := ctx.Deadline()
+	deadline, ok := ctx.Deadline()
+	if !ok {
+		return "", unavailable("internal: claude probe started without a deadline")
+	}
 	d := &driver{term: term, t: t, runs: runs, out: make(chan []byte, 64)}
 	go d.pump()
 	runCtx, cancel := context.WithDeadline(ctx, deadline.Add(-t.leaveReserve()))
@@ -536,7 +539,7 @@ func since(start time.Time) string {
 func (d *driver) leave(graceful bool, deadline time.Time) {
 	graceEnd := minTime(time.Now().Add(d.t.keyGap+d.t.exitGrace), deadline.Add(-d.t.leaveReserve()))
 	if graceful && time.Until(graceEnd) > d.t.keyGap && !d.exited && d.send(cmdExit, keyEnter) == nil {
-		timer := time.NewTimer(max(time.Until(graceEnd), 0))
+		timer := time.NewTimer(time.Until(graceEnd))
 	wait:
 		for {
 			select {
@@ -562,7 +565,7 @@ func (d *driver) leave(graceful bool, deadline time.Time) {
 		_ = d.term.Wait()
 		close(ended)
 	}()
-	timer := time.NewTimer(max(time.Until(minTime(time.Now().Add(d.t.killWait), deadline)), 0))
+	timer := time.NewTimer(time.Until(minTime(time.Now().Add(d.t.killWait), deadline)))
 	defer timer.Stop()
 	select {
 	case <-ended:

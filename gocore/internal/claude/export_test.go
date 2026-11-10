@@ -91,6 +91,8 @@ func DriveRunsForTest(ctx context.Context, term Terminal, runs func() int) error
 func DriveSlowKeysForTest(ctx context.Context, term Terminal, ready func() bool, keyGap, exitGrace time.Duration) (time.Duration, error) {
 	t := TestTiming
 	t.keyGap, t.exitGrace = keyGap, exitGrace
+	ctx, cancel := bounded(ctx)
+	defer cancel()
 	_, err := drive(ctx, term, t, runsOf(ready), nil)
 	return t.leaveReserve(), err
 }
@@ -100,6 +102,8 @@ func DriveSlowKeysForTest(ctx context.Context, term Terminal, ready func() bool,
 func PanelSlowCloseForTest(ctx context.Context, term Terminal) (string, error) {
 	t := TestTiming
 	t.escSettle = time.Hour
+	ctx, cancel := bounded(ctx)
+	defer cancel()
 	return drive(ctx, term, t, func() int { return 1 }, nil)
 }
 
