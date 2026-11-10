@@ -731,6 +731,11 @@ function renderAccountTabs(snapshot: UsageSnapshot): void {
     btn.textContent = `${account.label} ${utilization === null ? '--%' : formatPercent(utilization)}`;
     btn.title = `${account.label} (${utilization === null ? '--%' : formatPercent(utilization)})`;
     btn.className = id === activeId ? 'active' : '';
+    // A failing account must not look current: the reason is in the label (#266).
+    if (account.stale === true) {
+      btn.classList.add('stale');
+      btn.title = `${btn.title} — ${t('widget.staleTab')}`;
+    }
     btn.addEventListener('click', () => {
       // Diagnostic for issue #25 (tab occasionally not clickable right after login):
       // if this fires but the widget stays unchanged, check state.view and
@@ -923,6 +928,7 @@ function renderSnapshot(snapshot: UsageSnapshot): void {
   renderOdometer(byId('current-value'), value, currentMotion().effects && context === valueContext && utilization !== null,
     formatNumber(1.1).replace(/\d/g, ''));
   valueContext = context;
+  byId('current-value').classList.toggle('stale', account.stale === true);
   alarmed = account.windows.some((entry) => entry.verdict.kind === 'at-risk' || entry.verdict.kind === 'exhausted');
   syncMotion();
   applySeverity(byId('current-value'), severityLevel(utilization, warningThreshold()));

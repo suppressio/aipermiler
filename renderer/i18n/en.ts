@@ -21,6 +21,7 @@ export const en = {
   'widget.freePlan': 'Free plan — no quota to monitor',
   'widget.noAccount': 'No account connected — open the settings',
   'widget.firstSyncFailed': 'Account connected — first sync failed',
+  'widget.staleTab': 'data not up to date',
   'widget.windowWithReset': '{window} · renews {moment}',
   'widget.resetAtTime': 'at {time}',
   'widget.stale': '{label} — data not up to date (last successful update: {time})',

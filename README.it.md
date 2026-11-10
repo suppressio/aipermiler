@@ -76,6 +76,8 @@ Si basa sulla quota che resta **adesso**, ripartita sui giorni lavorativi fino a
 
 La percentuale di quota usata e, sotto, il valore assoluto quando il provider lo fornisce (per esempio i crediti AI di Copilot, il credito extra di Claude in USD) e la data di rinnovo.
 
+Quando l'ultima lettura di un account non è riuscita, il suo valore è in grigio, la sua tab mostra ⚠ e la riga sotto dice "dato non aggiornato", con l'ora dell'ultimo aggiornamento riuscito e il motivo. L'app tiene gli ultimi valori e riprova al prossimo aggiornamento.
+
 ### Consumo istantaneo
 
 A che velocità stai usando la quota in questo momento, in % della quota all'ora.
