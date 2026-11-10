@@ -29,6 +29,7 @@ var TestTiming = timing{
 	panelSettle:   20 * time.Millisecond,
 	afterPanel:    60 * time.Millisecond,
 	echoTimeout:   150 * time.Millisecond,
+	echoWait:      time.Second,
 	escSettle:     100 * time.Millisecond,
 	exitGrace:     80 * time.Millisecond,
 	killWait:      50 * time.Millisecond,
@@ -43,15 +44,45 @@ func WaitsForTest() WaitsView {
 	return WaitsView{Quiet: TestTiming.quiet, ReadyFallback: TestTiming.readyFallback, EchoTimeout: TestTiming.echoTimeout}
 }
 
+// bounded gives ctx the probe deadline when it has none, as probe does.
+func bounded(ctx context.Context) (context.Context, context.CancelFunc) {
+	if _, ok := ctx.Deadline(); ok {
+		return ctx, func() {}
+	}
+	return context.WithTimeout(ctx, probeTimeout)
+}
+
+// runsOf turns "the status line ran" into the run count drive reads.
+func runsOf(ready func() bool) func() int {
+	return func() int {
+		if ready() {
+			return 1
+		}
+		return 0
+	}
+}
+
 // DriveForTest drives a fake terminal with TestTiming and no status line run.
 func DriveForTest(ctx context.Context, term Terminal, afterEsc func(context.Context) error) error {
+	ctx, cancel := bounded(ctx)
+	defer cancel()
 	_, err := drive(ctx, term, TestTiming, nil, afterEsc)
 	return err
 }
 
 // DriveReadyForTest drives a fake terminal whose status line runs report ready.
 func DriveReadyForTest(ctx context.Context, term Terminal, ready func() bool) error {
-	_, err := drive(ctx, term, TestTiming, ready, nil)
+	ctx, cancel := bounded(ctx)
+	defer cancel()
+	_, err := drive(ctx, term, TestTiming, runsOf(ready), nil)
+	return err
+}
+
+// DriveRunsForTest drives a fake terminal with the status line run count given.
+func DriveRunsForTest(ctx context.Context, term Terminal, runs func() int) error {
+	ctx, cancel := bounded(ctx)
+	defer cancel()
+	_, err := drive(ctx, term, TestTiming, runs, nil)
 	return err
 }
 
@@ -60,7 +91,7 @@ func DriveReadyForTest(ctx context.Context, term Terminal, ready func() bool) er
 func DriveSlowKeysForTest(ctx context.Context, term Terminal, ready func() bool, keyGap, exitGrace time.Duration) (time.Duration, error) {
 	t := TestTiming
 	t.keyGap, t.exitGrace = keyGap, exitGrace
-	_, err := drive(ctx, term, t, ready, nil)
+	_, err := drive(ctx, term, t, runsOf(ready), nil)
 	return t.leaveReserve(), err
 }
 
@@ -69,11 +100,13 @@ func DriveSlowKeysForTest(ctx context.Context, term Terminal, ready func() bool,
 func PanelSlowCloseForTest(ctx context.Context, term Terminal) (string, error) {
 	t := TestTiming
 	t.escSettle = time.Hour
-	return drive(ctx, term, t, func() bool { return true }, nil)
+	return drive(ctx, term, t, func() int { return 1 }, nil)
 }
 
 // PanelForTest drives a fake terminal and returns the normalized panel text.
 func PanelForTest(ctx context.Context, term Terminal) (string, error) {
+	ctx, cancel := bounded(ctx)
+	defer cancel()
 	return drive(ctx, term, TestTiming, nil, nil)
 }
 

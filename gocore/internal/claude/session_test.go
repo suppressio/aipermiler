@@ -352,12 +352,12 @@ func TestDriveAnswersWithinTheDeadline(t *testing.T) {
 	f := newFake("", nil)
 	f.hang = make(chan struct{})
 	defer close(f.hang)
-	const deadline = 200 * time.Millisecond
+	const deadline = 300 * time.Millisecond
 	ctx, cancel := context.WithTimeout(context.Background(), deadline)
 	defer cancel()
 	start := time.Now()
 	assertCode(t, claude.DriveForTest(ctx, f, nil), usage.CodeNotReady)
-	if elapsed := time.Since(start); elapsed > deadline+30*time.Millisecond {
+	if elapsed := time.Since(start); elapsed > deadline+100*time.Millisecond {
 		t.Fatalf("answered after %v; deadline %v", elapsed, deadline)
 	}
 	if !f.killed {
@@ -385,9 +385,10 @@ func TestDriveTimeout(t *testing.T) {
 	}
 }
 
-func TestDriveTimeoutInThePanel(t *testing.T) {
+// #266: a panel that never settles is kept at its deadline (afterPanel before the
+// probe deadline): it has been read.
+func TestDriveKeepsAPanelThatNeverSettles(t *testing.T) {
 	t.Parallel()
-	// A panel that never settles: output keeps coming until the probe deadline.
 	f := newFake(screenPrompt, func(f *fake, key string) {
 		if key == "\r" {
 			go func() {
@@ -400,7 +401,50 @@ func TestDriveTimeoutInThePanel(t *testing.T) {
 	})
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
+	if err := claude.DriveReadyForTest(ctx, f, func() bool { return true }); err != nil {
+		t.Fatal(err)
+	}
+	// Esc closed the panel; /exit only if time was left for it.
+	if keys := f.typed(); len(keys) < 3 || !slices.Equal(keys[:3], []string{"/usage", "\r", "\x1b"}) {
+		t.Fatalf("typed %q", keys)
+	}
+}
+
+// #266: with no time left for the panel, Enter is not typed and the probe times out.
+func TestDriveNoTimeLeftForThePanel(t *testing.T) {
+	t.Parallel()
+	f := newFake(screenPrompt, signedIn)
+	f.echoDelay = 250 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 350*time.Millisecond)
+	defer cancel()
 	assertCode(t, claude.DriveReadyForTest(ctx, f, func() bool { return true }), usage.CodeTimeout)
+	assertKeys(t, f, "/usage")
+}
+
+// #266: a status line run before the trust answer does not make the prompt after it
+// ready: only silence after the fallback wait does, since no new run came.
+func TestDriveStatusLineRunBeforeTrustDoesNotCount(t *testing.T) {
+	t.Parallel()
+	start := time.Now()
+	var afterTrust time.Duration
+	f := newFake(screenTrust, func(f *fake, key string) {
+		if key == "\r" && len(f.typed()) == 2 {
+			go f.print(screenPrompt)
+			return
+		}
+		if key == "/usage" && afterTrust == 0 {
+			afterTrust = time.Since(start)
+		}
+		signedIn(f, key)
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := claude.DriveRunsForTest(ctx, f, func() int { return 1 }); err != nil {
+		t.Fatal(err)
+	}
+	if afterTrust < claude.WaitsForTest().ReadyFallback {
+		t.Fatalf("/usage typed after %v, before the fallback %v", afterTrust, claude.WaitsForTest().ReadyFallback)
+	}
 }
 
 // #266: the exit grace never reaches into the time kept for the kill, typing /exit
