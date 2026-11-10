@@ -496,14 +496,15 @@ func since(start time.Time) string {
 // leave types /exit after a successful read and gives claude exitGrace to end by
 // itself (it then finishes its own writes), never past the probe deadline less the
 // time the kill needs; the process tree is killed in any case, and its end is
-// awaited at most killWait, so the core always answers in time (#266).
+// awaited at most killWait and never past the deadline, so the core always answers
+// in time (#266). Every bound is an absolute time: typing /exit takes keyGap too.
 func (d *driver) leave(graceful bool, deadline time.Time, bounded bool) {
-	grace := d.t.exitGrace
+	graceEnd := time.Now().Add(d.t.keyGap + d.t.exitGrace)
 	if bounded {
-		grace = min(grace, time.Until(deadline)-d.t.leaveReserve())
+		graceEnd = minTime(graceEnd, deadline.Add(-d.t.leaveReserve()))
 	}
-	if graceful && grace > 0 && !d.exited && d.send(cmdExit, keyEnter) == nil {
-		timer := time.NewTimer(grace)
+	if graceful && time.Until(graceEnd) > d.t.keyGap && !d.exited && d.send(cmdExit, keyEnter) == nil {
+		timer := time.NewTimer(max(time.Until(graceEnd), 0))
 	wait:
 		for {
 			select {
@@ -529,10 +530,21 @@ func (d *driver) leave(graceful bool, deadline time.Time, bounded bool) {
 		_ = d.term.Wait()
 		close(ended)
 	}()
-	timer := time.NewTimer(d.t.killWait)
+	waitEnd := time.Now().Add(d.t.killWait)
+	if bounded {
+		waitEnd = minTime(waitEnd, deadline)
+	}
+	timer := time.NewTimer(max(time.Until(waitEnd), 0))
 	defer timer.Stop()
 	select {
 	case <-ended:
 	case <-timer.C:
 	}
+}
+
+func minTime(a, b time.Time) time.Time {
+	if b.Before(a) {
+		return b
+	}
+	return a
 }

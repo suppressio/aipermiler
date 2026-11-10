@@ -402,6 +402,35 @@ func TestDriveTimeoutInThePanel(t *testing.T) {
 	assertCode(t, claude.DriveReadyForTest(ctx, f, func() bool { return true }), usage.CodeTimeout)
 }
 
+// #266: a read that ends close to the deadline leaves within it, also when /exit is
+// ignored and the process tree never ends.
+func TestDriveLeavesWithinTheDeadlineAfterARead(t *testing.T) {
+	t.Parallel()
+	f := newFake(screenPrompt, func(f *fake, key string) {
+		if key == "\r" && len(f.typed()) == 2 {
+			go f.print(screenPanel)
+		}
+	})
+	f.hang = make(chan struct{})
+	defer close(f.hang)
+	// A slow echo makes the read end where the exit grace no longer fits whole.
+	f.echoDelay = 130 * time.Millisecond
+	const deadline = 300 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+	start := time.Now()
+	// Under load the read itself may reach the deadline: then a timeout, bounded the same.
+	if err := claude.DriveReadyForTest(ctx, f, func() bool { return true }); err != nil {
+		assertCode(t, err, usage.CodeTimeout)
+	}
+	if elapsed := time.Since(start); elapsed > deadline+30*time.Millisecond {
+		t.Fatalf("answered after %v; deadline %v", elapsed, deadline)
+	}
+	if !f.killed {
+		t.Fatal("process not killed")
+	}
+}
+
 func TestDriveKillsWhenExitIsIgnored(t *testing.T) {
 	t.Parallel()
 	f := newFake(screenPrompt, func(f *fake, key string) {
