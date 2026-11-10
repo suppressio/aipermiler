@@ -54,6 +54,15 @@ func DriveReadyForTest(ctx context.Context, term Terminal, ready func() bool) er
 	return err
 }
 
+// DriveSlowKeysForTest drives with TestTiming but keyGap and exitGrace given, and
+// returns the leave reserve: the part of the deadline kept for the kill.
+func DriveSlowKeysForTest(ctx context.Context, term Terminal, ready func() bool, keyGap, exitGrace time.Duration) (time.Duration, error) {
+	t := TestTiming
+	t.keyGap, t.exitGrace = keyGap, exitGrace
+	_, err := drive(ctx, term, t, ready, nil)
+	return t.leaveReserve(), err
+}
+
 // PanelForTest drives a fake terminal and returns the normalized panel text.
 func PanelForTest(ctx context.Context, term Terminal) (string, error) {
 	return drive(ctx, term, TestTiming, nil, nil)
