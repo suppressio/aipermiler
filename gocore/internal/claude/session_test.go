@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -33,13 +34,22 @@ const (
 
 // fake is a scripted claude: react answers every key the probe types.
 type fake struct {
-	mu     sync.Mutex
-	pr     *io.PipeReader
-	pw     *io.PipeWriter
-	keys   []string
-	killed bool
-	noEcho bool // a dialog: typed text is not shown
-	react  func(f *fake, key string)
+	mu       sync.Mutex
+	pr       *io.PipeReader
+	pw       *io.PipeWriter
+	keys     []string
+	killed   bool
+	killedAt time.Time
+	noEcho   bool // a dialog: typed text is not shown
+	react    func(f *fake, key string)
+	// echoDelay delays the echo of a typed command (a slow machine).
+	echoDelay time.Duration
+	// onKey runs on every key, before the reaction.
+	onKey func()
+	// hang, when set, keeps Wait blocked until closed: a tree that does not end.
+	hang chan struct{}
+	// runs counts the prompts drawn: Claude runs the status line as it draws one.
+	runs atomic.Int32
 }
 
 func newFake(first string, react func(f *fake, key string)) *fake {
@@ -51,19 +61,39 @@ func newFake(first string, react func(f *fake, key string)) *fake {
 	return f
 }
 
-func (f *fake) print(s string)             { _, _ = f.pw.Write([]byte(s)) }
+func (f *fake) print(s string) {
+	_, _ = f.pw.Write([]byte(s))
+	if strings.Contains(s, "╭") {
+		f.runs.Add(1)
+	}
+}
+
+// StatusRuns is how many times the fake claude ran its status line.
+func (f *fake) StatusRuns() int            { return int(f.runs.Load()) }
 func (f *fake) exit()                      { _ = f.pw.Close() }
 func (f *fake) Read(p []byte) (int, error) { return f.pr.Read(p) }
-func (f *fake) Wait() error                { return nil }
+func (f *fake) Wait() error {
+	if f.hang != nil {
+		<-f.hang
+	}
+	return nil
+}
 
 func (f *fake) Write(p []byte) (int, error) {
 	f.mu.Lock()
 	f.keys = append(f.keys, string(p))
 	echo := !f.noEcho && strings.HasPrefix(string(p), "/")
+	delay, onKey := f.echoDelay, f.onKey
 	f.mu.Unlock()
+	if onKey != nil {
+		onKey()
+	}
 	if echo {
 		// The prompt shows a typed command, with its suggestion below.
-		go f.print("\x1b[2K\r> " + string(p) + "\r\n  " + string(p) + "  Show something\r\n")
+		go func() {
+			time.Sleep(delay)
+			f.print("\x1b[2K\r> " + string(p) + "\r\n  " + string(p) + "  Show something\r\n")
+		}()
 	}
 	if f.react != nil {
 		f.react(f, string(p))
@@ -73,7 +103,7 @@ func (f *fake) Write(p []byte) (int, error) {
 
 func (f *fake) Kill() error {
 	f.mu.Lock()
-	f.killed = true
+	f.killed, f.killedAt = true, time.Now()
 	f.mu.Unlock()
 	f.exit()
 	return nil
@@ -161,15 +191,17 @@ func TestDriveAnswersTheTrustPromptOnce(t *testing.T) {
 
 func TestDriveAnswersTrustOnlyOnce(t *testing.T) {
 	t.Parallel()
-	// The answer does not take: the prompt is drawn again. No second answer; /usage
-	// then opens no panel.
+	// The answer does not take: the trust prompt is drawn again. No second answer, and
+	// no prompt ever comes: nothing else is typed.
 	f := newFake(screenTrust, func(f *fake, key string) {
 		if key == "\r" {
 			go f.print(screenTrust)
 		}
 	})
-	assertCode(t, claude.DriveForTest(context.Background(), f, nil), usage.CodeNotReady)
-	assertKeys(t, f, "\x1b[B", "\r", "/usage", "\r")
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	assertCode(t, claude.DriveForTest(ctx, f, nil), usage.CodeTimeout)
+	assertKeys(t, f, "\x1b[B", "\r")
 	if !f.killed {
 		t.Fatal("process not killed")
 	}
@@ -213,12 +245,30 @@ func TestDriveLeavesTheAPIKeyQuestion(t *testing.T) {
 }
 
 // #228: a quiet screen that does not show the typed /usage is a dialog, not the prompt:
-// no Enter (it would confirm the dialog's preselected answer), not_ready.
+// no Enter (it would confirm the dialog's preselected answer) until the deadline.
 func TestDriveNoEnterIntoAnUnknownDialog(t *testing.T) {
 	t.Parallel()
+	// A dialog, no prompt: Claude never runs the status line, nothing is typed.
 	f := newFake("\x1b[2J\x1b[HSomething new?\r\n❯ 1. Accept\r\n  2. Decline\r\n", nil)
 	f.noEcho = true
-	assertCode(t, claude.DriveForTest(context.Background(), f, nil), usage.CodeNotReady)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	assertCode(t, claude.DriveForTest(ctx, f, nil), usage.CodeTimeout)
+	assertKeys(t, f)
+}
+
+// #228: a dialog drawn over the prompt does not echo /usage: no Enter, ever.
+func TestDriveNoEnterIntoADialogOverThePrompt(t *testing.T) {
+	t.Parallel()
+	f := newFake(screenPrompt, func(f *fake, key string) {
+		if key == "/usage" {
+			go f.print("\x1b[2J\x1b[HSomething new?\r\n❯ 1. Accept\r\n  2. Decline\r\n")
+		}
+	})
+	f.noEcho = true
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	assertCode(t, claude.DriveForTest(ctx, f, nil), usage.CodeTimeout)
 	assertKeys(t, f, "/usage")
 }
 
@@ -246,16 +296,120 @@ func TestDriveSignedOutInThePanel(t *testing.T) {
 
 func TestDriveNoPanelIsNotReady(t *testing.T) {
 	t.Parallel()
-	// The macOS-over-SSH case: the usage tab opens without windows.
+	// The macOS-over-SSH case: the usage tab opens without windows. Said at once.
 	f := newFake(screenPrompt, func(f *fake, key string) {
 		if key == "\r" {
 			go f.print("\x1b[2J\x1b[H Session\r\n Total cost: $0.0000\r\n")
 		}
 	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	start := time.Now()
-	assertCode(t, claude.DriveForTest(context.Background(), f, nil), usage.CodeNotReady)
-	if time.Since(start) < claude.TestPanelTimeout {
-		t.Fatal("gave up before the panel timeout")
+	err := claude.DriveForTest(ctx, f, nil)
+	assertCode(t, err, usage.CodeNotReady)
+	if !strings.Contains(err.Error(), "no quota windows") || time.Since(start) > time.Second {
+		t.Fatalf("err = %v after %v", err, time.Since(start))
+	}
+}
+
+// The usage tab reloading its windows is awaited, not taken for an empty tab.
+func TestDriveWaitsForTheUsageTabToRefresh(t *testing.T) {
+	t.Parallel()
+	f := newFake(screenPrompt, func(f *fake, key string) {
+		if key == "\r" && len(f.typed()) == 2 {
+			go func() {
+				f.print("\x1b[2J\x1b[H Session\r\n Total cost: $0.0000\r\n Refreshing…\r\n")
+				time.Sleep(150 * time.Millisecond)
+				f.print(screenPanel)
+			}()
+			return
+		}
+		signedIn(f, key)
+	})
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	panel, err := claude.PanelForTest(ctx, f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(panel, "12%used") {
+		t.Fatalf("panel = %q", panel)
+	}
+}
+
+// #266: a pause in a slow start is not the prompt. Nothing is typed until Claude ran
+// the status line, then the read succeeds.
+func TestDriveWaitsForTheStatusLineThroughASlowStart(t *testing.T) {
+	t.Parallel()
+	var ran, early atomic.Bool
+	f := newFake("\x1b[2J\x1b[HLoading", signedIn)
+	f.onKey = func() {
+		if !ran.Load() {
+			early.Store(true)
+		}
+	}
+	go func() {
+		// Silent well past quiet, short of the fallback: a slow start.
+		time.Sleep(2 * claude.WaitsForTest().Quiet)
+		f.print(screenPrompt)
+		ran.Store(true)
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := claude.DriveReadyForTest(ctx, f, ran.Load); err != nil {
+		t.Fatal(err)
+	}
+	if early.Load() {
+		t.Fatal("typed before the prompt")
+	}
+	assertKeys(t, f, "/usage", "\r", "\x1b", "/exit", "\r")
+}
+
+// #266: once the status line ran, a slow echo is awaited, not taken for a dialog.
+func TestDriveWaitsForASlowEcho(t *testing.T) {
+	t.Parallel()
+	f := newFake(screenPrompt, signedIn)
+	f.echoDelay = 300 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := claude.DriveReadyForTest(ctx, f, func() bool { return true }); err != nil {
+		t.Fatal(err)
+	}
+	assertKeys(t, f, "/usage", "\r", "\x1b", "/exit", "\r")
+}
+
+// #266: silence is never the prompt: without a status line run nothing is typed.
+func TestDriveNeedsAStatusLineRun(t *testing.T) {
+	t.Parallel()
+	// A quiet screen that looks like a prompt, drawn without running the status line.
+	f := newFake("\x1b[2J\x1b[H> \r\n", signedIn)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	err := claude.DriveForTest(ctx, f, nil)
+	assertCode(t, err, usage.CodeTimeout)
+	if !strings.Contains(err.Error(), "no status line run") {
+		t.Fatalf("err = %v", err)
+	}
+	assertKeys(t, f)
+}
+
+// #266: the core answers at most killWait after its deadline even when the process
+// tree never ends.
+func TestDriveAnswersAtTheDeadline(t *testing.T) {
+	t.Parallel()
+	f := newFake("", nil)
+	f.hang = make(chan struct{})
+	defer close(f.hang)
+	const deadline = 300 * time.Millisecond
+	ctx, cancel := context.WithTimeout(context.Background(), deadline)
+	defer cancel()
+	start := time.Now()
+	assertCode(t, claude.DriveForTest(ctx, f, nil), usage.CodeTimeout)
+	if elapsed := time.Since(start); elapsed > deadline+claude.WaitsForTest().KillWait+100*time.Millisecond {
+		t.Fatalf("answered after %v; deadline %v", elapsed, deadline)
+	}
+	if !f.killed {
+		t.Fatal("process not killed")
 	}
 }
 
@@ -268,20 +422,19 @@ func TestDriveEarlyExit(t *testing.T) {
 
 func TestDriveTimeout(t *testing.T) {
 	t.Parallel()
-	// No output at all: never quiet, so never ready; the probe deadline ends it as an
-	// unknown blocking screen.
+	// No output at all: never ready; only the caller's deadline ends the wait.
 	f := newFake("", nil)
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Millisecond)
 	defer cancel()
-	assertCode(t, claude.DriveForTest(ctx, f, nil), usage.CodeNotReady)
+	assertCode(t, claude.DriveForTest(ctx, f, nil), usage.CodeTimeout)
 	if !f.killed {
 		t.Fatal("process not killed")
 	}
 }
 
-func TestDriveTimeoutInThePanel(t *testing.T) {
+// #266: a panel still redrawing is awaited until it settles, however long it takes.
+func TestDriveWaitsForThePanelToSettle(t *testing.T) {
 	t.Parallel()
-	// A panel that never settles: output keeps coming until the probe deadline.
 	f := newFake(screenPrompt, func(f *fake, key string) {
 		if key == "\r" {
 			go func() {
@@ -292,20 +445,70 @@ func TestDriveTimeoutInThePanel(t *testing.T) {
 			}()
 		}
 	})
-	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
-	defer cancel()
-	assertCode(t, claude.DriveForTest(ctx, f, nil), usage.CodeTimeout)
+	start := time.Now()
+	if err := claude.DriveReadyForTest(context.Background(), f, func() bool { return true }); err != nil {
+		t.Fatal(err)
+	}
+	if time.Since(start) < 400*time.Millisecond {
+		t.Fatalf("read after %v, before the panel settled", time.Since(start))
+	}
+	assertKeys(t, f, "/usage", "\r", "\x1b", "/exit", "\r")
 }
 
-func TestDriveKillsWhenExitIsIgnored(t *testing.T) {
+// #266: a status line run before the trust answer does not make the prompt after it
+// ready: without a new run, nothing is typed after the answer.
+func TestDriveStatusLineRunBeforeTrustDoesNotCount(t *testing.T) {
+	t.Parallel()
+	f := newFake(screenTrust, nil)
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	assertCode(t, claude.DriveRunsForTest(ctx, f, func() int { return 1 }), usage.CodeTimeout)
+	assertKeys(t, f, "\x1b[B", "\r")
+}
+
+// #266: the API key question over the prompt is reported at once, not at the deadline.
+func TestDriveAPIKeyQuestionWhileWaitingForTheEcho(t *testing.T) {
 	t.Parallel()
 	f := newFake(screenPrompt, func(f *fake, key string) {
-		if key == "\r" && len(f.typed()) == 2 {
-			go f.print(screenPanel)
+		if key == "/usage" {
+			go f.print(screenAPIKey)
 		}
 	})
+	f.noEcho = true
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	start := time.Now()
+	err := claude.DriveReadyForTest(ctx, f, func() bool { return true })
+	assertReason(t, err, claude.ReasonAPIKeyQuestion)
+	if time.Since(start) > time.Second {
+		t.Fatalf("reported after %v", time.Since(start))
+	}
+	assertKeys(t, f, "/usage")
+}
+
+// After a read, an ignored /exit gets exitGrace and a tree that never ends killWait:
+// leaving is bounded, and an Esc that draws nothing still settles.
+func TestDriveKillsWhenExitIsIgnored(t *testing.T) {
+	t.Parallel()
+	var exitAt atomic.Int64
+	f := newFake(screenPrompt, func(f *fake, key string) {
+		switch {
+		case key == "\r" && len(f.typed()) == 2:
+			go f.print(screenPanel)
+		case key == "/exit":
+			exitAt.Store(time.Now().UnixNano())
+		}
+	})
+	f.hang = make(chan struct{})
+	defer close(f.hang)
 	if err := claude.DriveForTest(context.Background(), f, nil); err != nil {
 		t.Fatal(err)
+	}
+	returned := time.Now()
+	w := claude.WaitsForTest()
+	sinceExit := returned.Sub(time.Unix(0, exitAt.Load()))
+	if sinceExit < w.ExitGrace || sinceExit > w.ExitGrace+w.KillWait+200*time.Millisecond {
+		t.Fatalf("returned %v after /exit; exitGrace %v, killWait %v", sinceExit, w.ExitGrace, w.KillWait)
 	}
 	assertKeys(t, f, "/usage", "\r", "\x1b", "/exit", "\r")
 	if !f.killed {

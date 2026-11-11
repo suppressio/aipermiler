@@ -36,6 +36,14 @@ jobs:
       - name: Build + test
         run: npm test
 
+      # AppStream metainfo (#206): the current version must be listed, and the file valid.
+      - name: Validate AppStream metainfo
+        run: |
+          npm run metainfo:check
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends appstream
+          appstreamcli validate --no-net build/linux/com.suppressio.aipermiler.metainfo.xml
+
   go-checks:
     runs-on: ubuntu-latest
     defaults:

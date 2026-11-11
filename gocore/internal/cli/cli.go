@@ -130,7 +130,7 @@ func runPaths(env Env, jsonMode bool) int {
 
 func runUsage(env Env, args []string, jsonMode bool) int {
 	var secretStdin *bool
-	cmd, code, ok := parseProviderCommand(env, "usage", args, jsonMode, 25*time.Second, 2*time.Minute, func(_ provider.Provider, fs *flag.FlagSet) {
+	cmd, code, ok := parseProviderCommand(env, "usage", args, jsonMode, 2*time.Minute, 2*time.Minute, func(_ provider.Provider, fs *flag.FlagSet) {
 		secretStdin = fs.Bool("secret-stdin", false, "Read the secret from stdin (at most 64 KiB)")
 	})
 	if !ok {
@@ -256,7 +256,7 @@ Commands:
 
 Common flags:
   --json                Print the versioned JSON document(s)
-  --timeout <duration>  Deadline (usage/token/raw: default 25s, at most 2m; login: default 5m, at most 15m)
+  --timeout <duration>  Deadline (usage: default and at most 2m; token/raw: default 25s, at most 2m; login: default 5m, at most 15m)
   --secret-stdin        usage only: read a secret from stdin (at most 64 KiB, if supported)
 `, buildinfo.Name)
 }

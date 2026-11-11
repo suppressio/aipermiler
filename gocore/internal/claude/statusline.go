@@ -3,6 +3,7 @@ package claude
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -209,21 +210,23 @@ func readStatus(path string) statusRead {
 	return read
 }
 
-// waitForRateLimits polls the sink until a run with rate_limits arrived or wait ran out.
-func waitForRateLimits(done <-chan struct{}, path string, wait time.Duration) {
+// waitForStatusAfterUsage waits for what Claude sends as the usage panel closes: a
+// status line run with rate_limits, or any run after the promptRuns seen at the
+// prompt (with credits only, it carries none). Only ctx ends the wait (#266).
+func waitForStatusAfterUsage(ctx context.Context, path string, promptRuns int) error {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
-	deadline := time.NewTimer(wait)
-	defer deadline.Stop()
-	for readStatus(path).latest == nil {
+	for countRuns(path) <= promptRuns && readStatus(path).latest == nil {
 		select {
-		case <-done:
-			return
-		case <-deadline.C:
-			return
+		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return &usage.Error{Code: usage.CodeTimeout, Message: "claude probe timed out before the status line ran after /usage"}
+			}
+			return ctx.Err()
 		case <-ticker.C:
 		}
 	}
+	return nil
 }
 
 func drift(message string, shape any) *usage.Error {

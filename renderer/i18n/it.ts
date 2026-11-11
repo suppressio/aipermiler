@@ -19,6 +19,7 @@ export const it: Record<MessageKey, string> = {
   'widget.freePlan': 'Piano Free — nessuna quota da monitorare',
   'widget.noAccount': 'Nessun account collegato — apri le impostazioni',
   'widget.firstSyncFailed': 'Account collegato — prima sincronizzazione non riuscita',
+  'widget.staleTab': 'dato non aggiornato',
   'widget.windowWithReset': '{window} · rinnovo {moment}',
   'widget.resetAtTime': 'alle {time}',
   'widget.stale': '{label} — dato non aggiornato (ultimo aggiornamento riuscito: {time})',

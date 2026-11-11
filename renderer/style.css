@@ -251,6 +251,9 @@ body.style-transparent-digital .account-tabs button.active {
   font-size: 12px;
 }
 .account-tabs button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+/* Data not up to date (#266): marked on the tab, the value dimmed. */
+.account-tabs button.stale::before { content: "⚠ "; }
+.current-value.stale { opacity: 0.45; }
 
 /* Quota windows of the active account (docs/EVOLUTION.md point 1): one row per window with
    a mini bar and a verdict computed by the app, replacing tabs that only lined up the
@@ -423,13 +426,25 @@ body.alarm-pulse #app .severity-warning:not(.window-row-bar > span),
 body.alarm-pulse .window-row.verdict-at-risk .window-row-verdict,
 body.alarm-pulse .window-row.verdict-exhausted .window-row-verdict,
 body.compact.alarm.alarm-pulse .current-label[data-account]::before,
-body.single-window.alarm.alarm-pulse:not(.compact) .current-label { animation: alarm-pulse 1500ms step-end; }
-/* A crisp colour blink (near-white with a glow, then darker, three times) reads on every skin; colour repaints only
-   these few short values for 1.5 s every 10 s, the one exception to opacity/transform. */
+body.single-window.alarm.alarm-pulse:not(.compact) .current-label { animation: alarm-pulse 1500ms ease-in-out; }
+/* A colour blink (bright with a glow, then darker, three times) eased so it is softer than a hard
+   jump yet still a blink. Dark skins go towards white; the light skin never does (it would vanish on
+   white): full warning colour with a glow against a darker tone. Colour repaints only these few short
+   values for 1.5 s every 10 s, the one exception to opacity/transform. */
+body.alarm-pulse {
+  --alarm-bright: color-mix(in srgb, var(--warning) 25%, white);
+  --alarm-bright-glow: 0 0 10px var(--warning);
+  --alarm-dark: color-mix(in srgb, var(--warning) 60%, black);
+}
+body.alarm-pulse.style-filled {
+  --alarm-bright: var(--warning);
+  --alarm-bright-glow: 0 0 8px color-mix(in srgb, var(--warning) 85%, transparent);
+  --alarm-dark: color-mix(in srgb, var(--warning) 45%, black);
+}
 @keyframes alarm-pulse {
   0%, 100% { color: var(--warning); }
-  15%, 45%, 75% { color: color-mix(in srgb, var(--warning) 25%, white); text-shadow: 0 0 10px var(--warning); }
-  30%, 60%, 90% { color: color-mix(in srgb, var(--warning) 60%, black); text-shadow: none; }
+  15%, 45%, 75% { color: var(--alarm-bright); text-shadow: var(--alarm-bright-glow); }
+  30%, 60%, 90% { color: var(--alarm-dark); text-shadow: none; }
 }
 
 .odometer-digit {

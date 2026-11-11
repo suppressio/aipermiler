@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"os"
@@ -10,23 +11,28 @@ import (
 	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
 
-// statusWait is how long the probe waits, after the panel closed, for a status line
-// run with rate_limits (measured well under a second on #183).
-const statusWait = 3 * time.Second
+// countRuns counts the status line runs in the sink: one line each, written whole.
+// Cheaper than readStatus, for the prompt wait that asks every tick.
+func countRuns(path string) int {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return 0
+	}
+	return bytes.Count(data, []byte{'\n'})
+}
 
 // Provider runs one `claude` probe per fetch, using Claude Code's own sign-in.
 type Provider struct {
-	binary     string
-	discovery  discovery
-	prober     prober
-	self       func() (string, error)
-	base       func() (string, error)
-	statusWait time.Duration
+	binary    string
+	discovery discovery
+	prober    prober
+	self      func() (string, error)
+	base      func() (string, error)
 }
 
 // New creates an independently configured Claude provider.
 func New() *Provider {
-	return &Provider{discovery: systemDiscovery(), prober: systemProber(), self: os.Executable, base: cacheBase, statusWait: statusWait}
+	return &Provider{discovery: systemDiscovery(), prober: systemProber(), self: os.Executable, base: cacheBase}
 }
 
 // ID is the stable provider identifier.
@@ -74,9 +80,8 @@ func (p *Provider) Fetch(ctx context.Context, _ string) (usage.Usage, error) {
 	if err != nil {
 		return usage.Usage{}, err
 	}
-	status, err := p.prober.probe(ctx, bin, dir, command, func(ctx context.Context) error {
-		waitForRateLimits(ctx.Done(), path, p.statusWait)
-		return nil
+	status, err := p.prober.probe(ctx, bin, dir, command, func() int { return countRuns(path) }, func(ctx context.Context, promptRuns int) error {
+		return waitForStatusAfterUsage(ctx, path, promptRuns)
 	})
 	read := readStatus(path)
 	removeTranscripts(read.transcripts, dir, status.projects)

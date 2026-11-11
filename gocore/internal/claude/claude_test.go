@@ -10,6 +10,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/suppressio/aipermiler/gocore/internal/claude"
 	"github.com/suppressio/aipermiler/gocore/internal/usage"
@@ -99,8 +100,8 @@ func TestFetch(t *testing.T) {
 		{"enterprise on usage credits", "statusline-2.1.319-enterprise", `{"loggedIn":true,"subscriptionType":"enterprise"}`, "", "", 1, true, screenCreditsPanel},
 		{"enterprise, no Usage credits block", "statusline-2.1.319-enterprise", `{"loggedIn":true,"subscriptionType":"enterprise"}`, usage.CodeUnavailable, claude.ReasonUsageCredits, 0, true, ""},
 		{"enterprise with quota windows", "statusline-2.1.316", `{"loggedIn":true,"subscriptionType":"enterprise"}`, "", "", 2, true, ""},
-		{"enterprise, status line never ran", "", `{"loggedIn":true,"subscriptionType":"enterprise"}`, usage.CodeFormatDrift, "", 0, true, ""},
-		{"status line never ran", "", `{"loggedIn":true}`, usage.CodeFormatDrift, "", 0, true, ""},
+		{"enterprise, status line never ran", "", `{"loggedIn":true,"subscriptionType":"enterprise"}`, usage.CodeTimeout, "", 0, true, ""},
+		{"status line never ran", "", `{"loggedIn":true}`, usage.CodeTimeout, "", 0, true, ""},
 		{"signed out", "", `{"loggedIn":false}`, usage.CodeSignedOut, "", 0, false, ""},
 	}
 	for _, tt := range tests {
@@ -128,6 +129,8 @@ func TestFetch(t *testing.T) {
 				if err := os.WriteFile(transcript, []byte("{}\n"), 0o600); err != nil {
 					t.Fatal(err)
 				}
+				// Claude runs the status line as it draws the prompt (#266).
+				runStatusLine(t, sink, withStatus(t, testdata(t, "statusline-2.1.316-start"), dir, transcript))
 				return newFake(screenPrompt, func(f *fake, key string) {
 					if key == "\x1b" {
 						runStatusLine(t, sink, withStatus(t, testdata(t, "statusline-2.1.316-start"), dir, transcript))
@@ -142,8 +145,8 @@ func TestFetch(t *testing.T) {
 					showPanel(f, key, panel)
 				}), nil
 			}
-			if tt.status == "" && tt.code == usage.CodeFormatDrift {
-				// Not even the start run reaches the sink.
+			if tt.status == "" && tt.code == usage.CodeTimeout {
+				// Not even the start run reaches the sink: the prompt is never ready.
 				start = func(_ string, args, _ []string, _ string) (claude.Terminal, error) {
 					started = true
 					statusLineCommand(t, args)
@@ -156,7 +159,14 @@ func TestFetch(t *testing.T) {
 			if err := fs.Parse([]string{"--claude-bin", nativeStub(t)}); err != nil {
 				t.Fatal(err)
 			}
-			got, err := p.Fetch(context.Background(), "")
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			if tt.code == usage.CodeTimeout {
+				// Only the caller's deadline ends the wait for a prompt that never comes.
+				ctx, cancel = context.WithTimeout(context.Background(), 400*time.Millisecond)
+				defer cancel()
+			}
+			got, err := p.Fetch(ctx, "")
 			if tt.code != "" {
 				assertCode(t, err, tt.code)
 				var uerr *usage.Error
@@ -179,6 +189,67 @@ func TestFetch(t *testing.T) {
 				t.Errorf("probe folder not empty: %v", entries)
 			}
 		})
+	}
+}
+
+// #266: Claude ran the status line at the prompt but not after /usage (frozen, for
+// one): the run is awaited until the caller's deadline, which is a timeout, not a
+// format drift (which would open a drift report).
+func TestFetchNoStatusLineAfterUsage(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	start := func(_ string, args, _ []string, dir string) (claude.Terminal, error) {
+		sink := sinkPath(t, statusLineCommand(t, args))
+		runStatusLine(t, sink, withStatus(t, testdata(t, "statusline-2.1.316-start"), dir, ""))
+		return newFake(screenPrompt, signedIn), nil
+	}
+	p := claude.ProviderForTest(start, func() []byte { return []byte(`{"loggedIn":true}`) }, base, "/synthetic/core")
+	fs := flag.NewFlagSet("usage", flag.ContinueOnError)
+	p.BindFlags(fs)
+	if err := fs.Parse([]string{"--claude-bin", nativeStub(t)}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+	defer cancel()
+	_, err := p.Fetch(ctx, "")
+	assertCode(t, err, usage.CodeTimeout)
+	if !strings.Contains(err.Error(), "after /usage") {
+		t.Fatalf("err = %v", err)
+	}
+}
+
+// #266: a status line run that comes late after /usage (PowerShell starting it on a
+// loaded Windows) is awaited: no fixed wait cuts it.
+func TestFetchWaitsForALateStatusLine(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	start := func(_ string, args, _ []string, dir string) (claude.Terminal, error) {
+		sink := sinkPath(t, statusLineCommand(t, args))
+		runStatusLine(t, sink, withStatus(t, testdata(t, "statusline-2.1.316-start"), dir, ""))
+		return newFake(screenPrompt, func(f *fake, key string) {
+			if key == "\x1b" {
+				go func() {
+					time.Sleep(time.Second)
+					runStatusLine(t, sink, withStatus(t, testdata(t, "statusline-2.1.316"), dir, ""))
+				}()
+			}
+			showPanel(f, key, screenPanel)
+		}), nil
+	}
+	p := claude.ProviderForTest(start, func() []byte { return []byte(`{"loggedIn":true}`) }, base, "/synthetic/core")
+	fs := flag.NewFlagSet("usage", flag.ContinueOnError)
+	p.BindFlags(fs)
+	if err := fs.Parse([]string{"--claude-bin", nativeStub(t)}); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	got, err := p.Fetch(ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.QuotaWindows) != 2 {
+		t.Fatalf("windows = %d", len(got.QuotaWindows))
 	}
 }
 
