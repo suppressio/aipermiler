@@ -1,7 +1,7 @@
 {
   "name": "aipermiler",
   "productName": "AIpermiler",
-  "version": "0.6.1-beta",
+  "version": "0.6.2-beta",
   "description": "Desktop widget that monitors AI token usage (Claude, GitHub Copilot and Codex) and computes an optimal daily budget.",
   "main": "dist/main.js",
   "type": "commonjs",
