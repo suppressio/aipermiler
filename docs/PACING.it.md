@@ -12,7 +12,7 @@
 
 - **Punti percentuali di quota** (`pp`): ogni quantità di quota è una percentuale del totale della finestra, 0-100 (una finestra oltre il limite può superare 100). Una finestra `count` con totale viene prima normalizzata (`used / total × 100`); senza totale non ha utilizzo né pacing.
 - **Unità**: `pp` (quota), `pp/unit` (per unità lavorativa), `pp/h` (per ora), `h` (ore), `unit` (unità lavorative, §2).
-- **Arrotondamento**: un valore si arrotonda **solo per mostrarlo o salvarlo**, mai per usarlo in un altro calcolo (invariante I-4). Le tabelle mostrano il risultato arrotondato; le formule usano quello esatto.
+- **Arrotondamento**: un valore si salva a precisione piena e si arrotonda **solo per mostrarlo**, in snapshot, mai per usarlo in un altro calcolo (invariante I-4). Le tabelle mostrano il risultato arrotondato; le formule usano quello esatto.
 - **Tempo**: tutti i giorni sono giorni di calendario **locali** (`YYYY-MM-DD` in ora locale), mai UTC.
 - **`now`** è sempre un argomento: il modello non ha un orologio nascosto.
 - **Scenario S**, usato da ogni tabella salvo diversa indicazione: orario lunedì-venerdì giorni interi (sabato e domenica liberi), `hoursPerDay = 8`, ciclo di fatturazione **[2026-10-01, 2026-11-01)**, `now` = **martedì 2026-10-20 10:00**, 3 ore di lavoro osservate oggi, nessun ritmo recente salvo indicazione. In S: il periodo ha **N = 22** unità lavorative (ottobre 2026 ha 22 giorni feriali), la quota equa è **s = 100 / 22 = 4,545 pp/unit** (0,568 pp/h su giorni da 8 h), 13 unità sono passate prima di oggi, oggi è un giorno intero (1 unità) di cui 0,375 trascorso (3 h / 8 h), quindi trascorse **E = 13,375**, rimanenti **R = 8,625**, e **U = 9** contando oggi per intero.
@@ -143,13 +143,13 @@ Per i cicli di fatturazione D-2.4-D-2.6 valgono con `oggi` dentro il periodo, `s
 ### 3.7 Budget di oggi
 
 **D-3.15 Budget di oggi** `B = (100 − x₀) / U × u(oggi)` (pp) — ciò che restava all'**inizio** del giorno ripartito sulle unità lavorative da oggi in poi, per l'unità di oggi. **Fisso per tutto il giorno.** `x₀` è la base del giorno (§7). Indefinito (nullo) senza base, in un giorno libero, fuori dal periodo o con `U = 0`.
-**D-3.16 Usato oggi** `used_today = x − x₀`, mai negativo; se il valore è sceso di **più di 1 pp** sotto la base nel giorno c'è stato un reset e `used_today = x` (il nuovo conteggio). Entrambi i lati alla **precisione salvata** (0,01 pp): confrontare un valore vivo con uno salvato richiede lo stesso arrotondamento. Un calo fino a 1 pp è rumore (un provider che ripiega su una percentuale intera), non un reset.
+**D-3.16 Usato oggi** `used_today = x − x₀`, mai negativo; se il valore è sceso di **più di 1 pp** sotto la base nel giorno c'è stato un reset e `used_today = x` (il nuovo conteggio). Entrambi i lati mantengono la **precisione piena**: un valore vivo non richiede arrotondamento prima del confronto con uno salvato. Si arrotonda solo quando si mostra il risultato, in snapshot. Un calo fino a 1 pp è rumore (un provider che ripiega su una percentuale intera), non un reset.
 **D-3.17 Allarme di ritmo**: `used_today > 1,5 × B`, con `B > 0`.
 
 | # | Input | Atteso |
 |---|---|---|
 | B-1 | S, x₀ = 57, x = 60 | B = 4,78, used_today = 3 |
-| B-2 | S, x₀ = 57,04, x = 57,0449 | used_today = 0 (entrambi a 0,01: 57,04 − 57,04) |
+| B-2 | S, x₀ = 57,04, x = 57,0449 | used_today = 0,0049 (mostrato come 0,00; input e valori salvati restano esatti) |
 | B-3 | S, x₀ = 40,0, x = 39,6 | used_today = 0 (calo 0,4 ≤ 1: non è un reset) |
 | B-4 | S, x₀ = 40,0, x = 3,5 | used_today = 3,5 (reset) |
 | B-5 | S, x₀ = 90, x = 103 | B = 1,11, used_today = 13, allarme (13 > 1,67) |
@@ -367,7 +367,7 @@ Ogni riga dice quanto valgono le quantità. «—» = indefinito, l'indicatore �
 - **I-1** Il target non supera mai il tetto: `T ≤ C`.
 - **I-2** Il target non cresce mai perché il reset si avvicina: `T ≤ s_h`, e `T` non dipende da quante poche ore restano (solo `C` sì).
 - **I-3** Un consiglio non chiede mai una riduzione del 100 % o più, né inferiore all'1 %; su una quota esaurita non si consiglia nulla.
-- **I-4** Un valore mostrato non deriva mai da un altro valore arrotondato. Si arrotonda all'ultimo passaggio; un valore vivo confrontato con uno salvato porta prima alla precisione salvata (0,01 pp).
+- **I-4** Un valore mostrato non deriva mai da un altro valore arrotondato. I valori salvati mantengono la precisione piena; valori vivi e salvati si confrontano senza arrotondamento. Si arrotonda solo all'ultimo passaggio quando un valore viene mostrato, in snapshot.
 - **I-5** Un valore che non esiste è nascosto, non mostrato come 0 (niente storico → niente valutazione, non cinque stelle; niente uso → niente ritmo).
 - **I-6** Nulla di prospettico viene inventato per un inizio periodo ignoto o un reset mancante/passato.
 - **I-7** Oggi non è mai giudicato come un giorno completato (valutazione, picco, serie); il budget di oggi è fisso durante il giorno.
@@ -385,9 +385,9 @@ Cosa è persistito, chi lo scrive, quando, con quale precisione. Tutto il resto 
 
 | Stato | Contenuto | Unico scrittore | Quando | Precisione | Letto da |
 |---|---|---|---|---|---|
-| `history.dailyUsage` | per account, finestra e giorno locale: `used` (ultimo valore del giorno), `dayStartUsed` (base) | l'aggiornamento (`recordDailyUsage`) | il punto del giorno a ogni aggiornamento **fresco**; `dayStartUsed` fissato una volta alla creazione del punto | 0,01 pp | delta, grafico, valutazione, ritmo recente, budget di oggi |
-| regola di `dayStartUsed` | ultimo valore del giorno prima se dentro il periodo e non sceso di più di 1 pp; 0 se il periodo è iniziato dopo o c'è stato un reset; senza storico 0 se il periodo è iniziato oggi, altrimenti il valore attuale | `updateDailyPoint` (pura) tramite lo stesso scrittore | alla creazione del punto del giorno | 0,01 pp | B, used_today, intervallo di attività |
-| `history.recentSamples` | `used` con timestamp per account e finestra | l'aggiornamento (`recordRecentSample`) | solo un valore **appena letto** | 0,01 pp | ritmo istantaneo, intervallo di attività |
+| `history.dailyUsage` | per account, finestra e giorno locale: `used` (ultimo valore del giorno), `dayStartUsed` (base) | l'aggiornamento (`recordDailyUsage`) | il punto del giorno a ogni aggiornamento **fresco**; `dayStartUsed` fissato una volta alla creazione del punto | precisione piena (esatta) | delta, grafico, valutazione, ritmo recente, budget di oggi |
+| regola di `dayStartUsed` | ultimo valore del giorno prima se dentro il periodo e non sceso di più di 1 pp; 0 se il periodo è iniziato dopo o c'è stato un reset; senza storico 0 se il periodo è iniziato oggi, altrimenti il valore attuale | `updateDailyPoint` (pura) tramite lo stesso scrittore | alla creazione del punto del giorno | precisione piena (esatta) | B, used_today, intervallo di attività |
+| `history.recentSamples` | `used` con timestamp per account e finestra | l'aggiornamento (`recordRecentSample`) | solo un valore **appena letto** | precisione piena (esatta) | ritmo istantaneo, intervallo di attività |
 | `history.lastGood` | ultima risposta grezza riuscita per account | il percorso di lettura | a una lettura riuscita | esatta | mostrata come non aggiornata se una lettura fallisce |
 | `meta.notifiedToday` | flag `<account>:threshold:<day>`, `<account>:pace:<day>` | il passo di notifica | quando una notifica parte | — | lo stesso passo; si tengono solo i flag di oggi |
 | Impostazioni account | orario, giorno di rinnovo manuale, host, … | Impostazioni (`settings:set`) | al salvataggio dell'utente | — | ogni calcolo |
@@ -403,7 +403,7 @@ Regole: un calcolo **legge** lo stato e non lo scrive mai; lo snapshot inviato a
 
 | Issue | Cosa è andato storto | Caso | Atteso |
 |---|---|---|---|
-| #64 | budget/uso di oggi confrontati a precisioni diverse; il ripiego a percentuale intera di un provider letto come reset | B-2, B-3, B-4 | used_today 0; 0; 3,5 |
+| #64 | budget/uso di oggi confrontati a precisioni diverse; il ripiego a percentuale intera di un provider letto come reset | B-2, B-3, B-4 | used_today 0,0049 (mostrato come 0,00); 0; 3,5 |
 | #64 | il consiglio sulla valutazione dichiarava un rapporto diverso dal tooltip | R-1 + TP | `avgRatio` del consiglio = `avgRatio` della valutazione (1,26) |
 | #72 | il target del misuratore arrivava a 331 %/h vicino al reset (quota rimanente su poche ore lavorative) | **G-12**, E2 | T = 0,57 (la quota equa), non 331; C = 331 è solo il tetto |
 | #73 | il consiglio chiedeva «un ritmo inferiore del 100 %» su una quota esaurita | **TP-2**, TP-3, E3 | nessun consiglio |
