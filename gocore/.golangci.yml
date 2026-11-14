@@ -44,6 +44,24 @@ linters:
               desc: quotaperiod is pure, no I/O
             - pkg: unsafe
               desc: quotaperiod is pure, no I/O
+        history-is-pure:
+          list-mode: strict
+          files:
+            - "**/internal/pacing/history/**"
+            - "!$test"
+          allow:
+            - $gostd
+          deny:
+            - pkg: os
+              desc: history is pure, no I/O
+            - pkg: io/fs
+              desc: history is pure, no I/O
+            - pkg: net
+              desc: history is pure, no I/O
+            - pkg: syscall
+              desc: history is pure, no I/O
+            - pkg: unsafe
+              desc: history is pure, no I/O
         pacing-is-pure:
           list-mode: strict
           files:

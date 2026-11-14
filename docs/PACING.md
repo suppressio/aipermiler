@@ -12,7 +12,7 @@
 
 - **Quota percentage points** (`pp`): every quantity of quota is a percentage of the window's total, 0-100 (a window over its limit can exceed 100). A `count` window with a total is first normalized (`used / total × 100`); without a total it has no utilization and no pacing at all.
 - **Units**: `pp` (quota), `pp/unit` (per working unit), `pp/h` (per hour), `h` (hours), `unit` (working units, §2).
-- **Rounding**: a value is rounded **only to be shown or stored**, never to be used by another computation (invariant I-4). Tables show the rounded result; the formulas use the exact one.
+- **Rounding**: a value is stored at full precision and rounded **only to be shown**, in snapshot, never to be used by another computation (invariant I-4). Tables show the rounded result; the formulas use the exact one.
 - **Time**: all days are **local** calendar days (`YYYY-MM-DD` in local time), never UTC.
 - **`now`** is always an argument: the model has no hidden clock.
 - **Scenario S**, used by every table unless a row says otherwise: schedule Monday-Friday full days (Saturday and Sunday off), `hoursPerDay = 8`, billing cycle **[2026-10-01, 2026-11-01)**, `now` = **Tuesday 2026-10-20 10:00**, 3 hours of work observed today, no recent pace unless stated. In S: the period has **N = 22** working units (October 2026 has 22 weekdays), the even share is **s = 100 / 22 = 4.545 pp/unit** (0.568 pp/h over 8 h days), 13 units are over before today, today is a full day (1 unit) of which 0.375 is elapsed (3 h / 8 h), so elapsed **E = 13.375**, remaining **R = 8.625**, and **U = 9** counting today whole.
@@ -143,13 +143,13 @@ For billing cycles, D-2.4 to D-2.6 hold for `today` inside the period, `start �
 ### 3.7 Today's budget
 
 **D-3.15 Today's budget** `B = (100 − x₀) / U × u(today)` (pp) — what was left at the **start** of the day spread over the working units from today on, times today's unit. **Fixed for the whole day.** `x₀` is the day's baseline (§7). Undefined (null) without a baseline, on a day off, outside the period, or when `U = 0`.
-**D-3.16 Used today** `used_today = x − x₀`, never negative; if the value fell by more than **1 pp** below the baseline a reset happened in the day and `used_today = x` (the new count). Both sides at the **stored precision** (0.01 pp): comparing a live value with a stored one requires the same rounding. A drop of up to 1 pp is noise (a provider falling back to an integer percent), not a reset.
+**D-3.16 Used today** `used_today = x − x₀`, never negative; if the value fell by more than **1 pp** below the baseline a reset happened in the day and `used_today = x` (the new count). Both sides retain **full precision**: a live value needs no rounding before being compared with a stored one. Rounding happens only when the result is shown, in snapshot. A drop of up to 1 pp is noise (a provider falling back to an integer percent), not a reset.
 **D-3.17 Pace alert**: `used_today > 1.5 × B`, with `B > 0`.
 
 | # | Input | Expected |
 |---|---|---|
 | B-1 | S, x₀ = 57, x = 60 | B = 4.78, used_today = 3 |
-| B-2 | S, x₀ = 57.04, x = 57.0449 | used_today = 0 (both at 0.01: 57.04 − 57.04) |
+| B-2 | S, x₀ = 57.04, x = 57.0449 | used_today = 0.0049 (shown as 0.00; inputs and stored values stay exact) |
 | B-3 | S, x₀ = 40.0, x = 39.6 | used_today = 0 (drop 0.4 ≤ 1: not a reset) |
 | B-4 | S, x₀ = 40.0, x = 3.5 | used_today = 3.5 (reset) |
 | B-5 | S, x₀ = 90, x = 103 | B = 1.11, used_today = 13, alert (13 > 1.67) |
@@ -367,7 +367,7 @@ Each row says what the quantities are. "—" = undefined, the indicator is hidde
 - **I-1** The target never exceeds the ceiling: `T ≤ C`.
 - **I-2** The target never grows because the reset is near: `T ≤ s_h`, and `T` is independent of how few hours are left (only `C` is).
 - **I-3** A tip never asks for a reduction of 100 % or more, or of less than 1 %; nothing is advised on an exhausted quota.
-- **I-4** A shown value is never derived from another rounded value. A value is rounded at its last step; a live value compared with a stored one is first brought to the stored precision (0.01 pp).
+- **I-4** A shown value is never derived from another rounded value. Stored values retain full precision; live and stored values are compared without rounding. Rounding happens only at the last step when a value is shown, in snapshot.
 - **I-5** A value that does not exist is hidden, not shown as 0 (no history → no rating, not five stars; no usage → no pace).
 - **I-6** Nothing forward-looking is fabricated for an unknown period start or a missing/past reset.
 - **I-7** Today is never judged as a completed day (rating, peak, streak); today's budget is fixed during the day.
@@ -385,9 +385,9 @@ What is persisted, who writes it, when, at what precision. Everything else in th
 
 | State | Content | Single writer | When | Precision | Read by |
 |---|---|---|---|---|---|
-| `history.dailyUsage` | per account and window and local day: `used` (last value of the day), `dayStartUsed` (baseline) | the refresh (`recordDailyUsage`) | the day's point on every **fresh** refresh; `dayStartUsed` set once when the point is created | 0.01 pp | deltas, chart, rating, recent pace, today's budget |
-| `dayStartUsed` rule | previous day's last value if inside the period and not dropped by more than 1 pp; 0 if the period started after it or a reset happened; with no history 0 when the period started today, else the current value | `updateDailyPoint` (pure) through the same writer | at creation of the day's point | 0.01 pp | B, used_today, activity span |
-| `history.recentSamples` | timestamped `used` per account and window | the refresh (`recordRecentSample`) | only a **freshly fetched** value | 0.01 pp | instant pace, activity span |
+| `history.dailyUsage` | per account and window and local day: `used` (last value of the day), `dayStartUsed` (baseline) | the refresh (`recordDailyUsage`) | the day's point on every **fresh** refresh; `dayStartUsed` set once when the point is created | full precision (exact) | deltas, chart, rating, recent pace, today's budget |
+| `dayStartUsed` rule | previous day's last value if inside the period and not dropped by more than 1 pp; 0 if the period started after it or a reset happened; with no history 0 when the period started today, else the current value | `updateDailyPoint` (pure) through the same writer | at creation of the day's point | full precision (exact) | B, used_today, activity span |
+| `history.recentSamples` | timestamped `used` per account and window | the refresh (`recordRecentSample`) | only a **freshly fetched** value | full precision (exact) | instant pace, activity span |
 | `history.lastGood` | last successful raw response per account | the fetch path | on a successful fetch | exact | shown as stale when a fetch fails |
 | `meta.notifiedToday` | `<account>:threshold:<day>`, `<account>:pace:<day>` flags | the notification step | when a notification fires | — | the same step; only today's flags are kept |
 | Account settings | schedule, manual renewal day, host, … | Settings (`settings:set`) | on user save | — | every computation |
@@ -403,7 +403,7 @@ Rules: a computation **reads** state and never writes it; the snapshot sent to t
 
 | Issue | What went wrong | Case | Expected |
 |---|---|---|---|
-| #64 | today's budget/usage compared values at different precisions; a provider's integer fallback read as a reset | B-2, B-3, B-4 | used_today 0; 0; 3.5 |
+| #64 | today's budget/usage compared values at different precisions; a provider's integer fallback read as a reset | B-2, B-3, B-4 | used_today 0.0049 (shown as 0.00); 0; 3.5 |
 | #64 | the rating tip stated a ratio different from the tooltip | R-1 + TP | the tip's `avgRatio` is the rating's `avgRatio` (1.26) |
 | #72 | the gauge target reached 331 %/h near the reset (remaining quota over a handful of working hours) | **G-12**, E2 | T = 0.57 (the even share), not 331; C = 331 is the ceiling only |
 | #73 | the advice asked for "a pace 100 % lower" on an exhausted quota | **TP-2**, TP-3, E3 | no tip |
