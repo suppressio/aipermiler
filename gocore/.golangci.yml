@@ -62,10 +62,31 @@ linters:
               desc: history is pure, no I/O
             - pkg: unsafe
               desc: history is pure, no I/O
+        pace-is-pure:
+          list-mode: strict
+          files:
+            - "**/internal/pacing/pace/**"
+            - "!$test"
+          allow:
+            - $gostd
+            - github.com/suppressio/aipermiler/gocore/internal/pacing/quotaperiod
+            - github.com/suppressio/aipermiler/gocore/internal/pacing/history
+          deny:
+            - pkg: os
+              desc: pace is pure, no I/O
+            - pkg: io/fs
+              desc: pace is pure, no I/O
+            - pkg: net
+              desc: pace is pure, no I/O
+            - pkg: syscall
+              desc: pace is pure, no I/O
+            - pkg: unsafe
+              desc: pace is pure, no I/O
         pacing-is-pure:
           list-mode: strict
           files:
             - "**/internal/pacing/**"
+            - "!**/internal/pacing/pace/**"
             - "!$test"
           allow:
             - $gostd
