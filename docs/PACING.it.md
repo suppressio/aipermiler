@@ -32,7 +32,7 @@ Un provider espone una o più **finestre di quota** di un account. Il tipo decid
 
 Una finestra senza data di reset e senza modo di ricavarla non ha alcuna quantità prospettica (§5, E6).
 
-**Periodo.** `[start, end)` dove `end` è il reset e `start = end − periodLength` (ore, giorni o mesi di calendario). Entrambi i limiti sono **troncati al giorno locale** per contare le unità lavorative (§2): il modello lavora con la granularità di un giorno, più la parte di oggi già lavorata.
+**Periodo.** `[start, end)` dove `end` è il reset e `start = end − periodLength` (ore, giorni o mesi di calendario). **Ore mobili e giorni mobili conservano i timestamp esatti**; un giorno mobile vale 24 ore. **I limiti dei cicli di fatturazione sono troncati al giorno locale** per contare le unità lavorative (§2), inclusa la parte di oggi già lavorata. Le finestre mobili richiedono il proprio `resetsAt`: rinnovo del provider e giorno manuale sono ripieghi solo per i cicli di fatturazione.
 
 ---
 
@@ -40,19 +40,19 @@ Una finestra senza data di reset e senza modo di ricavarla non ha alcuna quantit
 
 **D-2.1 Unità del giorno** `u(d)` ∈ {1, 0,5, 0} — giorno intero, mezzo, libero, dall'orario dell'account; **ogni giorno vale 1 con l'orario disattivato**. Dominio: un giorno di calendario locale.
 
-**D-2.2 Unità lavorative tra** `W(a, b) = Σ u(d)` per i giorni locali `d` in `[a, b)`; `0` se `b ≤ a`. Il totale del periodo è `N = W(start, end)`.
+**D-2.2 Unità lavorative tra** `W(a, b) = Σ u(d)` per i giorni locali `d` in `[a, b)`; `0` se `b ≤ a`. Per i cicli di fatturazione il totale del periodo è `N = W(start, end)`. Per i giorni mobili si usa `Wᵣ(a, b) = Σ u(d) × durata([a, b) ∩ d) / 24 h` sui giorni locali sovrapposti, con `0` se `b ≤ a`; quindi `N = Wᵣ(start, end)`. Con orario disattivato `u(d) = 1`; con orario attivo giorni interi, mezzi e liberi mantengono i propri pesi, anche nei primi e ultimi giorni parzialmente sovrapposti.
 
-**D-2.3 Unità trascorse oggi** `e` (la parte di oggi già lavorata), dominio `[0, u(oggi)]`:
+**D-2.3 Unità trascorse oggi** `e` **per i cicli di fatturazione** (la parte di oggi già lavorata), dominio `[0, u(oggi)]`:
 - orario attivo: `0` finché oggi non si è vista attività; poi `min(u(oggi), max(2 h, lavorate) / hoursPerDay)` dove *lavorate* = ultimo aumento − prima attività del giorno (§3.1); `0` in un giorno libero;
 - orario disattivato: frazione del giorno di calendario trascorsa (`10:00` → 0,4167).
 
-D-2.4-D-2.6 valgono con `oggi` dentro il periodo, `start ≤ oggi < end` (giorni locali). Fuori: **prima dell'inizio** `E = 0`, `R = U = N`; **dalla fine in poi** `E = N`, `R = U = 0`.
+Per i cicli di fatturazione D-2.4-D-2.6 valgono con `oggi` dentro il periodo, `start ≤ oggi < end` (giorni locali). Per i giorni mobili valgono con `start ≤ now < end` (istanti esatti). Fuori: **prima dell'inizio** `E = 0`, `R = U = N`; **dalla fine in poi** `E = N`, `R = U = 0`.
 
 **D-2.4 Unità trascorse** `E = W(start, oggi) + e`.
 
-**D-2.5 Unità rimanenti** `R = (u(oggi) − e) + W(oggi + 1, end)`. Invariante: `E + R = N` (I-8).
+**D-2.5 Unità rimanenti** `R = (u(oggi) − e) + W(oggi + 1, end)`. Invariante: `E + R = N` (I-8). Per i giorni mobili `E = Wᵣ(start, now)` e `R = Wᵣ(now, end)`: attività osservata e minimo di 2 ore non si applicano. Il loro `e = Wᵣ(max(start, oggi), now)` è la sovrapposizione pesata trascorsa oggi.
 
-**D-2.6 Unità da oggi** `U = u(oggi) + W(oggi + 1, end)` — oggi contato per intero (`R` con `e = 0`). Si usa dove serve un numero fisso per il giorno (budget di oggi, quota ridistribuita).
+**D-2.6 Unità da oggi** `U = u(oggi) + W(oggi + 1, end)` — oggi contato per intero (`R` con `e = 0`). Si usa dove serve un numero fisso per il giorno (budget di oggi, quota ridistribuita). Per i giorni mobili `U = Wᵣ(max(start, oggi), end)`: conta solo la parte di oggi dentro la finestra e `U` rimane fisso durante quel giorno.
 
 **D-2.7 Ore lavorative rimanenti** `H = R × hoursPerDay`, anche con l'orario disattivato (ogni giorno è allora un giorno lavorativo di `hoursPerDay` ore). Solo dove una finestra si legge in ore (§3.9) `H = ore di calendario al reset`.
 
@@ -72,6 +72,12 @@ D-2.4-D-2.6 valgono con `oggi` dentro il periodo, `start ≤ oggi < end` (giorni
 | T-12 | `now` dopo la fine del periodo | E = N, R = 0 |
 | T-13 | S, venerdì 10-30 17:00, 7,9 h lavorate | e = 0,9875, R = 0,0125, H = 0,1 h |
 | T-14 | S con `now` = lunedì 11-02 09:00, nessuna attività (ciclo finito, reset nuovo non ancora letto) | E = 22, R = 0, U = 0 |
+| T-15 | HYP#78, 7 giorni mobili [mer 2026-10-14 23:00, mer 10-21 23:00), ora sab 10-17 18:38, orario disattivato | N = 7, E = 4058/1440 ≈ 2,82, R = 6022/1440 ≈ 4,18, U = 119/24, e = 1118/1440 |
+| T-16 | stessa finestra, lun-ven interi, ora ven 10-16 12:00 | N = 5, E = 37/24, R = 83/24, U = 95/24, e = 0,5 |
+| T-17 | stessa finestra, lun-ven interi, ora sab 10-17 18:38 (giorno libero dentro la finestra) | N = 5, E = 49/24, R = U = 71/24, e = 0 |
+| T-18 | come T-16, venerdì mezzo | N = 4,5, E = 31/24, R = 77/24, U = 83/24, e = 0,25 |
+| T-19 | 7 giorni mobili [mer 10-14 00:00, mer 10-21 00:00), ora sab 10-17 18:38, orario disattivato | N = 7, E = 5438/1440, R = 4642/1440, U = 4 |
+| T-20 | 7 giorni mobili [mer 10-14 01:00, mer 10-21 01:00), ora sab 10-17 18:38, orario disattivato | N = 7, E = 5378/1440, R = 4702/1440, U = 97/24 |
 
 ---
 
@@ -353,7 +359,6 @@ Ogni riga dice quanto valgono le quantità. «—» = indefinito, l'indicatore �
 | E12 | **Reset durante il giorno** | x₀ = 60, ora 3,5 | used_today = 3,5; il delta del giorno è nullo (non attribuibile) |
 | E13 | **Giorno senza letture** | app chiusa tutto il martedì, ultimo valore salvato lun 60, prima lettura di mer 64 | la base di mer = ultimo valore di lun (60), quindi il delta di mer è 4 e include l'uso di mar; mar non ha punto né barra |
 | E14 | **Finestra count senza totale** | usato 12, totale nullo | utilizzo —, nessun pacing, mai scelta come critica rispetto a una con un valore |
-| E15 | **Giorno con ora legale** | un giorno di 23 o 25 ore | i giorni si contano come giorni di calendario, mai come blocchi da 24 h |
 
 ---
 
@@ -369,7 +374,7 @@ Ogni riga dice quanto valgono le quantità. «—» = indefinito, l'indicatore �
 - **I-8** `E + R = N`; `0 ≤ e ≤ u(oggi)`; `U ≥ R`.
 - **I-9** La serie, il colore di una barra del grafico e il budget con cui si confronta sono lo stesso flag.
 - **I-10** La proiezione non è mai limitata; il rimanente non è mai negativo; l'utilizzo non è mai limitato per la visualizzazione.
-- **I-11** I giorni di calendario sono locali; un giorno con ora legale è comunque un giorno.
+- **I-11** I giorni di calendario sono locali.
 - **I-12** Un solo scrittore per ogni pezzo di stato (§7).
 
 ---
@@ -402,7 +407,7 @@ Regole: un calcolo **legge** lo stato e non lo scrive mai; lo snapshot inviato a
 | #64 | il consiglio sulla valutazione dichiarava un rapporto diverso dal tooltip | R-1 + TP | `avgRatio` del consiglio = `avgRatio` della valutazione (1,26) |
 | #72 | il target del misuratore arrivava a 331 %/h vicino al reset (quota rimanente su poche ore lavorative) | **G-12**, E2 | T = 0,57 (la quota equa), non 331; C = 331 è solo il tetto |
 | #73 | il consiglio chiedeva «un ritmo inferiore del 100 %» su una quota esaurita | **TP-2**, TP-3, E3 | nessun consiglio |
-| #78 | *il testo della issue non era disponibile quando è stata scritta questa bozza: da completare in revisione con il suo caso e il valore atteso* | — | — |
+| HYP#78 | una finestra mobile di 7 giorni veniva spostata a mezzanotte: la prima ora contava come giorno intero e le ultime 23 ore erano escluse | **T-15**: mer 14/10 23:00 → mer 21/10 23:00 locali; ora sab 17/10 18:38, orario disattivato | trascorsi **2,82** giorni, rimanenti **4,18**, al posto di 3,78 / 3,22; precisione completa 4058/1440 e 6022/1440 |
 | #67 | indice di efficienza e stelle sostituiti poco dopo l'introduzione | R-1…R-6, P-6 | ridefiniti da #67 contro questa tabella |
 
 ---
@@ -418,7 +423,7 @@ Emersi scrivendo il modello; ognuno diventa un caso che fallisce e una voce del 
 5. **Punto giornaliero scritto a ogni aggiornamento, anche non fresco** (il flag `fresh` vale solo per i campioni): il modello ha una sola regola, solo fresco (I-12).
 6. **Reset passato**: `sustainableHourlyRate` risponde `0` invece di «indefinito»; il misuratore allora si legge come «sempre oltre».
 7. **Finestra mobile senza `resetsAt`** ripiega sulla regola di rinnovo manuale come fine periodo; privo di senso per una finestra mobile (E6).
-8. **Granularità al giorno dei limiti del periodo** (`startOfDay`) non è citata nella UI; tenuta nel modello (§1) e da confermare.
+8. **Limiti dei giorni mobili troncati al giorno locale** (`startOfDay`): HYP#78 conta 3,78 trascorsi / 3,22 rimanenti invece di 2,82 / 4,18. Modello confermato (§1-2): conservare i timestamp mobili esatti e pesare la sovrapposizione di ogni giorno locale per la sua unità lavorativa, divisa per 24 ore; i cicli di fatturazione mantengono giorni locali interi. Implementato nel package Go `quotaperiod` (HYP#161); l’integrazione TypeScript rimane parte di HYP#75.
 9. ~~**`resolveRenewalDate` con giorno 29-31** traboccava nel mese seguente~~ — risolto (#111, N-6..N-9).
 10. **`budget.ts` mescola** pacing a giorni, misuratore a ore, gestione dello storico, grafico, insight e consigli in un solo file; il modello suggerisce la divisione usata da questo documento (§2 tempo, §3.2-3.8 pacing, §3.6/3.9 orario, §3.11-3.12 storico, §3.14-3.15 consigli).
 
