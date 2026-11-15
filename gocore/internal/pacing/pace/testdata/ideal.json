@@ -1,0 +1,11 @@
+[
+  {"id": "D-3.4", "description": "S: N = 22", "kind": "share", "total": 22, "want": 4.545454545454546, "ok": true},
+  {"id": "D-3.4", "description": "N = 0 is undefined", "kind": "share", "total": 0, "want": 0, "ok": false},
+  {"id": "D-3.4", "description": "negative N is undefined", "kind": "share", "total": -3, "want": 0, "ok": false},
+  {"id": "D-3.5", "description": "S: 100/22 over 8 h days", "kind": "hourly", "share": 4.545454545454546, "hoursPerDay": 8, "want": 0.5681818181818182, "ok": true},
+  {"id": "D-3.5", "description": "E7: 100/(31x8), schedule disabled", "kind": "hourly", "share": 3.2258064516129035, "hoursPerDay": 8, "want": 0.4032258064516129, "ok": true},
+  {"id": "D-3.5", "description": "no working day length", "kind": "hourly", "share": 4.5, "hoursPerDay": 0, "want": 0, "ok": false},
+  {"id": "D-3.5", "description": "no share", "kind": "hourly", "share": 0, "hoursPerDay": 8, "want": 0, "ok": false},
+  {"id": "D-3.5", "description": "rolling hours: 5 h is 20 pp/h", "kind": "rolling", "periodLength": 5, "want": 20, "ok": true},
+  {"id": "D-3.5", "description": "rolling hours without length", "kind": "rolling", "periodLength": 0, "want": 0, "ok": false}
+]

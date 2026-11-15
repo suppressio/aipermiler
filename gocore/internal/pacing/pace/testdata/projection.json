@@ -1,0 +1,25 @@
+{
+  "blend": [
+    {"id": "D-3.8", "description": "S: average 4.486 blended with recent 3", "used": 60, "elapsed": 13.375, "recent": 3, "hasRecent": true, "want": 3.7429906542056073, "ok": true},
+    {"id": "D-3.8", "description": "no recent pace: just the average", "used": 60, "elapsed": 13.375, "hasRecent": false, "want": 4.485981308411215, "ok": true},
+    {"id": "D-3.8", "description": "E = 0: just the recent pace", "used": 0, "elapsed": 0, "recent": 3, "hasRecent": true, "want": 3, "ok": true},
+    {"id": "D-3.8", "description": "neither exists", "used": 0, "elapsed": 0, "hasRecent": false, "want": 0, "ok": false},
+    {"id": "D-3.8", "description": "x = 0 with elapsed time: average 0 blended", "used": 0, "elapsed": 10, "recent": 2, "hasRecent": true, "want": 1, "ok": true}
+  ],
+  "projection": [
+    {"id": "D-3.9", "description": "S: x = 60, p = 4.486, R = 8.625", "used": 60, "pace": 4.485981308411215, "hasPace": true, "remaining": 8.625, "want": 98.69158878504672},
+    {"id": "D-3.9", "description": "not capped at 100", "used": 60, "pace": 10, "hasPace": true, "remaining": 8.625, "want": 146.25},
+    {"id": "D-3.9", "description": "no pace: just x", "used": 60, "hasPace": false, "remaining": 8.625, "want": 60},
+    {"id": "E1", "description": "start of window, x = 0", "used": 0, "hasPace": false, "remaining": 22, "want": 0},
+    {"id": "E2", "description": "last minutes: R = 0.0125 barely moves it", "used": 60, "pace": 4, "hasPace": true, "remaining": 0.0125, "want": 60.05}
+  ],
+  "autonomy": [
+    {"id": "D-3.10", "description": "S: (100-60)/4.486", "used": 60, "pace": 4.485981308411215, "hasPace": true, "want": 8.916666666666668},
+    {"id": "D-3.10", "description": "blended pace 3.743", "used": 60, "pace": 3.7429906542056073, "hasPace": true, "want": 10.686641697877654},
+    {"id": "E3", "description": "exhausted: 0", "used": 100, "pace": 4, "hasPace": true, "want": 0},
+    {"id": "E3b", "description": "over the limit: 0", "used": 103, "hasPace": false, "want": 0},
+    {"id": "D-3.10", "description": "pace zero: infinity", "used": 60, "pace": 0, "hasPace": true, "inf": true},
+    {"id": "D-3.10", "description": "negative pace: infinity", "used": 60, "pace": -1, "hasPace": true, "inf": true},
+    {"id": "E1", "description": "unknown pace: infinity", "used": 0, "hasPace": false, "inf": true}
+  ]
+}

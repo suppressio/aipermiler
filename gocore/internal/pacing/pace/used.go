@@ -1,6 +1,8 @@
-// Package pace computes the base pacing quantities of one quota window
-// (docs/PACING.md §3.1): used, remaining and today's activity. It is pure: no
-// I/O and no hidden clock. Undefined values are reported with an explicit ok.
+// Package pace computes the pacing quantities of one quota window
+// (docs/PACING.md §3.1 to §3.5): used, remaining, today's activity, even share
+// and ideal pace, efficiency, recent and blended pace, projection and autonomy.
+// It is pure: no I/O and no hidden clock. Undefined values are reported with an
+// explicit ok.
 package pace
 
 import "math"
