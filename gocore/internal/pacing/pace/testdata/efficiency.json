@@ -1,0 +1,10 @@
+[
+  {"id": "D-3.6", "description": "S: x = 60, N = 22, E = 13.375", "used": 60, "total": 22, "elapsed": 13.375, "want": 1.013257575757576, "ok": true},
+  {"id": "E7", "description": "schedule disabled: N = 31, E = 19.4167, x = 60", "used": 60, "total": 31, "elapsed": 19.416666666666668, "want": 1.0439068100358422, "ok": true},
+  {"id": "D-3.6", "description": "consuming twice the plan", "used": 50, "total": 10, "elapsed": 2.5, "want": 0.5, "ok": true},
+  {"id": "D-3.6", "description": "x just under 0.1 is noise", "used": 0.0999, "total": 22, "elapsed": 13.375, "want": 0, "ok": false},
+  {"id": "D-3.6", "description": "x = 0.1 counts", "used": 0.1, "total": 22, "elapsed": 11, "want": 500, "ok": true},
+  {"id": "E1", "description": "start of window: E = 0", "used": 0, "total": 22, "elapsed": 0, "want": 0, "ok": false},
+  {"id": "D-3.6", "description": "E = 0 with usage", "used": 5, "total": 22, "elapsed": 0, "want": 0, "ok": false},
+  {"id": "D-3.6", "description": "N = 0", "used": 5, "total": 0, "elapsed": 3, "want": 0, "ok": false}
+]

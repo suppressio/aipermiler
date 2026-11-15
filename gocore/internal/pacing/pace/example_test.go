@@ -24,3 +24,15 @@ func ExampleTodayActivity() {
 	fmt.Println(ok)
 	// Output: false
 }
+
+func ExampleProjection() {
+	// E2: in the last minutes the projection is not capped and barely moves.
+	fmt.Printf("%.2f\n", pace.Projection(60, 4, true, 0.0125))
+	// Output: 60.05
+}
+
+func ExampleAutonomy() {
+	// No pace, no end: infinity, shown by the caller as "lasts to the reset".
+	fmt.Println(pace.Autonomy(0, 0, false))
+	// Output: +Inf
+}
