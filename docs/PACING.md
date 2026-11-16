@@ -12,7 +12,7 @@
 
 - **Quota percentage points** (`pp`): every quantity of quota is a percentage of the window's total, 0-100 (a window over its limit can exceed 100). A `count` window with a total is first normalized (`used / total × 100`); without a total it has no utilization and no pacing at all.
 - **Units**: `pp` (quota), `pp/unit` (per working unit), `pp/h` (per hour), `h` (hours), `unit` (working units, §2).
-- **Rounding**: a value is rounded **only to be shown or stored**, never to be used by another computation (invariant I-4). Tables show the rounded result; the formulas use the exact one.
+- **Rounding**: a value is stored at full precision and rounded **only to be shown**, in snapshot, never to be used by another computation (invariant I-4). Tables show the rounded result; the formulas use the exact one.
 - **Time**: all days are **local** calendar days (`YYYY-MM-DD` in local time), never UTC.
 - **`now`** is always an argument: the model has no hidden clock.
 - **Scenario S**, used by every table unless a row says otherwise: schedule Monday-Friday full days (Saturday and Sunday off), `hoursPerDay = 8`, billing cycle **[2026-10-01, 2026-11-01)**, `now` = **Tuesday 2026-10-20 10:00**, 3 hours of work observed today, no recent pace unless stated. In S: the period has **N = 22** working units (October 2026 has 22 weekdays), the even share is **s = 100 / 22 = 4.545 pp/unit** (0.568 pp/h over 8 h days), 13 units are over before today, today is a full day (1 unit) of which 0.375 is elapsed (3 h / 8 h), so elapsed **E = 13.375**, remaining **R = 8.625**, and **U = 9** counting today whole.
@@ -32,7 +32,7 @@ A provider exposes one or more **quota windows** of an account. The kind decides
 
 A window without a reset date and without a way to derive it has no forward-looking quantity at all (§5, E6).
 
-**Period.** `[start, end)` where `end` is the reset and `start = end − periodLength` (hours, days or calendar months). Both bounds are **truncated to local days** for working-unit counting (§2): the model works at the granularity of a day, plus the part of today already worked.
+**Period.** `[start, end)` where `end` is the reset and `start = end − periodLength` (hours, days or calendar months). **Rolling hours and rolling days keep their exact timestamps**; a rolling day is 24 hours. **Billing-cycle bounds are truncated to local days** for working-unit counting (§2), including the part of today already worked. Rolling windows require their own `resetsAt`: provider renewal and the manual day are billing-cycle fallbacks only.
 
 ---
 
@@ -40,19 +40,19 @@ A window without a reset date and without a way to derive it has no forward-look
 
 **D-2.1 Day unit** `u(d)` ∈ {1, 0.5, 0} — full, half, off day, from the account's schedule; **every day is 1 when the schedule is disabled**. Domain: a local calendar day.
 
-**D-2.2 Working units between** `W(a, b) = Σ u(d)` for local days `d` in `[a, b)`; `0` when `b ≤ a`. This is the period total `N = W(start, end)`.
+**D-2.2 Working units between** `W(a, b) = Σ u(d)` for local days `d` in `[a, b)`; `0` when `b ≤ a`. For billing cycles this is the period total `N = W(start, end)`. For rolling days, use `Wᵣ(a, b) = Σ u(d) × duration([a, b) ∩ d) / 24 h` over overlapping local days, with `0` when `b ≤ a`; then `N = Wᵣ(start, end)`. With the schedule disabled `u(d) = 1`; with it enabled full, half and off days retain their weights, including partially overlapping first and last days.
 
-**D-2.3 Today's elapsed units** `e` (the part of today already worked), domain `[0, u(today)]`:
+**D-2.3 Today's elapsed units** `e` **for billing cycles** (the part of today already worked), domain `[0, u(today)]`:
 - schedule enabled: `0` while no activity was seen today; otherwise `min(u(today), max(2 h, worked) / hoursPerDay)` where *worked* = last increase − first activity of the day (§3.1); `0` on a day off;
 - schedule disabled: fraction of the calendar day elapsed (`10:00` → 0.4167).
 
-D-2.4 to D-2.6 hold for `today` inside the period, `start ≤ today < end` (local days). Outside it: **before the start** `E = 0`, `R = U = N`; **from the end on** `E = N`, `R = U = 0`.
+For billing cycles, D-2.4 to D-2.6 hold for `today` inside the period, `start ≤ today < end` (local days). For rolling days they hold for `start ≤ now < end` (exact instants). Outside it: **before the start** `E = 0`, `R = U = N`; **from the end on** `E = N`, `R = U = 0`.
 
 **D-2.4 Elapsed units** `E = W(start, today) + e`.
 
-**D-2.5 Remaining units** `R = (u(today) − e) + W(today + 1, end)`. Invariant: `E + R = N` (I-8).
+**D-2.5 Remaining units** `R = (u(today) − e) + W(today + 1, end)`. Invariant: `E + R = N` (I-8). For rolling days, `E = Wᵣ(start, now)` and `R = Wᵣ(now, end)`: observed activity and the 2-hour floor do not apply. Their `e = Wᵣ(max(start, today), now)` is the weighted overlap elapsed today.
 
-**D-2.6 Units from today** `U = u(today) + W(today + 1, end)` — today counted whole (`R` with `e = 0`). Used wherever a fixed-for-the-day number is needed (today's budget, redistributed quota).
+**D-2.6 Units from today** `U = u(today) + W(today + 1, end)` — today counted whole (`R` with `e = 0`). Used wherever a fixed-for-the-day number is needed (today's budget, redistributed quota). For rolling days, `U = Wᵣ(max(start, today), end)`: only the part of today within the window counts, and `U` stays fixed during that day.
 
 **D-2.7 Remaining working hours** `H = R × hoursPerDay`, also with the schedule disabled (every day is then a working day of `hoursPerDay` hours). Only where a window is read in hours (§3.9) `H = calendar hours to the reset`.
 
@@ -72,6 +72,12 @@ D-2.4 to D-2.6 hold for `today` inside the period, `start ≤ today < end` (loca
 | T-12 | `now` after the period end | E = N, R = 0 |
 | T-13 | S, Friday 10-30 17:00, 7.9 h worked | e = 0.9875, R = 0.0125, H = 0.1 h |
 | T-14 | S with `now` = Monday 11-02 09:00, no activity (cycle over, no fresh reset yet) | E = 22, R = 0, U = 0 |
+| T-15 | HYP#78, rolling 7 days [Wed 2026-10-14 23:00, Wed 10-21 23:00), now Sat 10-17 18:38, schedule disabled | N = 7, E = 4058/1440 ≈ 2.82, R = 6022/1440 ≈ 4.18, U = 119/24, e = 1118/1440 |
+| T-16 | same window, Mon-Fri full, now Fri 10-16 12:00 | N = 5, E = 37/24, R = 83/24, U = 95/24, e = 0.5 |
+| T-17 | same window, Mon-Fri full, now Sat 10-17 18:38 (day off inside the window) | N = 5, E = 49/24, R = U = 71/24, e = 0 |
+| T-18 | as T-16, Friday half | N = 4.5, E = 31/24, R = 77/24, U = 83/24, e = 0.25 |
+| T-19 | rolling 7 days [Wed 10-14 00:00, Wed 10-21 00:00), now Sat 10-17 18:38, schedule disabled | N = 7, E = 5438/1440, R = 4642/1440, U = 4 |
+| T-20 | rolling 7 days [Wed 10-14 01:00, Wed 10-21 01:00), now Sat 10-17 18:38, schedule disabled | N = 7, E = 5378/1440, R = 4702/1440, U = 97/24 |
 
 ---
 
@@ -137,13 +143,13 @@ D-2.4 to D-2.6 hold for `today` inside the period, `start ≤ today < end` (loca
 ### 3.7 Today's budget
 
 **D-3.15 Today's budget** `B = (100 − x₀) / U × u(today)` (pp) — what was left at the **start** of the day spread over the working units from today on, times today's unit. **Fixed for the whole day.** `x₀` is the day's baseline (§7). Undefined (null) without a baseline, on a day off, outside the period, or when `U = 0`.
-**D-3.16 Used today** `used_today = x − x₀`, never negative; if the value fell by more than **1 pp** below the baseline a reset happened in the day and `used_today = x` (the new count). Both sides at the **stored precision** (0.01 pp): comparing a live value with a stored one requires the same rounding. A drop of up to 1 pp is noise (a provider falling back to an integer percent), not a reset.
+**D-3.16 Used today** `used_today = x − x₀`, never negative; if the value fell by more than **1 pp** below the baseline a reset happened in the day and `used_today = x` (the new count). Both sides retain **full precision**: a live value needs no rounding before being compared with a stored one. Rounding happens only when the result is shown, in snapshot. A drop of up to 1 pp is noise (a provider falling back to an integer percent), not a reset.
 **D-3.17 Pace alert**: `used_today > 1.5 × B`, with `B > 0`.
 
 | # | Input | Expected |
 |---|---|---|
 | B-1 | S, x₀ = 57, x = 60 | B = 4.78, used_today = 3 |
-| B-2 | S, x₀ = 57.04, x = 57.0449 | used_today = 0 (both at 0.01: 57.04 − 57.04) |
+| B-2 | S, x₀ = 57.04, x = 57.0449 | used_today = 0.0049 (shown as 0.00; inputs and stored values stay exact) |
 | B-3 | S, x₀ = 40.0, x = 39.6 | used_today = 0 (drop 0.4 ≤ 1: not a reset) |
 | B-4 | S, x₀ = 40.0, x = 3.5 | used_today = 3.5 (reset) |
 | B-5 | S, x₀ = 90, x = 103 | B = 1.11, used_today = 13, alert (13 > 1.67) |
@@ -353,7 +359,6 @@ Each row says what the quantities are. "—" = undefined, the indicator is hidde
 | E12 | **Reset during the day** | x₀ = 60, now 3.5 | used_today = 3.5; the day's delta is null (not attributable) |
 | E13 | **Day without a refresh** | app closed all of Tue, last stored value Mon 60, Wed first refresh 64 | Wed's baseline = Mon's last value (60), so Wed's delta is 4 and includes Tue's use; Tue has no point and no bar |
 | E14 | **Count window without total** | used 12, total null | utilization —, no pacing, never picked as critical over one with a value |
-| E15 | **DST day** | a 23- or 25-hour day | days are counted as calendar days, never as 24 h blocks |
 
 ---
 
@@ -362,14 +367,14 @@ Each row says what the quantities are. "—" = undefined, the indicator is hidde
 - **I-1** The target never exceeds the ceiling: `T ≤ C`.
 - **I-2** The target never grows because the reset is near: `T ≤ s_h`, and `T` is independent of how few hours are left (only `C` is).
 - **I-3** A tip never asks for a reduction of 100 % or more, or of less than 1 %; nothing is advised on an exhausted quota.
-- **I-4** A shown value is never derived from another rounded value. A value is rounded at its last step; a live value compared with a stored one is first brought to the stored precision (0.01 pp).
+- **I-4** A shown value is never derived from another rounded value. Stored values retain full precision; live and stored values are compared without rounding. Rounding happens only at the last step when a value is shown, in snapshot.
 - **I-5** A value that does not exist is hidden, not shown as 0 (no history → no rating, not five stars; no usage → no pace).
 - **I-6** Nothing forward-looking is fabricated for an unknown period start or a missing/past reset.
 - **I-7** Today is never judged as a completed day (rating, peak, streak); today's budget is fixed during the day.
 - **I-8** `E + R = N`; `0 ≤ e ≤ u(today)`; `U ≥ R`.
 - **I-9** The streak, the colour of a chart bar and the budget it is compared with are the same flag.
 - **I-10** Projection is never capped; remaining is never negative; utilization is never clamped for display.
-- **I-11** Calendar days are local; a DST day is still one day.
+- **I-11** Calendar days are local.
 - **I-12** One writer per piece of state (§7).
 
 ---
@@ -380,9 +385,9 @@ What is persisted, who writes it, when, at what precision. Everything else in th
 
 | State | Content | Single writer | When | Precision | Read by |
 |---|---|---|---|---|---|
-| `history.dailyUsage` | per account and window and local day: `used` (last value of the day), `dayStartUsed` (baseline) | the refresh (`recordDailyUsage`) | the day's point on every **fresh** refresh; `dayStartUsed` set once when the point is created | 0.01 pp | deltas, chart, rating, recent pace, today's budget |
-| `dayStartUsed` rule | previous day's last value if inside the period and not dropped by more than 1 pp; 0 if the period started after it or a reset happened; with no history 0 when the period started today, else the current value | `updateDailyPoint` (pure) through the same writer | at creation of the day's point | 0.01 pp | B, used_today, activity span |
-| `history.recentSamples` | timestamped `used` per account and window | the refresh (`recordRecentSample`) | only a **freshly fetched** value | 0.01 pp | instant pace, activity span |
+| `history.dailyUsage` | per account and window and local day: `used` (last value of the day), `dayStartUsed` (baseline) | the refresh (`recordDailyUsage`) | the day's point on every **fresh** refresh; `dayStartUsed` set once when the point is created | full precision (exact) | deltas, chart, rating, recent pace, today's budget |
+| `dayStartUsed` rule | previous day's last value if inside the period and not dropped by more than 1 pp; 0 if the period started after it or a reset happened; with no history 0 when the period started today, else the current value | `updateDailyPoint` (pure) through the same writer | at creation of the day's point | full precision (exact) | B, used_today, activity span |
+| `history.recentSamples` | timestamped `used` per account and window | the refresh (`recordRecentSample`) | only a **freshly fetched** value | full precision (exact) | instant pace, activity span |
 | `history.lastGood` | last successful raw response per account | the fetch path | on a successful fetch | exact | shown as stale when a fetch fails |
 | `meta.notifiedToday` | `<account>:threshold:<day>`, `<account>:pace:<day>` flags | the notification step | when a notification fires | — | the same step; only today's flags are kept |
 | Account settings | schedule, manual renewal day, host, … | Settings (`settings:set`) | on user save | — | every computation |
@@ -398,11 +403,11 @@ Rules: a computation **reads** state and never writes it; the snapshot sent to t
 
 | Issue | What went wrong | Case | Expected |
 |---|---|---|---|
-| #64 | today's budget/usage compared values at different precisions; a provider's integer fallback read as a reset | B-2, B-3, B-4 | used_today 0; 0; 3.5 |
+| #64 | today's budget/usage compared values at different precisions; a provider's integer fallback read as a reset | B-2, B-3, B-4 | used_today 0.0049 (shown as 0.00); 0; 3.5 |
 | #64 | the rating tip stated a ratio different from the tooltip | R-1 + TP | the tip's `avgRatio` is the rating's `avgRatio` (1.26) |
 | #72 | the gauge target reached 331 %/h near the reset (remaining quota over a handful of working hours) | **G-12**, E2 | T = 0.57 (the even share), not 331; C = 331 is the ceiling only |
 | #73 | the advice asked for "a pace 100 % lower" on an exhausted quota | **TP-2**, TP-3, E3 | no tip |
-| #78 | *the text of the issue was not available when this draft was written: to be completed in review with its case and expected value* | — | — |
+| HYP#78 | a rolling 7-day window was shifted to midnight: the first hour counted as a whole day and the last 23 hours were dropped | **T-15**: Wed 14/10 23:00 → Wed 21/10 23:00 local; now Sat 17/10 18:38, schedule disabled | elapsed **2.82** days, remaining **4.18**, replacing 3.78 / 3.22; full precision 4058/1440 and 6022/1440 |
 | #67 | efficiency index and stars replaced shortly after being introduced | R-1…R-6, P-6 | redefined by #67 against this table |
 
 ---
@@ -418,7 +423,7 @@ Found while writing the model; each becomes a failing case and an item of the re
 5. **Daily point written on every refresh, also stale** (the lone `fresh` flag is applied to samples only): the model has one rule, fresh only (I-12).
 6. **Reset passed**: `sustainableHourlyRate` answers `0` instead of "undefined"; the gauge then reads as "always over".
 7. **Rolling window without `resetsAt`** falls back to the manual renewal rule as period end; meaningless for a rolling window (E6).
-8. **Day granularity of period bounds** (`startOfDay`) is not mentioned anywhere in the UI; kept in the model (§1) and to be confirmed.
+8. **Rolling-days bounds truncated to local days** (`startOfDay`): HYP#78 counts 3.78 elapsed / 3.22 remaining instead of 2.82 / 4.18. Confirmed model (§1-2): keep exact rolling timestamps and weight each local day's overlap by its scheduled unit, divided by 24 hours; billing cycles keep whole local days. Implemented in the Go `quotaperiod` package (HYP#161); TypeScript integration remains part of HYP#75.
 9. ~~**`resolveRenewalDate` with day 29-31** overflowed into the following month~~ — fixed (#111, N-6..N-9).
 10. **`budget.ts` mixes** day-based pacing, hour-based gauge, history bookkeeping, chart, insights and tips in one file; the model suggests the split used by this document (§2 time, §3.2-3.8 pacing, §3.6/3.9 hourly, §3.11-3.12 history, §3.14-3.15 advice).
 

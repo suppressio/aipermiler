@@ -1,0 +1,11 @@
+[
+  {"id":"N-1","description":"next occurrence after this month","day":15,"now":"2026-10-20T10:00:00+02:00","expected":"2026-11-15T00:00:00+01:00"},
+  {"id":"N-2","description":"today has already started","day":20,"now":"2026-10-20T10:00:00+02:00","expected":"2026-11-20T00:00:00+01:00"},
+  {"id":"N-6","description":"day 31 in a month with 31 days","day":31,"now":"2026-10-20T10:00:00+02:00","expected":"2026-10-31T00:00:00+01:00"},
+  {"id":"N-7","description":"next month clamps day 31","day":31,"now":"2026-10-31T00:00:00+01:00","expected":"2026-11-30T00:00:00+01:00"},
+  {"id":"N-8","description":"February clamps day 30","day":30,"now":"2026-01-31T00:00:00+01:00","expected":"2026-02-28T00:00:00+01:00"},
+  {"id":"N-9","description":"leap year keeps February 29","day":29,"now":"2028-02-10T00:00:00+01:00","expected":"2028-02-29T00:00:00+01:00"},
+  {"id":"§3.16","description":"unsupported recurrence rule","type":"rrule","now":"2026-10-20T10:00:00+02:00","error":true},
+  {"id":"N-2","description":"exact midnight is not strictly after now","day":20,"now":"2026-10-20T00:00:00+02:00","expected":"2026-11-20T00:00:00+01:00"},
+  {"id":"I-11","description":"renewal uses the supplied local date","day":20,"now":"2026-10-19T23:00:00Z","expected":"2026-11-20T00:00:00+01:00"}
+]

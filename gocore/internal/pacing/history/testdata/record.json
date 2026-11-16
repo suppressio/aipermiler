@@ -1,0 +1,719 @@
+[
+  {
+    "id": "E11",
+    "description": "first history point on the period start day has zero baseline",
+    "location": "Europe/Rome",
+    "retentionDays": 30,
+    "state": {},
+    "steps": [
+      {
+        "now": "2026-10-01T09:00:00+02:00",
+        "sample": {
+          "at": "2026-10-01T09:00:00+02:00",
+          "used": 3.5123456789,
+          "fresh": true
+        },
+        "period": {
+          "start": "2026-10-01T00:00:00+02:00"
+        },
+        "want": {
+          "dailyUsage": [
+            {
+              "day": "2026-10-01T00:00:00+02:00",
+              "used": 3.5123456789,
+              "dayStartUsed": 0
+            }
+          ],
+          "recentSamples": [
+            {
+              "at": "2026-10-01T09:00:00+02:00",
+              "used": 3.5123456789
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "E11",
+    "description": "first history point after the period start uses the current exact value",
+    "location": "Europe/Rome",
+    "retentionDays": 30,
+    "state": {},
+    "steps": [
+      {
+        "now": "2026-10-20T10:00:00+02:00",
+        "sample": {
+          "at": "2026-10-20T10:00:00+02:00",
+          "used": 57.0449,
+          "fresh": true
+        },
+        "period": {
+          "start": "2026-10-01T00:00:00+02:00"
+        },
+        "want": {
+          "dailyUsage": [
+            {
+              "day": "2026-10-20T00:00:00+02:00",
+              "used": 57.0449,
+              "dayStartUsed": 57.0449
+            }
+          ],
+          "recentSamples": [
+            {
+              "at": "2026-10-20T10:00:00+02:00",
+              "used": 57.0449
+            }
+          ]
+        }
+      },
+      {
+        "now": "2026-10-20T10:05:00+02:00",
+        "sample": {
+          "at": "2026-10-20T10:05:00+02:00",
+          "used": 57.04999,
+          "fresh": true
+        },
+        "period": {
+          "start": "2026-10-01T00:00:00+02:00"
+        },
+        "want": {
+          "dailyUsage": [
+            {
+              "day": "2026-10-20T00:00:00+02:00",
+              "used": 57.04999,
+              "dayStartUsed": 57.0449
+            }
+          ],
+          "recentSamples": [
+            {
+              "at": "2026-10-20T10:00:00+02:00",
+              "used": 57.0449
+            },
+            {
+              "at": "2026-10-20T10:05:00+02:00",
+              "used": 57.04999
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "E11",
+    "description": "future period start does not invent a zero baseline",
+    "location": "UTC",
+    "retentionDays": 30,
+    "state": {},
+    "steps": [
+      {
+        "now": "2026-10-20T10:00:00Z",
+        "sample": {
+          "at": "2026-10-20T10:00:00Z",
+          "used": 72,
+          "fresh": true
+        },
+        "period": {
+          "start": "2026-10-20T11:00:00Z"
+        },
+        "want": {
+          "dailyUsage": [
+            {
+              "day": "2026-10-20T00:00:00Z",
+              "used": 72,
+              "dayStartUsed": 72
+            }
+          ],
+          "recentSamples": [
+            {
+              "at": "2026-10-20T10:00:00Z",
+              "used": 72
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "E13",
+    "description": "Wednesday baseline is Monday last value without inventing Tuesday history",
+    "location": "Europe/Rome",
+    "retentionDays": 30,
+    "state": {
+      "dailyUsage": [
+        {
+          "day": "2026-10-19T00:00:00+02:00",
+          "used": 60,
+          "dayStartUsed": 57
+        }
+      ]
+    },
+    "steps": [
+      {
+        "now": "2026-10-21T10:00:00+02:00",
+        "sample": {
+          "at": "2026-10-21T10:00:00+02:00",
+          "used": 64,
+          "fresh": true
+        },
+        "period": {
+          "start": "2026-10-01T00:00:00+02:00",
+          "previousAt": "2026-10-19T17:00:00+02:00",
+          "previousUsed": 60
+        },
+        "want": {
+          "dailyUsage": [
+            {
+              "day": "2026-10-19T00:00:00+02:00",
+              "used": 60,
+              "dayStartUsed": 57
+            },
+            {
+              "day": "2026-10-21T00:00:00+02:00",
+              "used": 64,
+              "dayStartUsed": 60
+            }
+          ],
+          "recentSamples": [
+            {
+              "at": "2026-10-21T10:00:00+02:00",
+              "used": 64
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "\u00a77",
+    "description": "previous value before the new period gives a zero baseline",
+    "location": "UTC",
+    "retentionDays": 30,
+    "state": {},
+    "steps": [
+      {
+        "now": "2026-10-20T10:00:00Z",
+        "sample": {
+          "at": "2026-10-20T10:00:00Z",
+          "used": 3.5,
+          "fresh": true
+        },
+        "period": {
+          "start": "2026-10-20T09:00:00Z",
+          "previousAt": "2026-10-19T17:00:00Z",
+          "previousUsed": 60
+        },
+        "want": {
+          "dailyUsage": [
+            {
+              "day": "2026-10-20T00:00:00Z",
+              "used": 3.5,
+              "dayStartUsed": 0
+            }
+          ],
+          "recentSamples": [
+            {
+              "at": "2026-10-20T10:00:00Z",
+              "used": 3.5
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "B-4",
+    "description": "a drop of more than 1 pp against the previous day is a reset and gives a zero baseline",
+    "location": "UTC",
+    "retentionDays": 30,
+    "state": {},
+    "steps": [
+      {
+        "now": "2026-10-20T10:00:00Z",
+        "sample": {
+          "at": "2026-10-20T10:00:00Z",
+          "used": 3.5,
+          "fresh": true
+        },
+        "period": {
+          "start": "2026-10-01T00:00:00Z",
+          "previousAt": "2026-10-19T17:00:00Z",
+          "previousUsed": 40
+        },
+        "want": {
+          "dailyUsage": [
+            {
+              "day": "2026-10-20T00:00:00Z",
+              "used": 3.5,
+              "dayStartUsed": 0
+            }
+          ],
+          "recentSamples": [
+            {
+              "at": "2026-10-20T10:00:00Z",
+              "used": 3.5
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "B-3",
+    "description": "integer fallback noise preserves the previous baseline",
+    "location": "UTC",
+    "retentionDays": 30,
+    "state": {},
+    "steps": [
+      {
+        "now": "2026-10-20T10:00:00Z",
+        "sample": {
+          "at": "2026-10-20T10:00:00Z",
+          "used": 39.6,
+          "fresh": true
+        },
+        "period": {
+          "start": "2026-10-01T00:00:00Z",
+          "previousAt": "2026-10-19T17:00:00Z",
+          "previousUsed": 40
+        },
+        "want": {
+          "dailyUsage": [
+            {
+              "day": "2026-10-20T00:00:00Z",
+              "used": 39.6,
+              "dayStartUsed": 40
+            }
+          ],
+          "recentSamples": [
+            {
+              "at": "2026-10-20T10:00:00Z",
+              "used": 39.6
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "B-3",
+    "description": "a drop of 1 pp is noise even when the float difference is 1.0000000000000002",
+    "location": "UTC",
+    "retentionDays": 30,
+    "state": {},
+    "steps": [
+      {
+        "now": "2026-10-20T10:00:00Z",
+        "sample": {
+          "at": "2026-10-20T10:00:00Z",
+          "used": 1.24,
+          "fresh": true
+        },
+        "period": {
+          "start": "2026-10-19T09:00:00Z",
+          "previousAt": "2026-10-19T17:00:00Z",
+          "previousUsed": 2.24
+        },
+        "want": {
+          "dailyUsage": [
+            {
+              "day": "2026-10-20T00:00:00Z",
+              "used": 1.24,
+              "dayStartUsed": 2.24
+            }
+          ],
+          "recentSamples": [
+            {
+              "at": "2026-10-20T10:00:00Z",
+              "used": 1.24
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "B-4",
+    "description": "a drop just above 1 pp is a reset",
+    "location": "UTC",
+    "retentionDays": 30,
+    "state": {},
+    "steps": [
+      {
+        "now": "2026-10-20T10:00:00Z",
+        "sample": {
+          "at": "2026-10-20T10:00:00Z",
+          "used": 56.0448,
+          "fresh": true
+        },
+        "period": {
+          "start": "2026-10-19T09:00:00Z",
+          "previousAt": "2026-10-19T17:00:00Z",
+          "previousUsed": 57.0449
+        },
+        "want": {
+          "dailyUsage": [
+            {
+              "day": "2026-10-20T00:00:00Z",
+              "used": 56.0448,
+              "dayStartUsed": 0
+            }
+          ],
+          "recentSamples": [
+            {
+              "at": "2026-10-20T10:00:00Z",
+              "used": 56.0448
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "B-2",
+    "description": "live and stored values keep full precision",
+    "location": "UTC",
+    "retentionDays": 30,
+    "state": {
+      "dailyUsage": [
+        {
+          "day": "2026-10-20T00:00:00Z",
+          "used": 57.04,
+          "dayStartUsed": 57.04
+        }
+      ]
+    },
+    "steps": [
+      {
+        "now": "2026-10-20T10:00:00Z",
+        "sample": {
+          "at": "2026-10-20T10:00:00Z",
+          "used": 57.0449,
+          "fresh": true
+        },
+        "period": {},
+        "want": {
+          "dailyUsage": [
+            {
+              "day": "2026-10-20T00:00:00Z",
+              "used": 57.0449,
+              "dayStartUsed": 57.04
+            }
+          ],
+          "recentSamples": [
+            {
+              "at": "2026-10-20T10:00:00Z",
+              "used": 57.0449
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "E12",
+    "description": "a drop during an existing day does not replace its baseline",
+    "location": "UTC",
+    "retentionDays": 30,
+    "state": {
+      "dailyUsage": [
+        {
+          "day": "2026-10-20T00:00:00Z",
+          "used": 64,
+          "dayStartUsed": 60
+        }
+      ]
+    },
+    "steps": [
+      {
+        "now": "2026-10-20T10:00:00Z",
+        "sample": {
+          "at": "2026-10-20T10:00:00Z",
+          "used": 3.5,
+          "fresh": true
+        },
+        "period": {
+          "start": "2026-10-20T09:00:00Z"
+        },
+        "want": {
+          "dailyUsage": [
+            {
+              "day": "2026-10-20T00:00:00Z",
+              "used": 3.5,
+              "dayStartUsed": 60
+            }
+          ],
+          "recentSamples": [
+            {
+              "at": "2026-10-20T10:00:00Z",
+              "used": 3.5
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "\u00a77",
+    "description": "retention keeps two local dates including today and all samples from today",
+    "location": "Europe/Rome",
+    "retentionDays": 2,
+    "state": {
+      "dailyUsage": [
+        {
+          "day": "2026-10-17T00:00:00+02:00",
+          "used": 50,
+          "dayStartUsed": 49
+        },
+        {
+          "day": "2026-10-18T00:00:00+02:00",
+          "used": 55,
+          "dayStartUsed": 50
+        },
+        {
+          "day": "2026-10-19T00:00:00+02:00",
+          "used": 60,
+          "dayStartUsed": 55
+        }
+      ],
+      "recentSamples": [
+        {
+          "at": "2026-10-19T23:59:59+02:00",
+          "used": 60
+        },
+        {
+          "at": "2026-10-20T00:00:00+02:00",
+          "used": 60
+        },
+        {
+          "at": "2026-10-20T08:00:00+02:00",
+          "used": 62
+        }
+      ]
+    },
+    "steps": [
+      {
+        "now": "2026-10-20T20:00:00+02:00",
+        "sample": {
+          "at": "2026-10-20T20:00:00+02:00",
+          "used": 64,
+          "fresh": true
+        },
+        "period": {
+          "start": "2026-10-01T00:00:00+02:00",
+          "previousAt": "2026-10-19T17:00:00+02:00",
+          "previousUsed": 60
+        },
+        "want": {
+          "dailyUsage": [
+            {
+              "day": "2026-10-19T00:00:00+02:00",
+              "used": 60,
+              "dayStartUsed": 55
+            },
+            {
+              "day": "2026-10-20T00:00:00+02:00",
+              "used": 64,
+              "dayStartUsed": 60
+            }
+          ],
+          "recentSamples": [
+            {
+              "at": "2026-10-20T00:00:00+02:00",
+              "used": 60
+            },
+            {
+              "at": "2026-10-20T08:00:00+02:00",
+              "used": 62
+            },
+            {
+              "at": "2026-10-20T20:00:00+02:00",
+              "used": 64
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "\u00a77",
+    "description": "four hour retention crosses local midnight and keeps the exact boundary",
+    "location": "Europe/Rome",
+    "retentionDays": 30,
+    "state": {
+      "recentSamples": [
+        {
+          "at": "2026-10-19T20:59:59+02:00",
+          "used": 58
+        },
+        {
+          "at": "2026-10-19T21:00:00+02:00",
+          "used": 59
+        },
+        {
+          "at": "2026-10-19T23:59:59+02:00",
+          "used": 60
+        }
+      ]
+    },
+    "steps": [
+      {
+        "now": "2026-10-20T01:00:00+02:00",
+        "sample": {
+          "at": "2026-10-20T01:00:00+02:00",
+          "used": 64,
+          "fresh": true
+        },
+        "period": {},
+        "want": {
+          "dailyUsage": [
+            {
+              "day": "2026-10-20T00:00:00+02:00",
+              "used": 64,
+              "dayStartUsed": 64
+            }
+          ],
+          "recentSamples": [
+            {
+              "at": "2026-10-19T21:00:00+02:00",
+              "used": 59
+            },
+            {
+              "at": "2026-10-19T23:59:59+02:00",
+              "used": 60
+            },
+            {
+              "at": "2026-10-20T01:00:00+02:00",
+              "used": 64
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "I-11",
+    "description": "local day differs from UTC and a fresh flat value is still a sample",
+    "location": "Europe/Rome",
+    "retentionDays": 1,
+    "state": {
+      "dailyUsage": [
+        {
+          "day": "2026-10-19T00:00:00+02:00",
+          "used": 60,
+          "dayStartUsed": 57
+        }
+      ],
+      "recentSamples": [
+        {
+          "at": "2026-10-19T21:55:00Z",
+          "used": 60
+        }
+      ]
+    },
+    "steps": [
+      {
+        "now": "2026-10-19T22:05:00Z",
+        "sample": {
+          "at": "2026-10-19T22:05:00Z",
+          "used": 60.5,
+          "fresh": true
+        },
+        "period": {
+          "start": "2026-10-01T00:00:00+02:00",
+          "previousAt": "2026-10-19T23:55:00+02:00",
+          "previousUsed": 60
+        },
+        "want": {
+          "dailyUsage": [
+            {
+              "day": "2026-10-20T00:00:00+02:00",
+              "used": 60.5,
+              "dayStartUsed": 60
+            }
+          ],
+          "recentSamples": [
+            {
+              "at": "2026-10-19T21:55:00Z",
+              "used": 60
+            },
+            {
+              "at": "2026-10-19T22:05:00Z",
+              "used": 60.5
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "E11",
+    "description": "unknown period start preserves an exact first value above the limit",
+    "location": "UTC",
+    "retentionDays": 30,
+    "state": {},
+    "steps": [
+      {
+        "now": "2026-10-20T10:00:00Z",
+        "sample": {
+          "at": "2026-10-20T10:00:00Z",
+          "used": 103.123456789,
+          "fresh": true
+        },
+        "period": {},
+        "want": {
+          "dailyUsage": [
+            {
+              "day": "2026-10-20T00:00:00Z",
+              "used": 103.123456789,
+              "dayStartUsed": 103.123456789
+            }
+          ],
+          "recentSamples": [
+            {
+              "at": "2026-10-20T10:00:00Z",
+              "used": 103.123456789
+            }
+          ]
+        }
+      }
+    ]
+  },
+  {
+    "id": "B-3",
+    "description": "a drop of exactly 1 pp is noise: the previous value is retained exactly",
+    "location": "UTC",
+    "retentionDays": 30,
+    "state": {},
+    "steps": [
+      {
+        "now": "2026-10-20T10:00:00Z",
+        "sample": {
+          "at": "2026-10-20T10:00:00Z",
+          "used": 56.0449,
+          "fresh": true
+        },
+        "period": {
+          "start": "2026-10-19T09:00:00Z",
+          "previousAt": "2026-10-19T09:00:00Z",
+          "previousUsed": 57.0449
+        },
+        "want": {
+          "dailyUsage": [
+            {
+              "day": "2026-10-20T00:00:00Z",
+              "used": 56.0449,
+              "dayStartUsed": 57.0449
+            }
+          ],
+          "recentSamples": [
+            {
+              "at": "2026-10-20T10:00:00Z",
+              "used": 56.0449
+            }
+          ]
+        }
+      }
+    ]
+  }
+]

@@ -1,0 +1,6 @@
+[
+  {"id": "D-3.2", "description": "60 used", "used": 60, "want": 40},
+  {"id": "D-3.2", "description": "nothing used", "used": 0, "want": 100},
+  {"id": "D-3.2", "description": "exactly 100", "used": 100, "want": 0},
+  {"id": "D-3.2", "description": "103 floors at 0", "used": 103, "want": 0}
+]

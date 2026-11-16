@@ -1,0 +1,10 @@
+[
+  {"id": "A-6", "description": "percentage 37.5", "unit": "percentage", "used": 37.5, "total": 100, "want": 37.5, "ok": true},
+  {"id": "A-6", "description": "percentage ignores the total", "unit": "percentage", "used": 37.5, "total": 0, "want": 37.5, "ok": true},
+  {"id": "A-6", "description": "count 150/300", "unit": "count", "used": 150, "total": 300, "want": 50, "ok": true},
+  {"id": "A-6", "description": "count without total", "unit": "count", "used": 150, "total": 0, "want": 0, "ok": false},
+  {"id": "D-3.1", "description": "103 stays 103", "unit": "percentage", "used": 103, "total": 100, "want": 103, "ok": true},
+  {"id": "D-3.1", "description": "count over the total is not clamped", "unit": "count", "used": 45, "total": 30, "want": 150, "ok": true},
+  {"id": "D-3.1", "description": "negative is no utilization", "unit": "percentage", "used": -1, "total": 100, "want": 0, "ok": false},
+  {"id": "D-3.1", "description": "unknown unit", "unit": "dollars", "used": 5, "total": 10, "want": 0, "ok": false}
+]
