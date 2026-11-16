@@ -1,0 +1,37 @@
+{
+  "ceiling": [
+    {"id": "G-6", "description": "behind-ish: rem 40 over 69 working h", "remaining": 40, "working": 69, "calendar": 200, "ok": true, "want": 0.5797101449275363},
+    {"id": "G-7", "description": "ahead: rem 60 over 69 working h", "remaining": 60, "working": 69, "calendar": 200, "ok": true, "want": 0.8695652173913043},
+    {"id": "G-8", "description": "behind: rem 20 over 69 working h", "remaining": 20, "working": 69, "calendar": 200, "ok": true, "want": 0.2898550724637681},
+    {"id": "G-9", "description": "5-hour window, 5 h left (calendar)", "remaining": 100, "working": 0, "calendar": 5, "ok": true, "want": 20},
+    {"id": "G-10", "description": "5-hour window, 2 h left (calendar)", "remaining": 33, "working": 0, "calendar": 2, "ok": true, "want": 16.5},
+    {"id": "G-11", "description": "quota exhausted", "remaining": 0, "working": 69, "calendar": 200, "ok": true, "want": 0},
+    {"id": "G-12", "description": "near the reset the ceiling explodes", "remaining": 33.1, "working": 0.1, "calendar": 7, "ok": true, "want": 331},
+    {"id": "D-3.12", "description": "no working time left falls back to calendar hours", "remaining": 10, "working": 0, "calendar": 20, "ok": true, "want": 0.5},
+    {"id": "D-3.12", "description": "reset already past", "remaining": 10, "working": 5, "calendar": 0, "ok": false},
+    {"id": "D-3.12", "description": "reset in the past, negative hours", "remaining": 0, "working": 0, "calendar": -3, "ok": false}
+  ],
+  "target": [
+    {"id": "G-6", "description": "C 0.580 > s_h 0.568: T = s_h", "ceiling": 0.5797101449275363, "hasCeiling": true, "ideal": 0.5681818181818182, "hasIdeal": true, "ok": true, "want": 0.5681818181818182},
+    {"id": "G-7", "description": "ahead: never above the even share", "ceiling": 0.8695652173913043, "hasCeiling": true, "ideal": 0.5681818181818182, "hasIdeal": true, "ok": true, "want": 0.5681818181818182},
+    {"id": "G-8", "description": "behind: T = C", "ceiling": 0.2898550724637681, "hasCeiling": true, "ideal": 0.5681818181818182, "hasIdeal": true, "ok": true, "want": 0.2898550724637681},
+    {"id": "G-9", "description": "5-hour window unused", "ceiling": 20, "hasCeiling": true, "ideal": 20, "hasIdeal": true, "ok": true, "want": 20},
+    {"id": "G-10", "description": "5-hour window behind", "ceiling": 16.5, "hasCeiling": true, "ideal": 20, "hasIdeal": true, "ok": true, "want": 16.5},
+    {"id": "G-11", "description": "exhausted: T = 0", "ceiling": 0, "hasCeiling": true, "ideal": 0.5681818181818182, "hasIdeal": true, "ok": true, "want": 0},
+    {"id": "G-12", "description": "#72: near the reset T is the even share, not 331", "ceiling": 331, "hasCeiling": true, "ideal": 0.5681818181818182, "hasIdeal": true, "ok": true, "want": 0.5681818181818182},
+    {"id": "D-3.13", "description": "period start unknown", "ceiling": 0.5, "hasCeiling": true, "ideal": 0, "hasIdeal": false, "ok": false},
+    {"id": "D-3.13", "description": "reset missing or past", "ceiling": 0, "hasCeiling": false, "ideal": 0.5, "hasIdeal": true, "ok": false}
+  ],
+  "gauge": [
+    {"id": "G-13", "description": "half the target", "v": 5, "target": 10, "want": 0.25},
+    {"id": "G-13", "description": "on target", "v": 10, "target": 10, "want": 0.5},
+    {"id": "G-13", "description": "double", "v": 20, "target": 10, "want": 0.75},
+    {"id": "G-13", "description": "4x or more", "v": 40, "target": 10, "want": 1},
+    {"id": "G-13", "description": "far above 4x is clamped", "v": 400, "target": 10, "want": 1},
+    {"id": "G-13", "description": "no pace", "v": 0, "target": 10, "want": 0},
+    {"id": "G-13", "description": "tiny pace is clamped to 0.02", "v": 0.1, "target": 10, "want": 0.02},
+    {"id": "G-13", "description": "no target", "v": 5, "target": 0, "want": 1},
+    {"id": "G-11", "description": "exhausted, no pace", "v": 0, "target": 0, "want": 0},
+    {"id": "G-11", "description": "exhausted, any pace", "v": 0.1, "target": 0, "want": 1}
+  ]
+}

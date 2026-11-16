@@ -36,3 +36,21 @@ func ExampleAutonomy() {
 	fmt.Println(pace.Autonomy(0, 0, false))
 	// Output: +Inf
 }
+
+func ExampleTarget() {
+	// G-12 (#72): 66.9% used on the last working afternoon. The ceiling is
+	// 331 pp/h over 0.1 working hours, but the target stays the even share.
+	ceiling, hasCeiling := pace.Ceiling(33.1, 0.1, 7)
+	target, _ := pace.Target(ceiling, hasCeiling, 100.0/22/8, true)
+	fmt.Printf("%.0f %.2f\n", ceiling, target)
+	// Output: 331 0.57
+}
+
+func ExampleInstantPace() {
+	// G-5: across a reset the negative delta counts as 0.
+	at := func(h, m int) time.Time { return time.Date(2026, time.October, 20, h, m, 0, 0, time.UTC) }
+	samples := []history.Reading{{At: at(10, 0), Used: 40}, {At: at(10, 50), Used: 3}, {At: at(11, 0), Used: 3.5}}
+	v, ok := pace.InstantPace(samples, at(11, 0))
+	fmt.Println(v, ok)
+	// Output: 0 true
+}
