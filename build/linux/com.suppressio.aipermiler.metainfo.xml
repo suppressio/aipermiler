@@ -15,7 +15,6 @@
   <developer id="com.suppressio">
     <name>Daniele 'suppressio'</name>
   </developer>
-  <developer_name>Daniele 'suppressio'</developer_name>
   <url type="homepage">https://github.com/suppressio/aipermiler</url>
   <url type="bugtracker">https://github.com/suppressio/aipermiler/issues</url>
   <launchable type="desktop-id">aipermiler.desktop</launchable>
