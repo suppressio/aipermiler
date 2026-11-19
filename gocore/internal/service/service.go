@@ -16,10 +16,6 @@ import (
 // DefaultShutdownTimeout bounds the clean stop.
 const DefaultShutdownTimeout = 10 * time.Second
 
-// handlerGrace is how long a stop waits, after closing every connection, for
-// handlers that ignored the cancellation, before it releases the lock anyway.
-const handlerGrace = time.Second
-
 // Options configures Run.
 type Options struct {
 	Dir             string // the config dir: service.lock and api.json live here
@@ -71,40 +67,39 @@ func run(ctx context.Context, opts Options, listen func(context.Context) (net.Li
 	}
 	port := listener.Addr().(*net.TCPAddr).Port //nolint:forcetypeassert // a tcp listener always has a TCPAddr
 
-	// In-flight work gets its own context so a stop can cancel it.
+	// In-flight work gets its own context so a stop can cancel it. Endpoints must
+	// honour it: Run returns once every connection is closed, and a handler that
+	// ignores the cancellation may still be running when the lock is released.
 	workCtx, cancelWork := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelWork()
-	var handlers inflight
-	server := newHTTPServer(workCtx, handlers.wrap(NewHandler(HandlerConfig{
+	server := newHTTPServer(workCtx, NewHandler(HandlerConfig{
 		Token: token, Host: net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
 		Version: opts.Version, ContractVersion: opts.ContractVersion,
-	})), opts.Logger)
-	// teardown is the one way out after the server exists: cancel the work, close
-	// whatever is still open, close the gate and give handlers that ignored the
-	// cancellation a short grace, then remove our api.json (not another
-	// service's, see removeOwnInfo). Every step is idempotent and what fails is
-	// logged here; the deferred release of the lock comes after.
+	}), opts.Logger)
+	serveErr, serveDone := make(chan error, 1), make(chan struct{})
+	go func() {
+		serveErr <- server.Serve(listener)
+		close(serveDone)
+	}()
+	// teardown is the one way out once Serve runs: cancel the work, close every
+	// connection, wait for Serve to let the listener go, delete api.json. Every
+	// step is idempotent, so a stop may do the first ones early (see below).
 	teardown := func() {
 		cancelWork()
-		handlers.close()
 		_ = server.Close()
-		if !handlers.wait(handlerGrace) {
-			opts.Logger.Warn("Handlers still running after the stop; releasing the lock anyway")
-		}
-		if err := removeOwnInfo(opts.Dir, token); err != nil {
+		<-serveDone
+		if err := RemoveInfo(opts.Dir); err != nil {
 			opts.Logger.Warn("Cannot delete api.json", "error", err)
 		}
 	}
-	serveErr := make(chan error, 1)
-	go func() { serveErr <- server.Serve(listener) }()
 
+	if ctx.Err() != nil { // already stopped: skip api.json rather than advertise a dying port
+		teardown()
+		return nil
+	}
 	info := Info{
 		SchemaVersion: SchemaVersion, Port: port, Token: token, Version: opts.Version,
 		ContractVersion: opts.ContractVersion, PID: os.Getpid(), StartedAt: time.Now().UTC(),
-	}
-	if ctx.Err() != nil { // stopped while starting: never advertise this instance
-		teardown()
-		return nil
 	}
 	if err := WriteInfo(opts.Dir, info); err != nil {
 		teardown()
@@ -124,13 +119,13 @@ func run(ctx context.Context, opts Options, listen func(context.Context) (net.Li
 		timeout = DefaultShutdownTimeout
 	}
 	opts.Logger.Info("Service stopping")
-	// Before the drain: by design (#246, decision 4) a stop cancels in-flight work
-	// at once instead of waiting for it (fetches are re-run by the next refresh),
-	// and api.json goes first, so no client is pointed at a port that is going
-	// away while connections drain. teardown tries the delete again afterwards
-	// (a reader may have held the file open).
+	// The first two teardown steps come before the drain: by design (#246,
+	// decision 4) a stop cancels in-flight work at once instead of waiting for it
+	// (fetches are re-run by the next refresh), and api.json goes first, so no
+	// client is pointed at a port that is going away while connections drain.
+	// teardown deletes it again afterwards, in case a reader held it open.
 	cancelWork()
-	_ = removeOwnInfo(opts.Dir, token)
+	_ = RemoveInfo(opts.Dir)
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
 	// The stop was asked for, so it succeeds: what could not be done cleanly is
