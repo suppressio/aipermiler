@@ -39,7 +39,7 @@ func removeLeftovers(dir string) error {
 	// ReadDir and a match on the bare name, not Glob on the joined path: the
 	// folder's own name may hold pattern characters.
 	entries, readErr := os.ReadDir(dir)
-	if readErr != nil {
+	if readErr != nil && !errors.Is(readErr, os.ErrNotExist) {
 		err = errors.Join(err, fmt.Errorf("list leftovers: %w", readErr))
 	}
 	for _, e := range entries {

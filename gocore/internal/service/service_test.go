@@ -8,8 +8,10 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -90,6 +92,7 @@ func startWith(t *testing.T, opts service.Options, listen func(context.Context) 
 		opts.ShutdownTimeout = 2 * time.Second // below wait()'s 5 s
 	}
 	r := &running{done: make(chan error, 1), logs: new(logBuffer)}
+	begin := time.Now()
 	opts.Logger = slog.New(slog.NewTextHandler(r.logs, nil))
 	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel = cancel
@@ -111,8 +114,9 @@ func startWith(t *testing.T, opts service.Options, listen func(context.Context) 
 			t.Fatalf("Run returned early: %v", r.wait())
 		}
 		if raw, err := os.ReadFile(filepath.Join(opts.Dir, "api.json")); err == nil {
-			// This instance's file, not a stale one a test left: it carries our pid.
-			if json.Unmarshal(raw, &r.info) == nil && r.info.Port != 0 && r.info.PID == os.Getpid() {
+			// This instance's file, not one an earlier Run of this test binary (same
+			// pid) or the test itself left: it was written after this start began.
+			if json.Unmarshal(raw, &r.info) == nil && r.info.Port != 0 && !r.info.StartedAt.Before(begin) {
 				return r
 			}
 		}
@@ -291,7 +295,7 @@ func TestRunStopSucceedsWhenInfoCannotBeDeleted(t *testing.T) {
 	if err := r.stop(); err != nil {
 		t.Fatalf("Run with an undeletable api.json = %v; want nil", err)
 	}
-	if logs := r.logs.String(); !strings.Contains(logs, "Cannot clean up api.json") || !strings.Contains(logs, "error=") {
+	if logs := r.logs.String(); !strings.Contains(logs, "Cannot clean up the service files") || !strings.Contains(logs, "error=") {
 		t.Errorf("the failed delete was not logged with its cause:\n%s", logs)
 	}
 }
@@ -320,15 +324,27 @@ func TestRunDeletesInfoBeforeWaitingForConnections(t *testing.T) {
 }
 
 // brokenListener is a real loopback listener whose Accept fails for good once
-// the test says so, as a listener the OS takes away would.
+// the test says so, as a listener the OS takes away would. Close also ends a
+// blocked Accept, so a test that fails early leaks no Serve goroutine.
 type brokenListener struct {
 	net.Listener
-	broken chan struct{}
+	broken    chan struct{}
+	closed    chan struct{}
+	closeOnce sync.Once
 }
 
 func (l *brokenListener) Accept() (net.Conn, error) {
-	<-l.broken
-	return nil, errors.New("listener broke")
+	select {
+	case <-l.broken:
+		return nil, errors.New("listener broke")
+	case <-l.closed:
+		return nil, net.ErrClosed
+	}
+}
+
+func (l *brokenListener) Close() error {
+	l.closeOnce.Do(func() { close(l.closed) })
+	return l.Listener.Close() //nolint:wrapcheck // test listener
 }
 
 func TestRunListenerFailureCleansUp(t *testing.T) {
@@ -340,7 +356,7 @@ func TestRunListenerFailureCleansUp(t *testing.T) {
 		if err != nil {
 			return nil, err //nolint:wrapcheck // test listener
 		}
-		return &brokenListener{Listener: l, broken: broken}, nil
+		return &brokenListener{Listener: l, broken: broken, closed: make(chan struct{})}, nil
 	})
 	r.expectErr = true
 	leftover := filepath.Join(dir, "api.json.999.tmp")
@@ -378,5 +394,54 @@ func TestHTTPServerConfiguration(t *testing.T) {
 	srv.ErrorLog.Print("http: panic serving 127.0.0.1:1: boom")
 	if got := logs.String(); !strings.Contains(got, "level=WARN") || !strings.Contains(got, "panic serving") {
 		t.Errorf("ErrorLog output = %q; want a WARN line on the service logger", got)
+	}
+}
+
+// A stop waits for handlers that ignore the cancellation before it lets the lock
+// go, so the next service never starts while one of them is still writing.
+func TestInflightWaitsForHandlers(t *testing.T) {
+	t.Parallel()
+	var f service.Inflight
+	release, entered := make(chan struct{}), make(chan struct{})
+	srv := httptest.NewServer(f.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		close(entered)
+		<-release // ignores the request context, as a buggy handler would
+	})))
+	defer srv.Close()
+	go func() {
+		req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, nil)
+		if resp, err := http.DefaultClient.Do(req); err == nil {
+			_ = resp.Body.Close()
+		}
+	}()
+	<-entered
+	if f.Wait(50 * time.Millisecond) {
+		t.Fatal("Wait returned true while a handler was running")
+	}
+	close(release)
+	if !f.Wait(5 * time.Second) {
+		t.Fatal("Wait returned false after the handler finished")
+	}
+}
+
+func TestRunStopIgnoresMissingConfigFolder(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" {
+		t.Skip("Windows does not remove a folder holding an open (locked) file")
+	}
+	dir := filepath.Join(t.TempDir(), "cfg")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r := startWith(t, service.Options{Dir: dir}, nil)
+	// The user (or an uninstaller) removes the folder while the service runs.
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.stop(); err != nil {
+		t.Fatal(err)
+	}
+	if logs := r.logs.String(); strings.Contains(logs, "Cannot clean up") {
+		t.Errorf("a folder that is gone is nothing to clean up:\n%s", logs)
 	}
 }
