@@ -33,7 +33,6 @@ func TestRun(t *testing.T) { // uses t.Setenv; paralleltest recognizes this cons
 		{"unknown command", []string{"unknown"}, cli.ExitUsage, "", true},
 		{"missing provider", []string{"usage"}, cli.ExitUsage, "", true},
 		{"unknown provider", []string{"usage", "nope"}, cli.ExitUsage, "", true},
-		{"serve is not implemented", []string{"serve"}, cli.ExitUsage, "", true},
 		{"unknown flag", []string{"version", "--unknown"}, cli.ExitUsage, "", true},
 		{"unexpected argument", []string{"version", "extra"}, cli.ExitUsage, "", true},
 		{"unexpected help argument", []string{"help", "extra"}, cli.ExitUsage, "", true},

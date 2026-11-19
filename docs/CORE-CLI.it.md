@@ -14,10 +14,11 @@ aipermiler login <provider> [--json] [--timeout 5m] [provider flags] [login flag
 aipermiler raw <provider> [provider flags]
 aipermiler version [--json]
 aipermiler paths [--json]
+aipermiler serve
 aipermiler help
 ```
 
-La CLI recupera i dati su richiesta e termina. Non ci sono server, porte, daemon, store condiviso o snapshot del pacing. #31 servirà gli stessi documenti via HTTP; #177 aggiunge il client TypeScript. Claude (#147), Codex (#148) e Copilot (#149) sono registrati; `token`, `login` e `raw` sono di Copilot (comandi per l'account, sotto). Un provider sconosciuto come `aipermiler usage nope` fallisce con exit 2, `Unknown provider: nope`. I test registrano un provider sintetico chiamato `fake`.
+I comandi della CLI recuperano i dati su richiesta e terminano. L'unica eccezione è `serve` (vedi [Servizio](#servizio)): il processo sempre attivo di #31, che oggi risponde solo a `health`; refresh loop, store e snapshot del pacing devono ancora arrivare. #31 servirà gli stessi documenti via HTTP; #177 aggiunge il client TypeScript. Claude (#147), Codex (#148) e Copilot (#149) sono registrati; `token`, `login` e `raw` sono di Copilot (comandi per l'account, sotto). Un provider sconosciuto come `aipermiler usage nope` fallisce con exit 2, `Unknown provider: nope`. I test registrano un provider sintetico chiamato `fake`.
 
 Mettere il provider prima dei suoi flag. Argomenti posizionali inattesi e flag sconosciuti sono errori di utilizzo.
 
@@ -271,8 +272,19 @@ Sono le fixture normative su singola riga in `gocore/contract/v1/`; quella direc
 | `0` | Successo, inclusi valori stale, help e version. |
 | `1` | Errore del provider. Anche gli errori di scrittura dell'output restituiscono 1 e registrano il problema. |
 | `2` | Errore di utilizzo: provider/comando sconosciuto, flag errati, argomenti extra, timeout o input secret non validi. |
+| `3` | Solo `serve`: un altro servizio tiene già il lock. |
 
 Con `--json`, gli errori di utilizzo non hanno la chiave provider. L'help è solo testuale; richiederlo con `--json` produce un documento di errore di utilizzo. Senza `--json`, help/version conservano il comportamento testuale.
+
+## Servizio
+
+`aipermiler serve` tiene in piedi il processo come servizio sempre attivo (#31, prima fetta #247; approccio in #246). Non ha flag. Oggi risponde solo a `GET /api/v1/health`: il refresh loop, lo store e gli altri endpoint arrivano con le prossime sub-issue di #31, come `service stop` (#286). I log vanno su stderr (`AIPERMILER_LOG_LEVEL=info` mostra avvio e arresto).
+
+- **Una sola istanza per utente.** `serve` prende un lock esclusivo su `service.lock` nella cartella di configurazione (`flock(LOCK_EX|LOCK_NB)` su Unix, `LockFileEx` con `LOCKFILE_FAIL_IMMEDIATELY` su Windows). Un secondo `serve` stampa `The service is already running` ed esce con **3**. Il sistema operativo rilascia il lock quando il processo muore, quindi un `kill -9` non lascia nulla di stantio (testato su Unix con un processo ucciso; su Windows da verificare a mano sulla VM Windows 11).
+- **Solo loopback.** Ascolta su `127.0.0.1` (non `localhost`, che può risolvere a `::1`) su una porta casuale. Ogni richiesta richiede `Authorization: Bearer <token>`, un token casuale di 32 byte generato a ogni avvio e confrontato in tempo costante (altrimenti 401). Un `Host` diverso da `127.0.0.1:<porta>` (DNS rebinding) e qualsiasi richiesta con header `Origin` (una pagina del browser) ricevono 403 prima che il token venga guardato.
+- **`api.json`** nella cartella di configurazione, modo `0600`, dice a un client come connettersi: `{ "schemaVersion": 1, "port", "token", "version", "contractVersion", "pid", "startedAt" }`. Viene scritto dopo che il listener è attivo, in modo atomico (file temporaneo + rename), dal processo che tiene il lock; un nuovo servizio sovrascrive un file vecchio e un arresto pulito lo cancella. Un client non si fida mai del solo file: chiama `/health` col token, e una connessione rifiutata, un 401 o un `contractVersion` sconosciuto significano «nessun servizio utilizzabile». `pid` serve solo alla diagnostica. Qualsiasi processo dello stesso utente del sistema operativo può leggere il file e usare l'API: lo stesso confine di fiducia dei file dell'utente e del keyring.
+- **`GET /api/v1/health`** restituisce `{ "schemaVersion": 1, "version", "contractVersion" }`.
+- **Arresto.** SIGINT o SIGTERM: smette di accettare, annulla le richieste in corso, cancella `api.json`, rilascia il lock, entro 10 s. La correttezza non dipende mai da un arresto pulito: il lock lo rilascia il sistema operativo e `api.json` è solo un suggerimento. Se un processo nascosto su Windows riceva SIGTERM al logoff non è ancora verificato (controllo sulla VM Windows 11 di #247).
 
 ## Client Electron
 
