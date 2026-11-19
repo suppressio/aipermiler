@@ -111,6 +111,7 @@ func startWith(t *testing.T, opts service.Options, listen func(context.Context) 
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if r.returned() {
+			r.expectErr = true // reported here, not again by the cleanup
 			t.Fatalf("Run returned early: %v", r.wait())
 		}
 		if raw, err := os.ReadFile(filepath.Join(opts.Dir, "api.json")); err == nil {
@@ -448,5 +449,19 @@ func TestRunReleasesListenerBeforeReturning(t *testing.T) {
 	}
 	if !rec.closed.Load() {
 		t.Fatal("Run returned before the listener was closed")
+	}
+}
+
+// A leftover that cannot be removed does not stop the start, but is logged.
+func TestRunLogsLeftoversItCannotRemove(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	// A non-empty folder named like a temp file: os.Remove fails on it.
+	if err := os.MkdirAll(filepath.Join(dir, "api.json.1.tmp", "keep"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	r := startWith(t, service.Options{Dir: dir}, nil)
+	if logs := r.logs.String(); !strings.Contains(logs, "Cannot clean up the files of an earlier service") || !strings.Contains(logs, "remove leftover") {
+		t.Errorf("the failed cleanup was not logged with its cause:\n%s", logs)
 	}
 }
