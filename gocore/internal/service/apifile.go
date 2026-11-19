@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 	"time"
 )
 
-const infoName = "api.json"
+const (
+	infoName = "api.json"
+	// tempPattern is the os.CreateTemp pattern of api.json's temp files; the
+	// cleanup matches leftovers against the same pattern.
+	tempPattern = infoName + ".*.tmp"
+)
 
 // SchemaVersion is the version of api.json and of the API's own documents.
 const SchemaVersion = 1
@@ -27,17 +31,20 @@ type Info struct {
 	StartedAt       time.Time `json:"startedAt"`
 }
 
-// removeLeftovers deletes the api.json and the temp files a dead instance left
-// behind. Only the holder of the lock may call it.
-func removeLeftovers(dir string) {
-	_ = RemoveInfo(dir)
-	// ReadDir, not Glob: the folder's own name may hold pattern characters.
+// removeLeftovers deletes api.json and the temp files a dead instance left
+// behind, and returns why api.json could not be deleted, if it could not.
+// Only the holder of the lock may call it.
+func removeLeftovers(dir string) error {
+	err := RemoveInfo(dir)
+	// ReadDir and a match on the bare name, not Glob on the joined path: the
+	// folder's own name may hold pattern characters.
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
-		if name := e.Name(); strings.HasPrefix(name, infoName+".") && strings.HasSuffix(name, ".tmp") {
-			_ = os.Remove(filepath.Join(dir, name))
+		if ok, _ := filepath.Match(tempPattern, e.Name()); ok {
+			_ = os.Remove(filepath.Join(dir, e.Name()))
 		}
 	}
+	return err
 }
 
 // WriteInfo writes api.json atomically with owner-only permissions: a temp file
@@ -47,7 +54,7 @@ func WriteInfo(dir string, info Info) error {
 	if err != nil {
 		return fmt.Errorf("encode %s: %w", infoName, err)
 	}
-	tmp, err := os.CreateTemp(dir, infoName+".*.tmp") // created 0600
+	tmp, err := os.CreateTemp(dir, tempPattern) // created 0600
 	if err != nil {
 		return fmt.Errorf("create temp %s: %w", infoName, err)
 	}
