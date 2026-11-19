@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -30,9 +31,12 @@ type Info struct {
 // behind. Only the holder of the lock may call it.
 func removeLeftovers(dir string) {
 	_ = RemoveInfo(dir)
-	stale, _ := filepath.Glob(filepath.Join(dir, infoName+".*.tmp"))
-	for _, name := range stale {
-		_ = os.Remove(name)
+	// ReadDir, not Glob: the folder's own name may hold pattern characters.
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if name := e.Name(); strings.HasPrefix(name, infoName+".") && strings.HasSuffix(name, ".tmp") {
+			_ = os.Remove(filepath.Join(dir, name))
+		}
 	}
 }
 

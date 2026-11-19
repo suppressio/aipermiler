@@ -50,8 +50,10 @@ func TestAcquireLockIsExclusive(t *testing.T) {
 	}
 }
 
-func TestAcquireLockSurvivesKilledHolder(t *testing.T) {
-	t.Parallel()
+// Not parallel on purpose: the fork below briefly gives the child a copy of every
+// open descriptor, and a flock lives as long as any copy does, so a parallel test
+// releasing its lock at that moment would still see it held.
+func TestAcquireLockSurvivesKilledHolder(t *testing.T) { //nolint:paralleltest // see above
 	if runtime.GOOS == "windows" {
 		t.Skip("covered by the manual check on the Windows 11 VM (#247)")
 	}

@@ -91,3 +91,17 @@ func TestServeRejectsArguments(t *testing.T) {
 		}
 	}
 }
+
+// The invalid-level warning comes from RunWith's logger; serve must reuse it.
+func TestServeWarnsOnceAboutInvalidLogLevel(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("AIPERMILER_CONFIG_DIR", dir)
+	t.Setenv("AIPERMILER_LOG_LEVEL", "bogus")
+	s := startServe(t)
+	waitForFile(t, filepath.Join(dir, "api.json"))
+	s.cancel()
+	<-s.exited
+	if n := strings.Count(s.stderr.String(), "Invalid AIPERMILER_LOG_LEVEL"); n != 1 {
+		t.Fatalf("the warning appeared %d times; want 1\n%s", n, s.stderr)
+	}
+}

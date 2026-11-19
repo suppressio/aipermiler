@@ -4,13 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
 
 	"github.com/suppressio/aipermiler/gocore/internal/buildinfo"
 	"github.com/suppressio/aipermiler/gocore/internal/config"
-	"github.com/suppressio/aipermiler/gocore/internal/logging"
 	"github.com/suppressio/aipermiler/gocore/internal/service"
 	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
@@ -18,7 +18,7 @@ import (
 // runServe keeps the process up as the always-on service until SIGINT/SIGTERM
 // (or env.Context ends). It takes no flags: the port is random and the
 // directory is the core's config directory (#247).
-func runServe(env Env, args []string) int {
+func runServe(env Env, args []string, logger *slog.Logger) int {
 	flags := newFlags("serve")
 	if err := flags.Parse(args); err != nil {
 		return flagError(env, false, err)
@@ -41,7 +41,7 @@ func runServe(env Env, args []string) int {
 		go func() { <-ctx.Done(); stop() }()
 	}
 	err = service.Run(ctx, service.Options{
-		Dir: dir, Version: buildinfo.Version, ContractVersion: usage.SchemaVersion, Logger: logging.New(env.Stderr),
+		Dir: dir, Version: buildinfo.Version, ContractVersion: usage.SchemaVersion, Logger: logger,
 	})
 	switch {
 	case err == nil:

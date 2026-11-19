@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -163,6 +164,11 @@ func TestRunReplacesStaleInfo(t *testing.T) {
 func TestRunCleansLeftoversAtStart(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
+	// A glob metacharacter in the path must not stop the cleanup.
+	dir = filepath.Join(dir, "x[1]")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	leftover := filepath.Join(dir, "api.json.12345.tmp")
 	if err := os.WriteFile(leftover, []byte("partial"), 0o600); err != nil {
 		t.Fatal(err)
@@ -185,4 +191,79 @@ func TestRunStopBeforeStartIsClean(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "api.json")); !os.IsNotExist(err) {
 		t.Errorf("api.json survived: %v", err)
 	}
+}
+
+// A stop is a stop: neither a connection that outlasts the shutdown bound nor an
+// api.json that cannot be deleted turns it into a failure (a supervisor would
+// read exit 1 as a crash; api.json is only a hint).
+func TestRunStopSucceedsWhenShutdownTimesOut(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		done <- service.Run(ctx, service.Options{Dir: dir, Version: "x", ContractVersion: 1, ShutdownTimeout: 100 * time.Millisecond})
+	}()
+	info := waitInfo(t, dir)
+	// A request that never completes: the connection stays active until the bound.
+	conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", "127.0.0.1:"+strconv.Itoa(info.Port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close() //nolint:errcheck // test connection
+	if _, err := conn.Write([]byte("GET /api/v1/health HTTP/1.1\r\nHost: 127.0.0.1\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(50 * time.Millisecond) // let the server read the first bytes
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run after a stop that hit the shutdown bound = %v; want nil", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not stop")
+	}
+}
+
+func TestRunStopSucceedsWhenInfoCannotBeDeleted(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() { done <- service.Run(ctx, service.Options{Dir: dir, Version: "x", ContractVersion: 1}) }()
+	waitInfo(t, dir)
+	// Replace api.json by a non-empty folder: os.Remove fails on it.
+	path := filepath.Join(dir, "api.json")
+	if err := os.Remove(path); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(path, "keep"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run with an undeletable api.json = %v; want nil", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run did not stop")
+	}
+}
+
+func waitInfo(t *testing.T, dir string) service.Info {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if raw, err := os.ReadFile(filepath.Join(dir, "api.json")); err == nil {
+			var info service.Info
+			if json.Unmarshal(raw, &info) == nil && info.Port != 0 {
+				return info
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("api.json did not appear")
+	return service.Info{}
 }
