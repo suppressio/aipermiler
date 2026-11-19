@@ -23,8 +23,6 @@ type Options struct {
 	ContractVersion int
 	Logger          *slog.Logger
 	ShutdownTimeout time.Duration // zero means DefaultShutdownTimeout
-
-	listen func(context.Context) (net.Listener, error) // tests only (export_test.go)
 }
 
 // Run holds the single-instance lock, serves the API on a random loopback port
@@ -34,6 +32,13 @@ type Options struct {
 // deletes api.json, stops accepting, waits for open requests up to the shutdown
 // timeout and closes whatever is still open, then releases the lock.
 func Run(ctx context.Context, opts Options) error {
+	return run(ctx, opts, func(ctx context.Context) (net.Listener, error) {
+		return new(net.ListenConfig).Listen(ctx, "tcp", "127.0.0.1:0")
+	})
+}
+
+// run is Run with the listener made by listen, so tests can hand it one that dies.
+func run(ctx context.Context, opts Options, listen func(context.Context) (net.Listener, error)) error {
 	lock, err := AcquireLock(opts.Dir)
 	if err != nil {
 		return err
@@ -54,12 +59,6 @@ func Run(ctx context.Context, opts Options) error {
 
 	// Not the stop context: a stop that arrives while starting is a clean stop
 	// (the select below sees it at once), not a listen error.
-	listen := opts.listen
-	if listen == nil {
-		listen = func(ctx context.Context) (net.Listener, error) {
-			return new(net.ListenConfig).Listen(ctx, "tcp", "127.0.0.1:0")
-		}
-	}
 	listener, err := listen(context.WithoutCancel(ctx))
 	if err != nil {
 		return fmt.Errorf("listen on loopback: %w", err)
@@ -98,7 +97,7 @@ func Run(ctx context.Context, opts Options) error {
 	select {
 	case err := <-serveErr:
 		if rmErr := abort(); rmErr != nil {
-			opts.Logger.Warn("Cannot delete api.json", "error", rmErr)
+			opts.Logger.Warn("Cannot clean up api.json", "error", rmErr)
 		}
 		return fmt.Errorf("serve: %w", err)
 	case <-ctx.Done():
@@ -125,7 +124,7 @@ func Run(ctx context.Context, opts Options) error {
 		opts.Logger.Warn("Shutdown bound reached; closing connections", "error", err)
 	}
 	if err := abort(); err != nil {
-		opts.Logger.Warn("Cannot delete api.json", "error", err)
+		opts.Logger.Warn("Cannot clean up api.json", "error", err)
 	}
 	return nil
 }

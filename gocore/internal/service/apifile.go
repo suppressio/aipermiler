@@ -32,16 +32,21 @@ type Info struct {
 }
 
 // removeLeftovers deletes api.json and the temp files a dead instance left
-// behind, and returns why api.json could not be deleted, if it could not.
-// Only the holder of the lock may call it.
+// behind, and returns what it could not clean up. Only the holder of the lock
+// may call it.
 func removeLeftovers(dir string) error {
 	err := RemoveInfo(dir)
 	// ReadDir and a match on the bare name, not Glob on the joined path: the
 	// folder's own name may hold pattern characters.
-	entries, _ := os.ReadDir(dir)
+	entries, readErr := os.ReadDir(dir)
+	if readErr != nil {
+		err = errors.Join(err, fmt.Errorf("list leftovers: %w", readErr))
+	}
 	for _, e := range entries {
 		if ok, _ := filepath.Match(tempPattern, e.Name()); ok {
-			_ = os.Remove(filepath.Join(dir, e.Name()))
+			if rmErr := os.Remove(filepath.Join(dir, e.Name())); rmErr != nil && !errors.Is(rmErr, os.ErrNotExist) {
+				err = errors.Join(err, fmt.Errorf("remove leftover: %w", rmErr))
+			}
 		}
 	}
 	return err
