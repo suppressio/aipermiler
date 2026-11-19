@@ -14,10 +14,11 @@ aipermiler login <provider> [--json] [--timeout 5m] [provider flags] [login flag
 aipermiler raw <provider> [provider flags]
 aipermiler version [--json]
 aipermiler paths [--json]
+aipermiler serve
 aipermiler help
 ```
 
-The CLI fetches on demand and exits. There is no server, port, daemon, shared store or pacing snapshot. #31 will serve the same documents over HTTP; #177 adds the TypeScript client. Claude (#147), Codex (#148) and Copilot (#149) are registered; `token`, `login` and `raw` are Copilot's (account commands below). An unknown provider such as `aipermiler usage nope` fails with exit 2, `Unknown provider: nope`. Tests register a synthetic provider named `fake`.
+The CLI commands fetch on demand and exit. The one exception is `serve` (see [Service](#service)): the always-on process of #31, which today only answers `health`; the refresh loop, store and pacing snapshot are still to come. #31 will serve the same documents over HTTP; #177 adds the TypeScript client. Claude (#147), Codex (#148) and Copilot (#149) are registered; `token`, `login` and `raw` are Copilot's (account commands below). An unknown provider such as `aipermiler usage nope` fails with exit 2, `Unknown provider: nope`. Tests register a synthetic provider named `fake`.
 
 Put the provider before its flags. Unexpected positional arguments and unknown flags are usage errors.
 
@@ -271,8 +272,19 @@ These are the normative single-line fixtures from `gocore/contract/v1/`; no READ
 | `0` | Success, including stale values, help and version. |
 | `1` | Provider error. Output write failures also return 1 and log the failure. |
 | `2` | Usage error: unknown provider/command, bad flags, extra arguments, invalid timeout or secret input. |
+| `3` | `serve` only: another service already holds the lock. |
 
 With `--json`, usage errors have no provider key. Help is text-only; requesting help with `--json` produces a usage-error document. Without `--json`, help/version retain their plain text behavior.
+
+## Service
+
+`aipermiler serve` keeps the process up as the always-on service (#31, first slice #247; approach in #246). It takes no flags. Today it only answers `GET /api/v1/health`: the refresh loop, the store and the other endpoints come in the next sub-issues of #31, and so does `service stop` (#286). Logs go to stderr (`AIPERMILER_LOG_LEVEL=info` shows start and stop).
+
+- **One instance per user.** `serve` takes an exclusive lock on `service.lock` in the config folder (`flock(LOCK_EX|LOCK_NB)` on Unix, `LockFileEx` with `LOCKFILE_FAIL_IMMEDIATELY` on Windows). A second `serve` prints `The service is already running` and exits with **3**. The operating system drops the lock when the process dies, so a `kill -9` leaves nothing stale (tested on Unix with a killed process; on Windows to be checked by hand on the Windows 11 VM).
+- **Loopback only.** It listens on `127.0.0.1` (not `localhost`, which may resolve to `::1`) on a random port. Every request needs `Authorization: Bearer <token>`, a 32-byte random token generated at each start and compared in constant time (401 otherwise). A `Host` other than `127.0.0.1:<port>` (DNS rebinding) and any request with an `Origin` header (a browser page) get 403 before the token is looked at.
+- **`api.json`** in the config folder, mode `0600`, tells a client how to connect: `{ "schemaVersion": 1, "port", "token", "version", "contractVersion", "pid", "startedAt" }`. It is written after the listener is up, atomically (temp file + rename), by the process holding the lock; a new service overwrites an old file and a clean stop deletes it. A client never trusts the file alone: it calls `/health` with the token, and a refused connection, a 401 or an unknown `contractVersion` means "no usable service". `pid` is for diagnostics only. Any process of the same OS user can read the file and use the API: the same trust boundary as the user's own files and the keyring.
+- **`GET /api/v1/health`** returns `{ "schemaVersion": 1, "version", "contractVersion" }`.
+- **Stop.** SIGINT or SIGTERM: stop accepting, cancel in-flight requests, delete `api.json`, release the lock, within 10 s. Correctness never depends on a clean stop: the lock is released by the operating system and `api.json` is only a hint. Whether a hidden process on Windows receives SIGTERM at logoff is not verified yet (Windows 11 VM check of #247).
 
 ## Electron client
 

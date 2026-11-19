@@ -26,8 +26,10 @@ const (
 	// ExitProviderError indicates a provider failure.
 	ExitProviderError = 1
 	// ExitUsage indicates invalid command-line arguments.
-	ExitUsage      = 2
-	maxSecretBytes = 64 * 1024
+	ExitUsage = 2
+	// ExitAlreadyRunning indicates that `serve` found another service holding the lock (#247).
+	ExitAlreadyRunning = 3
+	maxSecretBytes     = 64 * 1024
 )
 
 // Env supplies providers, streams and clock without process-global test state.
@@ -37,11 +39,13 @@ type Env struct {
 	Stdout, Stderr io.Writer
 	Now            func() time.Time
 	Location       *time.Location
+	// Context stops `serve`; nil means the process's SIGINT/SIGTERM.
+	Context context.Context
 }
 
 // Run executes a subcommand, keeping command output on stdout and logs on stderr.
 func Run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	return RunWith(Env{provider.Default(), stdin, stdout, stderr, time.Now, time.Local}, args)
+	return RunWith(Env{Providers: provider.Default(), Stdin: stdin, Stdout: stdout, Stderr: stderr, Now: time.Now, Location: time.Local}, args)
 }
 
 // RunWith executes a command with isolated provider instances and an injected clock.
@@ -62,6 +66,8 @@ func RunWith(env Env, args []string) int {
 		return runLogin(env, args[1:], jsonMode)
 	case "raw":
 		return runRaw(env, args[1:], jsonMode)
+	case "serve":
+		return runServe(env, args[1:])
 	case claude.SinkCommand:
 		// Hidden: Claude runs it as the probe's status line, never a user.
 		return claude.Sink(args[1:], env.Stdin)
@@ -250,6 +256,7 @@ Commands:
   token delete <provider> [flags]  Remove the account's token from the OS keyring
   login <provider> [flags]         Sign in with an OAuth App (client secret on stdin)
   raw <provider> [flags]           Print the provider's raw usage response (JSON, for diagnostics)
+  serve                            Run the always-on service (loopback API, one instance per user)
   version [--json]                 Print version and platform
   paths [--json]                   Print the folders a client must know (the Claude probe folder)
   help                             Show this help
