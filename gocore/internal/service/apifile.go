@@ -32,8 +32,8 @@ type Info struct {
 }
 
 // removeLeftovers deletes api.json and the temp files a dead instance left
-// behind, and returns what it could not clean up. Only the holder of the lock
-// may call it.
+// behind, and returns what it could not clean up. It runs at start only, right
+// after the lock is taken: then everything here belongs to a dead instance.
 func removeLeftovers(dir string) error {
 	err := RemoveInfo(dir)
 	// ReadDir and a match on the bare name, not Glob on the joined path: the
@@ -75,6 +75,24 @@ func WriteInfo(dir string, info Info) error {
 		return fmt.Errorf("write %s: %w", infoName, err)
 	}
 	return nil
+}
+
+// removeOwnInfo deletes api.json only if it still carries token: if the config
+// folder was removed and recreated while this service ran, the file (and the
+// lock) may belong to another service by now.
+func removeOwnInfo(dir, token string) error {
+	raw, err := os.ReadFile(filepath.Join(dir, infoName))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("read %s: %w", infoName, err)
+	}
+	var info Info
+	if json.Unmarshal(raw, &info) == nil && info.Token != token {
+		return nil // another service's file
+	}
+	return RemoveInfo(dir)
 }
 
 // RemoveInfo deletes api.json; a missing file is not an error.

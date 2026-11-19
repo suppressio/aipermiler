@@ -19,6 +19,9 @@ type Inflight = inflight
 func (f *Inflight) Wrap(h http.Handler) http.Handler { return f.wrap(h) }
 func (f *Inflight) Wait(d time.Duration) bool        { return f.wait(d) }
 
+// Close exposes the gate.
+func (f *Inflight) Close() { f.close() }
+
 // RunWithListen is Run with a listener the test makes, to simulate one that dies.
 func RunWithListen(ctx context.Context, opts Options, listen func(context.Context) (net.Listener, error)) error {
 	return run(ctx, opts, listen)

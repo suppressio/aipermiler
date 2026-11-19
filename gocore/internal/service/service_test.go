@@ -257,8 +257,12 @@ func TestRunStopBeforeStartIsClean(t *testing.T) {
 	dir := t.TempDir()
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // the stop arrives before Run gets going
-	if err := service.Run(ctx, service.Options{Dir: dir, Version: "x", ContractVersion: 1}); err != nil {
+	logs := new(logBuffer)
+	if err := service.Run(ctx, service.Options{Dir: dir, Version: "x", ContractVersion: 1, Logger: slog.New(slog.NewTextHandler(logs, nil))}); err != nil {
 		t.Fatalf("Run with an already cancelled context = %v; want nil", err)
+	}
+	if strings.Contains(logs.String(), "Service listening") {
+		t.Errorf("a service stopped before it started was advertised:\n%s", logs)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "api.json")); !os.IsNotExist(err) {
 		t.Errorf("api.json survived: %v", err)
@@ -295,7 +299,7 @@ func TestRunStopSucceedsWhenInfoCannotBeDeleted(t *testing.T) {
 	if err := r.stop(); err != nil {
 		t.Fatalf("Run with an undeletable api.json = %v; want nil", err)
 	}
-	if logs := r.logs.String(); !strings.Contains(logs, "Cannot clean up the service files") || !strings.Contains(logs, "error=") {
+	if logs := r.logs.String(); !strings.Contains(logs, "Cannot delete api.json") || !strings.Contains(logs, "error=") {
 		t.Errorf("the failed delete was not logged with its cause:\n%s", logs)
 	}
 }
@@ -359,18 +363,12 @@ func TestRunListenerFailureCleansUp(t *testing.T) {
 		return &brokenListener{Listener: l, broken: broken, closed: make(chan struct{})}, nil
 	})
 	r.expectErr = true
-	leftover := filepath.Join(dir, "api.json.999.tmp")
-	if err := os.WriteFile(leftover, []byte("partial"), 0o600); err != nil {
-		t.Fatal(err)
-	}
 	close(broken)
 	if err := r.wait(); err == nil || !strings.Contains(err.Error(), "listener broke") {
 		t.Fatalf("Run after the listener broke = %v; want the listener error", err)
 	}
-	for _, name := range []string{"api.json", "api.json.999.tmp"} {
-		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
-			t.Errorf("%s survived a dead listener: %v", name, err)
-		}
+	if _, err := os.Stat(filepath.Join(dir, "api.json")); !os.IsNotExist(err) {
+		t.Errorf("api.json survived a dead listener: %v", err)
 	}
 	if l, err := service.AcquireLock(dir); err != nil {
 		t.Errorf("the lock was not released: %v", err)
@@ -403,11 +401,15 @@ func TestInflightWaitsForHandlers(t *testing.T) {
 	t.Parallel()
 	var f service.Inflight
 	release, entered := make(chan struct{}), make(chan struct{})
+	var releaseOnce sync.Once
 	srv := httptest.NewServer(f.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		close(entered)
 		<-release // ignores the request context, as a buggy handler would
 	})))
 	defer srv.Close()
+	// Runs before srv.Close (defers are LIFO): a failing test must not leave the
+	// handler blocked, or Close would wait for it forever.
+	defer releaseOnce.Do(func() { close(release) })
 	go func() {
 		req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, nil)
 		if resp, err := http.DefaultClient.Do(req); err == nil {
@@ -418,7 +420,7 @@ func TestInflightWaitsForHandlers(t *testing.T) {
 	if f.Wait(50 * time.Millisecond) {
 		t.Fatal("Wait returned true while a handler was running")
 	}
-	close(release)
+	releaseOnce.Do(func() { close(release) })
 	if !f.Wait(5 * time.Second) {
 		t.Fatal("Wait returned false after the handler finished")
 	}
@@ -441,7 +443,49 @@ func TestRunStopIgnoresMissingConfigFolder(t *testing.T) {
 	if err := r.stop(); err != nil {
 		t.Fatal(err)
 	}
-	if logs := r.logs.String(); strings.Contains(logs, "Cannot clean up") {
+	if logs := r.logs.String(); strings.Contains(logs, "Cannot delete") {
 		t.Errorf("a folder that is gone is nothing to clean up:\n%s", logs)
+	}
+}
+
+// Once the gate is closed a request that had not started does no work, so the
+// wait that follows cannot miss a handler that starts after it.
+func TestInflightClosedGateRefusesNewRequests(t *testing.T) {
+	t.Parallel()
+	var f service.Inflight
+	called := false
+	h := f.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
+	f.Close()
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
+	if called || w.Code != http.StatusServiceUnavailable {
+		t.Fatalf("after close: handler called %v, status %d; want not called, 503", called, w.Code)
+	}
+	if !f.Wait(0) {
+		t.Fatal("a refused request is still counted")
+	}
+}
+
+// If the config folder is removed and recreated while a service runs, another
+// service can take a new lock there; the old one's stop must not delete the
+// new one's api.json.
+func TestRunStopKeepsAnotherServicesInfo(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	r := startWith(t, service.Options{Dir: dir}, nil)
+	other := service.Info{SchemaVersion: 1, Port: 4242, Token: strings.Repeat("b", 64), Version: "x", ContractVersion: 1, PID: 1, StartedAt: time.Now().UTC()}
+	if err := service.WriteInfo(dir, other); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.stop(); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "api.json"))
+	if err != nil {
+		t.Fatalf("the other service's api.json was deleted: %v", err)
+	}
+	var got service.Info
+	if err := json.Unmarshal(raw, &got); err != nil || got.Token != other.Token {
+		t.Fatalf("api.json = %s (%v); want the other service's", raw, err)
 	}
 }

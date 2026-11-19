@@ -80,17 +80,19 @@ func run(ctx context.Context, opts Options, listen func(context.Context) (net.Li
 		Version: opts.Version, ContractVersion: opts.ContractVersion,
 	})), opts.Logger)
 	// teardown is the one way out after the server exists: cancel the work, close
-	// whatever is still open, give handlers that ignored the cancellation a short
-	// grace, remove api.json and its temp files. Every step is idempotent and
-	// what fails is logged here; the deferred release of the lock comes after.
+	// whatever is still open, close the gate and give handlers that ignored the
+	// cancellation a short grace, then remove our api.json (not another
+	// service's, see removeOwnInfo). Every step is idempotent and what fails is
+	// logged here; the deferred release of the lock comes after.
 	teardown := func() {
 		cancelWork()
+		handlers.close()
 		_ = server.Close()
 		if !handlers.wait(handlerGrace) {
 			opts.Logger.Warn("Handlers still running after the stop; releasing the lock anyway")
 		}
-		if err := removeLeftovers(opts.Dir); err != nil {
-			opts.Logger.Warn("Cannot clean up the service files", "error", err)
+		if err := removeOwnInfo(opts.Dir, token); err != nil {
+			opts.Logger.Warn("Cannot delete api.json", "error", err)
 		}
 	}
 	serveErr := make(chan error, 1)
@@ -99,6 +101,10 @@ func run(ctx context.Context, opts Options, listen func(context.Context) (net.Li
 	info := Info{
 		SchemaVersion: SchemaVersion, Port: port, Token: token, Version: opts.Version,
 		ContractVersion: opts.ContractVersion, PID: os.Getpid(), StartedAt: time.Now().UTC(),
+	}
+	if ctx.Err() != nil { // stopped while starting: never advertise this instance
+		teardown()
+		return nil
 	}
 	if err := WriteInfo(opts.Dir, info); err != nil {
 		teardown()
@@ -124,7 +130,7 @@ func run(ctx context.Context, opts Options, listen func(context.Context) (net.Li
 	// away while connections drain. teardown tries the delete again afterwards
 	// (a reader may have held the file open).
 	cancelWork()
-	_ = RemoveInfo(opts.Dir)
+	_ = removeOwnInfo(opts.Dir, token)
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
 	// The stop was asked for, so it succeeds: what could not be done cleanly is
