@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -29,8 +30,8 @@ type Options struct {
 // and writes api.json once the listener is up. It returns nil after a clean
 // stop (ctx cancelled), even one that hit the shutdown bound, ErrAlreadyRunning
 // when another service holds the lock. On a stop it cancels in-flight requests,
-// deletes api.json, stops accepting and closes the remaining connections within
-// the shutdown timeout, then releases the lock.
+// deletes api.json, stops accepting, waits for open requests up to the shutdown
+// timeout and closes whatever is still open, then releases the lock.
 func Run(ctx context.Context, opts Options) error {
 	lock, err := AcquireLock(opts.Dir)
 	if err != nil {
@@ -75,7 +76,9 @@ func Run(ctx context.Context, opts Options) error {
 		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
-	// abort tears down a start that failed or a server that died: nothing to drain.
+	// abort is the one teardown: cancel the work, close whatever is still open,
+	// remove api.json and temp files. A failed start and a dead server call it
+	// directly; a stop calls it after the drain. Every step is idempotent.
 	abort := func() {
 		cancelWork()
 		_ = server.Close()
@@ -108,11 +111,10 @@ func Run(ctx context.Context, opts Options) error {
 	opts.Logger.Info("Service stopping")
 	// By design (#246, decision 4) a stop cancels in-flight work at once instead of
 	// draining it: fetches are re-run by the next refresh. api.json goes first, so
-	// no client is pointed at a port that is going away while connections drain.
+	// no client is pointed at a port that is going away while connections drain;
+	// abort below tries again once they are gone (a reader may have held it open).
 	cancelWork()
-	if err := RemoveInfo(opts.Dir); err != nil {
-		opts.Logger.Warn("Cannot delete api.json", "error", err)
-	}
+	_ = RemoveInfo(opts.Dir)
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
 	// The stop was asked for, so it succeeds: what could not be done cleanly is
@@ -121,7 +123,10 @@ func Run(ctx context.Context, opts Options) error {
 	// look like a crash to a supervisor.
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		opts.Logger.Warn("Shutdown bound reached; closing connections", "error", err)
-		_ = server.Close()
+	}
+	abort()
+	if _, err := os.Lstat(filepath.Join(opts.Dir, infoName)); err == nil {
+		opts.Logger.Warn("Cannot delete api.json")
 	}
 	return nil
 }
