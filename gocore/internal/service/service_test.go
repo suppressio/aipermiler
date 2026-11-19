@@ -159,3 +159,30 @@ func TestRunReplacesStaleInfo(t *testing.T) {
 	}
 	t.Fatal("the stale api.json was not replaced")
 }
+
+func TestRunCleansLeftoversAtStart(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	leftover := filepath.Join(dir, "api.json.12345.tmp")
+	if err := os.WriteFile(leftover, []byte("partial"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	start(t, dir)
+	if _, err := os.Stat(leftover); !os.IsNotExist(err) {
+		t.Fatalf("the temp file of a dead instance survived: %v", err)
+	}
+}
+
+func TestRunStopBeforeStartIsClean(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel() // the stop arrives before Run gets going
+	err := service.Run(ctx, service.Options{Dir: dir, Version: "x", ContractVersion: 1})
+	if err != nil {
+		t.Fatalf("Run with an already cancelled context = %v; want nil", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "api.json")); !os.IsNotExist(err) {
+		t.Errorf("api.json survived: %v", err)
+	}
+}

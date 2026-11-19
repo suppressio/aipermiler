@@ -11,6 +11,9 @@ import (
 
 const infoName = "api.json"
 
+// SchemaVersion is the version of api.json and of the API's own documents.
+const SchemaVersion = 1
+
 // Info is the content of api.json: how a client reaches the running service.
 // A client never trusts it alone: it connects and calls /health with the token.
 type Info struct {
@@ -21,6 +24,16 @@ type Info struct {
 	ContractVersion int       `json:"contractVersion"`
 	PID             int       `json:"pid"` // diagnostics only
 	StartedAt       time.Time `json:"startedAt"`
+}
+
+// removeLeftovers deletes the api.json and the temp files a dead instance left
+// behind. Only the holder of the lock may call it.
+func removeLeftovers(dir string) {
+	_ = RemoveInfo(dir)
+	stale, _ := filepath.Glob(filepath.Join(dir, infoName+".*.tmp"))
+	for _, name := range stale {
+		_ = os.Remove(name)
+	}
 }
 
 // WriteInfo writes api.json atomically with owner-only permissions: a temp file
