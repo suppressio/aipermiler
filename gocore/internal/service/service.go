@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -24,6 +23,8 @@ type Options struct {
 	ContractVersion int
 	Logger          *slog.Logger
 	ShutdownTimeout time.Duration // zero means DefaultShutdownTimeout
+
+	listen func(context.Context) (net.Listener, error) // tests only (export_test.go)
 }
 
 // Run holds the single-instance lock, serves the API on a random loopback port
@@ -40,7 +41,7 @@ func Run(ctx context.Context, opts Options) error {
 	defer func() { _ = lock.Release() }()
 	// The lock is ours, so whatever api.json and temp files are here are stale:
 	// drop them now, so a failed start never leaves an old port and token behind.
-	removeLeftovers(opts.Dir)
+	_ = removeLeftovers(opts.Dir)
 	if opts.Logger == nil {
 		opts.Logger = slog.New(slog.DiscardHandler)
 	}
@@ -53,7 +54,13 @@ func Run(ctx context.Context, opts Options) error {
 
 	// Not the stop context: a stop that arrives while starting is a clean stop
 	// (the select below sees it at once), not a listen error.
-	listener, err := new(net.ListenConfig).Listen(context.WithoutCancel(ctx), "tcp", "127.0.0.1:0")
+	listen := opts.listen
+	if listen == nil {
+		listen = func(ctx context.Context) (net.Listener, error) {
+			return new(net.ListenConfig).Listen(ctx, "tcp", "127.0.0.1:0")
+		}
+	}
+	listener, err := listen(context.WithoutCancel(ctx))
 	if err != nil {
 		return fmt.Errorf("listen on loopback: %w", err)
 	}
@@ -62,27 +69,18 @@ func Run(ctx context.Context, opts Options) error {
 	// In-flight work gets its own context so a stop can cancel it.
 	workCtx, cancelWork := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelWork()
-	server := &http.Server{
-		Handler: NewHandler(HandlerConfig{
-			Token: token, Host: net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
-			Version: opts.Version, ContractVersion: opts.ContractVersion,
-		}),
-		BaseContext:    func(net.Listener) context.Context { return workCtx },
-		ErrorLog:       slog.NewLogLogger(opts.Logger.Handler(), slog.LevelWarn),
-		MaxHeaderBytes: 64 << 10,
-		// No WriteTimeout on purpose: a refresh can last minutes. Endpoints that
-		// can be slow set their own deadline (http.ResponseController).
-		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		IdleTimeout:       60 * time.Second,
-	}
+	server := newHTTPServer(workCtx, NewHandler(HandlerConfig{
+		Token: token, Host: net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
+		Version: opts.Version, ContractVersion: opts.ContractVersion,
+	}), opts.Logger)
 	// abort is the one teardown: cancel the work, close whatever is still open,
 	// remove api.json and temp files. A failed start and a dead server call it
-	// directly; a stop calls it after the drain. Every step is idempotent.
-	abort := func() {
+	// directly; a stop calls it after the drain. Every step is idempotent. It
+	// returns why api.json could not be deleted, which is only ever logged.
+	abort := func() error {
 		cancelWork()
 		_ = server.Close()
-		removeLeftovers(opts.Dir)
+		return removeLeftovers(opts.Dir)
 	}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- server.Serve(listener) }()
@@ -92,14 +90,16 @@ func Run(ctx context.Context, opts Options) error {
 		ContractVersion: opts.ContractVersion, PID: os.Getpid(), StartedAt: time.Now().UTC(),
 	}
 	if err := WriteInfo(opts.Dir, info); err != nil {
-		abort()
+		_ = abort() // api.json was never written
 		return err
 	}
 	opts.Logger.Info("Service listening", "port", port, "version", opts.Version)
 
 	select {
 	case err := <-serveErr:
-		abort()
+		if rmErr := abort(); rmErr != nil {
+			opts.Logger.Warn("Cannot delete api.json", "error", rmErr)
+		}
 		return fmt.Errorf("serve: %w", err)
 	case <-ctx.Done():
 	}
@@ -124,9 +124,24 @@ func Run(ctx context.Context, opts Options) error {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		opts.Logger.Warn("Shutdown bound reached; closing connections", "error", err)
 	}
-	abort()
-	if _, err := os.Lstat(filepath.Join(opts.Dir, infoName)); err == nil {
-		opts.Logger.Warn("Cannot delete api.json")
+	if err := abort(); err != nil {
+		opts.Logger.Warn("Cannot delete api.json", "error", err)
 	}
 	return nil
+}
+
+// newHTTPServer configures the server. No WriteTimeout on purpose: a refresh can
+// last minutes; endpoints that can be slow set their own deadline
+// (http.ResponseController). net/http's own errors (handler panics, accept
+// errors) go to the logger at warn, so they show at the default level.
+func newHTTPServer(workCtx context.Context, handler http.Handler, logger *slog.Logger) *http.Server {
+	return &http.Server{
+		Handler:           handler,
+		BaseContext:       func(net.Listener) context.Context { return workCtx },
+		ErrorLog:          slog.NewLogLogger(logger.Handler(), slog.LevelWarn),
+		MaxHeaderBytes:    64 << 10,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
 }

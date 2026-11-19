@@ -1,54 +1,104 @@
 package service_test
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/suppressio/aipermiler/gocore/internal/service"
 )
 
+// logBuffer collects the service's log lines; slog writes from several goroutines.
+type logBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *logBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p) //nolint:wrapcheck // in-memory buffer
+}
+
+func (b *logBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
 type running struct {
 	info   service.Info
 	cancel context.CancelFunc
 	done   chan error
+	logs   *logBuffer
+	once   sync.Once
+	err    error
 }
 
-func start(t *testing.T, dir string) *running {
-	t.Helper()
-	ctx, cancel := context.WithCancel(context.Background())
-	r := &running{cancel: cancel, done: make(chan error, 1)}
-	go func() {
-		r.done <- service.Run(ctx, service.Options{
-			Dir: dir, Version: "9.9.9", ContractVersion: 1,
-			Logger: slog.New(slog.NewTextHandler(io.Discard, nil)), ShutdownTimeout: 2 * time.Second,
-		})
-	}()
-	t.Cleanup(func() {
-		cancel()
-		if err := <-r.done; err != nil {
-			t.Errorf("Run after cleanup cancel: %v", err)
+// wait returns Run's result, at most 5 s after it is asked; later calls repeat it.
+func (r *running) wait() error {
+	r.once.Do(func() {
+		select {
+		case r.err = <-r.done:
+		case <-time.After(5 * time.Second):
+			r.err = errors.New("Run did not stop")
 		}
 	})
+	return r.err
+}
+
+func (r *running) stop() error {
+	r.cancel()
+	return r.wait()
+}
+
+// returned reports whether Run has already returned, without consuming its result.
+func (r *running) returned() bool {
+	select {
+	case err := <-r.done:
+		r.done <- err
+		return true
+	default:
+		return false
+	}
+}
+
+// startWith runs the service and waits for its api.json. The cleanup stops it
+// and waits, so Run is gone before the temp dir is removed; tests that care
+// about Run's result check it themselves.
+func startWith(t *testing.T, opts service.Options) *running {
+	t.Helper()
+	if opts.Version == "" {
+		opts.Version = "9.9.9"
+	}
+	if opts.ContractVersion == 0 {
+		opts.ContractVersion = 1
+	}
+	r := &running{done: make(chan error, 1), logs: new(logBuffer)}
+	opts.Logger = slog.New(slog.NewTextHandler(r.logs, nil))
+	ctx, cancel := context.WithCancel(context.Background())
+	r.cancel = cancel
+	go func() { r.done <- service.Run(ctx, opts) }()
+	t.Cleanup(func() { _ = r.stop() })
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		select {
-		case err := <-r.done:
-			r.done <- err
-			t.Fatalf("Run returned early: %v", err)
-		default:
+		if r.returned() {
+			t.Fatalf("Run returned early: %v", r.wait())
 		}
-		if raw, err := os.ReadFile(filepath.Join(dir, "api.json")); err == nil {
-			if json.Unmarshal(raw, &r.info) == nil && r.info.Port != 0 {
+		if raw, err := os.ReadFile(filepath.Join(opts.Dir, "api.json")); err == nil {
+			// A stale file left by the test has no 64-character token.
+			if json.Unmarshal(raw, &r.info) == nil && r.info.Port != 0 && len(r.info.Token) == 64 {
 				return r
 			}
 		}
@@ -58,21 +108,53 @@ func start(t *testing.T, dir string) *running {
 	return nil
 }
 
+func start(t *testing.T, dir string) *running {
+	t.Helper()
+	return startWith(t, service.Options{Dir: dir, ShutdownTimeout: 2 * time.Second})
+}
+
+func (r *running) url(path string) string {
+	return "http://127.0.0.1:" + strconv.Itoa(r.info.Port) + path
+}
+
 func (r *running) get(t *testing.T, token string) *http.Response {
 	t.Helper()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:"+strconv.Itoa(r.info.Port)+"/api/v1/health", nil)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, r.url("/api/v1/health"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if token != "" {
 		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := (&http.Client{Transport: &http.Transport{DisableKeepAlives: true}}).Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = resp.Body.Close() })
 	return resp
+}
+
+// holdConnection opens a connection whose request headers never complete and
+// returns once the server tracks it. net/http keeps such a connection in
+// StateNew and Shutdown waits for it while it is younger than 5 s (older ones
+// count as idle, net/http issue 22682): the shutdown bounds in these tests stay
+// below that.
+func (r *running) holdConnection(t *testing.T) {
+	t.Helper()
+	conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", "127.0.0.1:"+strconv.Itoa(r.info.Port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = conn.Close() })
+	if _, err := conn.Write([]byte("GET /api/v1/health HTTP/1.1\r\nHost: 127.0.0.1\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	// The accept loop is sequential and tracks a connection before accepting the
+	// next, so a full request answered on a new connection proves this one is
+	// tracked. No sleep, no timing guess.
+	if resp := r.get(t, r.info.Token); resp.StatusCode != http.StatusOK {
+		t.Fatalf("sync request = %d", resp.StatusCode)
+	}
 }
 
 func TestRunServesHealthAndCleansUp(t *testing.T) {
@@ -83,9 +165,6 @@ func TestRunServesHealthAndCleansUp(t *testing.T) {
 	if r.info.SchemaVersion != 1 || r.info.Version != "9.9.9" || r.info.ContractVersion != 1 || r.info.PID != os.Getpid() || r.info.StartedAt.IsZero() {
 		t.Errorf("api.json = %+v", r.info)
 	}
-	if len(r.info.Token) != 64 { // 32 random bytes, hex
-		t.Errorf("token length = %d; want 64 hex characters", len(r.info.Token))
-	}
 	if resp := r.get(t, r.info.Token); resp.StatusCode != http.StatusOK {
 		t.Fatalf("health with the token = %d", resp.StatusCode)
 	}
@@ -93,15 +172,8 @@ func TestRunServesHealthAndCleansUp(t *testing.T) {
 		t.Fatalf("health without the token = %d", resp.StatusCode)
 	}
 
-	r.cancel()
-	select {
-	case err := <-r.done:
-		if err != nil {
-			t.Fatalf("Run after cancel: %v", err)
-		}
-		r.done <- nil
-	case <-time.After(5 * time.Second):
-		t.Fatal("Run did not stop")
+	if err := r.stop(); err != nil {
+		t.Fatalf("Run after cancel: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "api.json")); !os.IsNotExist(err) {
 		t.Errorf("api.json survived a clean stop: %v", err)
@@ -117,7 +189,7 @@ func TestRunRefusesSecondInstance(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	first := start(t, dir)
-	err := service.Run(t.Context(), service.Options{Dir: dir, Version: "x", ContractVersion: 1, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+	err := service.Run(t.Context(), service.Options{Dir: dir, Version: "x", ContractVersion: 1})
 	if !errors.Is(err, service.ErrAlreadyRunning) {
 		t.Fatalf("second Run = %v; want ErrAlreadyRunning", err)
 	}
@@ -137,35 +209,15 @@ func TestRunReplacesStaleInfo(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "api.json"), []byte(`{"schemaVersion":1,"port":1,"token":"stale"}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan error, 1)
-	go func() {
-		done <- service.Run(ctx, service.Options{Dir: dir, Version: "x", ContractVersion: 1, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
-	}()
-	defer func() {
-		cancel()
-		if err := <-done; err != nil {
-			t.Errorf("Run after cancel: %v", err)
-		}
-	}()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if raw, err := os.ReadFile(filepath.Join(dir, "api.json")); err == nil {
-			var info service.Info
-			if json.Unmarshal(raw, &info) == nil && info.Token != "stale" && info.Port > 1 {
-				return
-			}
-		}
-		time.Sleep(10 * time.Millisecond)
+	if r := start(t, dir); r.info.Token == "stale" || r.info.Port == 1 {
+		t.Fatalf("the stale api.json was not replaced: %+v", r.info)
 	}
-	t.Fatal("the stale api.json was not replaced")
 }
 
 func TestRunCleansLeftoversAtStart(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
 	// A glob metacharacter in the path must not stop the cleanup.
-	dir = filepath.Join(dir, "x[1]")
+	dir := filepath.Join(t.TempDir(), "x[1]")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -184,8 +236,7 @@ func TestRunStopBeforeStartIsClean(t *testing.T) {
 	dir := t.TempDir()
 	ctx, cancel := context.WithCancel(t.Context())
 	cancel() // the stop arrives before Run gets going
-	err := service.Run(ctx, service.Options{Dir: dir, Version: "x", ContractVersion: 1})
-	if err != nil {
+	if err := service.Run(ctx, service.Options{Dir: dir, Version: "x", ContractVersion: 1}); err != nil {
 		t.Fatalf("Run with an already cancelled context = %v; want nil", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, "api.json")); !os.IsNotExist(err) {
@@ -195,46 +246,23 @@ func TestRunStopBeforeStartIsClean(t *testing.T) {
 
 // A stop is a stop: neither a connection that outlasts the shutdown bound nor an
 // api.json that cannot be deleted turns it into a failure (a supervisor would
-// read exit 1 as a crash; api.json is only a hint).
+// read exit 1 as a crash; api.json is only a hint). Both are logged.
 func TestRunStopSucceedsWhenShutdownTimesOut(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan error, 1)
-	go func() {
-		done <- service.Run(ctx, service.Options{Dir: dir, Version: "x", ContractVersion: 1, ShutdownTimeout: 100 * time.Millisecond})
-	}()
-	info := waitInfo(t, dir)
-	// Headers that never complete: net/http keeps the connection in StateNew and
-	// Shutdown waits for it, as long as it is younger than 5 s (older StateNew
-	// connections count as idle, net/http issue 22682). Keep the bounds below that.
-	conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", "127.0.0.1:"+strconv.Itoa(info.Port))
-	if err != nil {
-		t.Fatal(err)
+	r := startWith(t, service.Options{Dir: t.TempDir(), ShutdownTimeout: 100 * time.Millisecond})
+	r.holdConnection(t)
+	if err := r.stop(); err != nil {
+		t.Fatalf("Run after a stop that hit the shutdown bound = %v; want nil", err)
 	}
-	defer conn.Close() //nolint:errcheck // test connection
-	if _, err := conn.Write([]byte("GET /api/v1/health HTTP/1.1\r\nHost: 127.0.0.1\r\n")); err != nil {
-		t.Fatal(err)
-	}
-	syncAccepted(t, info)
-	cancel()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("Run after a stop that hit the shutdown bound = %v; want nil", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("Run did not stop")
+	if !strings.Contains(r.logs.String(), "Shutdown bound reached") {
+		t.Errorf("the stop did not hit the bound, or did not log it:\n%s", r.logs)
 	}
 }
 
 func TestRunStopSucceedsWhenInfoCannotBeDeleted(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan error, 1)
-	go func() { done <- service.Run(ctx, service.Options{Dir: dir, Version: "x", ContractVersion: 1}) }()
-	waitInfo(t, dir)
+	r := startWith(t, service.Options{Dir: dir})
 	// Replace api.json by a non-empty folder: os.Remove fails on it.
 	path := filepath.Join(dir, "api.json")
 	if err := os.Remove(path); err != nil {
@@ -243,31 +271,12 @@ func TestRunStopSucceedsWhenInfoCannotBeDeleted(t *testing.T) {
 	if err := os.MkdirAll(filepath.Join(path, "keep"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	cancel()
-	select {
-	case err := <-done:
-		if err != nil {
-			t.Fatalf("Run with an undeletable api.json = %v; want nil", err)
-		}
-	case <-time.After(5 * time.Second):
-		t.Fatal("Run did not stop")
+	if err := r.stop(); err != nil {
+		t.Fatalf("Run with an undeletable api.json = %v; want nil", err)
 	}
-}
-
-func waitInfo(t *testing.T, dir string) service.Info {
-	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		if raw, err := os.ReadFile(filepath.Join(dir, "api.json")); err == nil {
-			var info service.Info
-			if json.Unmarshal(raw, &info) == nil && info.Port != 0 {
-				return info
-			}
-		}
-		time.Sleep(10 * time.Millisecond)
+	if logs := r.logs.String(); !strings.Contains(logs, "Cannot delete api.json") || !strings.Contains(logs, "error=") {
+		t.Errorf("the failed delete was not logged with its cause:\n%s", logs)
 	}
-	t.Fatal("api.json did not appear")
-	return service.Info{}
 }
 
 // api.json goes first on a stop: while the shutdown waits for a stuck connection
@@ -275,41 +284,16 @@ func waitInfo(t *testing.T, dir string) service.Info {
 func TestRunDeletesInfoBeforeWaitingForConnections(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	ctx, cancel := context.WithCancel(t.Context())
-	done := make(chan error, 1)
-	go func() {
-		done <- service.Run(ctx, service.Options{Dir: dir, Version: "x", ContractVersion: 1, ShutdownTimeout: time.Second})
-	}()
-	info := waitInfo(t, dir)
-	conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", "127.0.0.1:"+strconv.Itoa(info.Port))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := conn.Write([]byte("GET /api/v1/health HTTP/1.1\r\nHost: 127.0.0.1\r\n")); err != nil {
-		t.Fatal(err)
-	}
-	syncAccepted(t, info)
-	defer func() { // Run must be gone before the temp dir is removed
-		cancel()
-		_ = conn.Close()
-		select {
-		case err := <-done:
-			if err != nil {
-				t.Errorf("Run: %v", err)
-			}
-		case <-time.After(5 * time.Second):
-			t.Error("Run did not stop")
-		}
-	}()
-	cancel()
+	// The bound (4 s) is well above the polling window (1 s) and below net/http's
+	// 5 s StateNew rule (see holdConnection).
+	r := startWith(t, service.Options{Dir: dir, ShutdownTimeout: 4 * time.Second})
+	r.holdConnection(t)
+	r.cancel()
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		if _, err := os.Stat(filepath.Join(dir, "api.json")); os.IsNotExist(err) {
-			select {
-			case err := <-done:
-				done <- err
-				t.Fatalf("Run returned (%v): the connection should still be holding the shutdown", err)
-			default:
+			if r.returned() {
+				t.Fatalf("Run returned (%v): the connection should still be holding the shutdown", r.wait())
 			}
 			return
 		}
@@ -318,20 +302,64 @@ func TestRunDeletesInfoBeforeWaitingForConnections(t *testing.T) {
 	t.Fatal("api.json still advertised while the shutdown waits for a connection")
 }
 
-// syncAccepted returns once the server has accepted every earlier connection:
-// the accept loop is sequential and tracks a connection before serving the next,
-// so a full request answered on a new connection proves the earlier one is
-// tracked (and Shutdown waits for it). No sleep, no timing guess.
-func syncAccepted(t *testing.T, info service.Info) {
-	t.Helper()
-	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:"+strconv.Itoa(info.Port)+"/api/v1/health", nil)
-	if err != nil {
+// brokenListener is a real loopback listener whose Accept fails for good once
+// the test says so, as a listener the OS takes away would.
+type brokenListener struct {
+	net.Listener
+	broken chan struct{}
+}
+
+func (l *brokenListener) Accept() (net.Conn, error) {
+	<-l.broken
+	return nil, errors.New("listener broke")
+}
+
+func TestRunListenerFailureCleansUp(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	broken := make(chan struct{})
+	opts := service.WithListen(service.Options{Dir: dir}, func(ctx context.Context) (net.Listener, error) {
+		l, err := new(net.ListenConfig).Listen(ctx, "tcp", "127.0.0.1:0")
+		if err != nil {
+			return nil, err //nolint:wrapcheck // test listener
+		}
+		return &brokenListener{Listener: l, broken: broken}, nil
+	})
+	r := startWith(t, opts)
+	leftover := filepath.Join(dir, "api.json.999.tmp")
+	if err := os.WriteFile(leftover, []byte("partial"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	req.Header.Set("Authorization", "Bearer "+info.Token)
-	resp, err := (&http.Client{Transport: &http.Transport{DisableKeepAlives: true}}).Do(req)
-	if err != nil {
-		t.Fatal(err)
+	close(broken)
+	if err := r.wait(); err == nil || !strings.Contains(err.Error(), "listener broke") {
+		t.Fatalf("Run after the listener broke = %v; want the listener error", err)
 	}
-	_ = resp.Body.Close()
+	for _, name := range []string{"api.json", "api.json.999.tmp"} {
+		if _, err := os.Stat(filepath.Join(dir, name)); !os.IsNotExist(err) {
+			t.Errorf("%s survived a dead listener: %v", name, err)
+		}
+	}
+	if l, err := service.AcquireLock(dir); err != nil {
+		t.Errorf("the lock was not released: %v", err)
+	} else {
+		_ = l.Release()
+	}
+}
+
+func TestHTTPServerConfiguration(t *testing.T) {
+	t.Parallel()
+	logs := new(logBuffer)
+	srv := service.NewHTTPServer(t.Context(), http.NotFoundHandler(), slog.New(slog.NewTextHandler(logs, nil)))
+	if srv.MaxHeaderBytes != 64<<10 {
+		t.Errorf("MaxHeaderBytes = %d; want 64 KiB", srv.MaxHeaderBytes)
+	}
+	if srv.ReadHeaderTimeout == 0 || srv.ReadTimeout == 0 || srv.IdleTimeout == 0 {
+		t.Errorf("timeouts not set: header %v, read %v, idle %v", srv.ReadHeaderTimeout, srv.ReadTimeout, srv.IdleTimeout)
+	}
+	// net/http writes handler panics and accept errors only through ErrorLog: they
+	// must reach the service's logger at a level shown by default (warn).
+	srv.ErrorLog.Print("http: panic serving 127.0.0.1:1: boom")
+	if got := logs.String(); !strings.Contains(got, "level=WARN") || !strings.Contains(got, "panic serving") {
+		t.Errorf("ErrorLog output = %q; want a WARN line on the service logger", got)
+	}
 }
