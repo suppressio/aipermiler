@@ -109,5 +109,8 @@
         "build/linux/com.suppressio.aipermiler.metainfo.xml=/usr/share/metainfo/com.suppressio.aipermiler.metainfo.xml"
       ]
     }
+  },
+  "overrides": {
+    "minimatch": "^11.0.1"
   }
 }
