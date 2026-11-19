@@ -367,6 +367,7 @@ Condensed history; the full session-by-session log is in the git history (CLAUDE
 | 2026-11-10 | v0.6.1-beta | Claude on an Enterprise plan billed through usage credits: no false format drift (#249, #253), the Usage credits block of `/usage` shown as the `spend` window as in v0.4.x (#255, #257); format-drift draft signatures expire after 24 hours (#259); migration script for upgrades from IA Hypermiler v0.4.x that skipped v0.5.0 (#260) |
 | 2026-11-11 | v0.6.2-beta | Claude probe waits for the status line, the echo and the `/usage` panel under one overall deadline; a frozen `claude` is a timeout, not format drift, and a failing account no longer looks current in the widget (#266); softer alarm pulse on red values, readable on the light skin (#130); AppStream `<release>` added on version bump and validated in CI (#206) |
 | 2026-11-16 | v0.6.3-beta | Go core: pacing packages `quotaperiod`, `history` and `pace` (period and working units, history single writer, used/remaining, ideal, efficiency, blended pace, projection, autonomy), not yet wired into the app (#161, #162, #273, #274) |
+| 2026-11-19 | v0.6.4-beta | Go core: the `pace` package gains the instant pace, the ceiling, the target and the gauge position, still not wired into the app (#275) |
 
 ### Lessons learned (still relevant)
 - **Codex login User-Agent** (historical: the chatgpt.com login route was removed in #178): Google refuses embedded login when a rewritten User-Agent contradicts the client hints. Never change the UA of the Codex login window or its partition.
