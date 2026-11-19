@@ -88,3 +88,15 @@ func TestHostIsCheckedBeforeToken(t *testing.T) {
 		t.Fatalf("status = %d; a bad Host must be rejected before authentication (403)", w.Code)
 	}
 }
+
+// RFC 7235: the scheme is case-insensitive and may be followed by several spaces.
+func TestBearerSchemeIsCaseInsensitive(t *testing.T) {
+	t.Parallel()
+	for _, value := range []string{"bearer " + testToken, "BEARER " + testToken, "Bearer  " + testToken} {
+		r := newRequest(http.MethodGet, "/api/v1/health")
+		r.Header.Set("Authorization", value)
+		if w := serve(r); w.Code != http.StatusOK {
+			t.Errorf("%q: status = %d; want 200", value[:8], w.Code)
+		}
+	}
+}

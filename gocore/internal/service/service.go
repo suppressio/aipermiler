@@ -27,9 +27,10 @@ type Options struct {
 
 // Run holds the single-instance lock, serves the API on a random loopback port
 // and writes api.json once the listener is up. It returns nil after a clean
-// stop (ctx cancelled), ErrAlreadyRunning when another service holds the lock.
-// On the way out it stops accepting, cancels in-flight requests, deletes
-// api.json and releases the lock, all bounded by the shutdown timeout.
+// stop (ctx cancelled), even one that hit the shutdown bound, ErrAlreadyRunning
+// when another service holds the lock. On a stop it cancels in-flight requests,
+// deletes api.json, stops accepting and closes the remaining connections within
+// the shutdown timeout, then releases the lock.
 func Run(ctx context.Context, opts Options) error {
 	lock, err := AcquireLock(opts.Dir)
 	if err != nil {
@@ -74,6 +75,12 @@ func Run(ctx context.Context, opts Options) error {
 		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       60 * time.Second,
 	}
+	// abort tears down a start that failed or a server that died: nothing to drain.
+	abort := func() {
+		cancelWork()
+		_ = server.Close()
+		removeLeftovers(opts.Dir)
+	}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- server.Serve(listener) }()
 
@@ -82,16 +89,14 @@ func Run(ctx context.Context, opts Options) error {
 		ContractVersion: opts.ContractVersion, PID: os.Getpid(), StartedAt: time.Now().UTC(),
 	}
 	if err := WriteInfo(opts.Dir, info); err != nil {
-		cancelWork()
-		_ = server.Close()
-		removeLeftovers(opts.Dir)
+		abort()
 		return err
 	}
 	opts.Logger.Info("Service listening", "port", port, "version", opts.Version)
 
 	select {
 	case err := <-serveErr:
-		_ = RemoveInfo(opts.Dir)
+		abort()
 		return fmt.Errorf("serve: %w", err)
 	case <-ctx.Done():
 	}
@@ -101,7 +106,13 @@ func Run(ctx context.Context, opts Options) error {
 		timeout = DefaultShutdownTimeout
 	}
 	opts.Logger.Info("Service stopping")
+	// By design (#246, decision 4) a stop cancels in-flight work at once instead of
+	// draining it: fetches are re-run by the next refresh. api.json goes first, so
+	// no client is pointed at a port that is going away while connections drain.
 	cancelWork()
+	if err := RemoveInfo(opts.Dir); err != nil {
+		opts.Logger.Warn("Cannot delete api.json", "error", err)
+	}
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
 	// The stop was asked for, so it succeeds: what could not be done cleanly is
@@ -111,9 +122,6 @@ func Run(ctx context.Context, opts Options) error {
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		opts.Logger.Warn("Shutdown bound reached; closing connections", "error", err)
 		_ = server.Close()
-	}
-	if err := RemoveInfo(opts.Dir); err != nil {
-		opts.Logger.Warn("Cannot delete api.json", "error", err)
 	}
 	return nil
 }

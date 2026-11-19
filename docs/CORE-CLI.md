@@ -270,7 +270,7 @@ These are the normative single-line fixtures from `gocore/contract/v1/`; no READ
 | Exit | Meaning |
 |---|---|
 | `0` | Success, including stale values, help and version. |
-| `1` | Provider error. Output write failures also return 1 and log the failure. |
+| `1` | Provider error. Output write failures also return 1 and log the failure; so does `serve` when it cannot start or stops on a listener error. |
 | `2` | Usage error: unknown provider/command, bad flags, extra arguments, invalid timeout or secret input. |
 | `3` | `serve` only: another service already holds the lock. |
 
@@ -284,7 +284,7 @@ With `--json`, usage errors have no provider key. Help is text-only; requesting 
 - **Loopback only.** It listens on `127.0.0.1` (not `localhost`, which may resolve to `::1`) on a random port. Every request needs `Authorization: Bearer <token>`, a 32-byte random token generated at each start and compared in constant time (401 otherwise). A `Host` other than `127.0.0.1:<port>` (DNS rebinding) and any request with an `Origin` header get 403 before the token is looked at. The token is the real protection: browsers send no `Origin` on simple cross-origin GETs, so the `Origin` check only narrows what a web page can try.
 - **`api.json`** in the config folder, tells a client how to connect (on Unix the mode is `0600`; on Windows the file relies on the user-only ACL the profile folder inherits, to be checked on the Windows 11 VM): `{ "schemaVersion": 1, "port", "token", "version", "contractVersion", "pid", "startedAt" }`. It is written after the listener is up, atomically (temp file + rename), by the process holding the lock; a new service removes the `api.json` and temp files a dead instance left, and a clean stop deletes the file. A client never trusts the file alone: it calls `/health` with the token, and a refused connection, a 401 or an unknown `contractVersion` means "no usable service". `pid` is for diagnostics only. After a crash the file keeps a dead service's port and token; sending that token to whatever now owns the port leaks nothing, because every start generates a new one. Any process of the same OS user can read the file and use the API: the same trust boundary as the user's own files and the keyring.
 - **`GET /api/v1/health`** returns `{ "schemaVersion": 1, "version", "contractVersion" }`.
-- **Stop.** SIGINT or SIGTERM: stop accepting, cancel in-flight requests, delete `api.json`, release the lock, within 10 s. A requested stop always exits 0: connections still open at the bound are closed by force and a failure to delete `api.json` is only logged. Correctness never depends on a clean stop: the lock is released by the operating system and `api.json` is only a hint. Whether a hidden process on Windows receives SIGTERM at logoff is not verified yet (Windows 11 VM check of #247).
+- **Stop.** SIGINT or SIGTERM: cancel in-flight requests, delete `api.json` (so no client is pointed at a port that is going away), stop accepting and close the remaining connections, release the lock, within 10 s. A requested stop always exits 0: connections still open at the bound are closed by force and a failure to delete `api.json` is only logged. Correctness never depends on a clean stop: the lock is released by the operating system and `api.json` is only a hint. Whether a hidden process on Windows receives SIGTERM at logoff is not verified yet (Windows 11 VM check of #247).
 
 ## Electron client
 

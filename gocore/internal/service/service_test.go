@@ -214,7 +214,7 @@ func TestRunStopSucceedsWhenShutdownTimesOut(t *testing.T) {
 	if _, err := conn.Write([]byte("GET /api/v1/health HTTP/1.1\r\nHost: 127.0.0.1\r\n")); err != nil {
 		t.Fatal(err)
 	}
-	time.Sleep(50 * time.Millisecond) // let the server read the first bytes
+	syncAccepted(t, info)
 	cancel()
 	select {
 	case err := <-done:
@@ -266,4 +266,66 @@ func waitInfo(t *testing.T, dir string) service.Info {
 	}
 	t.Fatal("api.json did not appear")
 	return service.Info{}
+}
+
+// api.json goes first on a stop: while the shutdown waits for a stuck connection
+// the service must not keep advertising a port and token that are going away.
+func TestRunDeletesInfoBeforeWaitingForConnections(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		done <- service.Run(ctx, service.Options{Dir: dir, Version: "x", ContractVersion: 1, ShutdownTimeout: 3 * time.Second})
+	}()
+	info := waitInfo(t, dir)
+	conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", "127.0.0.1:"+strconv.Itoa(info.Port))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close() //nolint:errcheck // test connection
+	if _, err := conn.Write([]byte("GET /api/v1/health HTTP/1.1\r\nHost: 127.0.0.1\r\n")); err != nil {
+		t.Fatal(err)
+	}
+	syncAccepted(t, info)
+	defer func() { // Run must be gone before the temp dir is removed
+		cancel()
+		_ = conn.Close()
+		if err := <-done; err != nil {
+			t.Errorf("Run: %v", err)
+		}
+	}()
+	cancel()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(filepath.Join(dir, "api.json")); os.IsNotExist(err) {
+			select {
+			case err := <-done:
+				done <- err
+				t.Fatalf("Run returned (%v): the connection should still be holding the shutdown", err)
+			default:
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("api.json still advertised while the shutdown waits for a connection")
+}
+
+// syncAccepted returns once the server has accepted every earlier connection:
+// the accept loop is sequential and tracks a connection before serving the next,
+// so a full request answered on a new connection proves the earlier one is
+// tracked (and Shutdown waits for it). No sleep, no timing guess.
+func syncAccepted(t *testing.T, info service.Info) {
+	t.Helper()
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, "http://127.0.0.1:"+strconv.Itoa(info.Port)+"/api/v1/health", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+info.Token)
+	resp, err := (&http.Client{Transport: &http.Transport{DisableKeepAlives: true}}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
 }
