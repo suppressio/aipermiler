@@ -77,24 +77,6 @@ func WriteInfo(dir string, info Info) error {
 	return nil
 }
 
-// removeOwnInfo deletes api.json only if it still carries token: if the config
-// folder was removed and recreated while this service ran, the file (and the
-// lock) may belong to another service by now.
-func removeOwnInfo(dir, token string) error {
-	raw, err := os.ReadFile(filepath.Join(dir, infoName))
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
-	}
-	if err != nil {
-		return fmt.Errorf("read %s: %w", infoName, err)
-	}
-	var info Info
-	if json.Unmarshal(raw, &info) == nil && info.Token != token {
-		return nil // another service's file
-	}
-	return RemoveInfo(dir)
-}
-
 // RemoveInfo deletes api.json; a missing file is not an error.
 func RemoveInfo(dir string) error {
 	if err := os.Remove(filepath.Join(dir, infoName)); err != nil && !errors.Is(err, os.ErrNotExist) {

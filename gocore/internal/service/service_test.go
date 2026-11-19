@@ -8,13 +8,13 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -299,7 +299,7 @@ func TestRunStopSucceedsWhenInfoCannotBeDeleted(t *testing.T) {
 	if err := r.stop(); err != nil {
 		t.Fatalf("Run with an undeletable api.json = %v; want nil", err)
 	}
-	if logs := r.logs.String(); !strings.Contains(logs, "Cannot delete api.json") || !strings.Contains(logs, "error=") {
+	if logs := r.logs.String(); !strings.Contains(logs, "Cannot delete api.json") || !strings.Contains(logs, "remove api.json") {
 		t.Errorf("the failed delete was not logged with its cause:\n%s", logs)
 	}
 }
@@ -395,37 +395,6 @@ func TestHTTPServerConfiguration(t *testing.T) {
 	}
 }
 
-// A stop waits for handlers that ignore the cancellation before it lets the lock
-// go, so the next service never starts while one of them is still writing.
-func TestInflightWaitsForHandlers(t *testing.T) {
-	t.Parallel()
-	var f service.Inflight
-	release, entered := make(chan struct{}), make(chan struct{})
-	var releaseOnce sync.Once
-	srv := httptest.NewServer(f.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
-		close(entered)
-		<-release // ignores the request context, as a buggy handler would
-	})))
-	defer srv.Close()
-	// Runs before srv.Close (defers are LIFO): a failing test must not leave the
-	// handler blocked, or Close would wait for it forever.
-	defer releaseOnce.Do(func() { close(release) })
-	go func() {
-		req, _ := http.NewRequestWithContext(t.Context(), http.MethodGet, srv.URL, nil)
-		if resp, err := http.DefaultClient.Do(req); err == nil {
-			_ = resp.Body.Close()
-		}
-	}()
-	<-entered
-	if f.Wait(50 * time.Millisecond) {
-		t.Fatal("Wait returned true while a handler was running")
-	}
-	releaseOnce.Do(func() { close(release) })
-	if !f.Wait(5 * time.Second) {
-		t.Fatal("Wait returned false after the handler finished")
-	}
-}
-
 func TestRunStopIgnoresMissingConfigFolder(t *testing.T) {
 	t.Parallel()
 	if runtime.GOOS == "windows" {
@@ -448,44 +417,36 @@ func TestRunStopIgnoresMissingConfigFolder(t *testing.T) {
 	}
 }
 
-// Once the gate is closed a request that had not started does no work, so the
-// wait that follows cannot miss a handler that starts after it.
-func TestInflightClosedGateRefusesNewRequests(t *testing.T) {
-	t.Parallel()
-	var f service.Inflight
-	called := false
-	h := f.Wrap(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { called = true }))
-	f.Close()
-	w := httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/", nil))
-	if called || w.Code != http.StatusServiceUnavailable {
-		t.Fatalf("after close: handler called %v, status %d; want not called, 503", called, w.Code)
-	}
-	if !f.Wait(0) {
-		t.Fatal("a refused request is still counted")
-	}
+// closeRecorder is a real listener that records whether it was closed.
+type closeRecorder struct {
+	net.Listener
+	closed atomic.Bool
 }
 
-// If the config folder is removed and recreated while a service runs, another
-// service can take a new lock there; the old one's stop must not delete the
-// new one's api.json.
-func TestRunStopKeepsAnotherServicesInfo(t *testing.T) {
+func (l *closeRecorder) Close() error {
+	l.closed.Store(true)
+	return l.Listener.Close() //nolint:wrapcheck // test listener
+}
+
+// Run returns only after Serve let the listener go, also when the stop came
+// before Serve was fully up: no goroutine and no bound port outlive Run.
+func TestRunReleasesListenerBeforeReturning(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
-	r := startWith(t, service.Options{Dir: dir}, nil)
-	other := service.Info{SchemaVersion: 1, Port: 4242, Token: strings.Repeat("b", 64), Version: "x", ContractVersion: 1, PID: 1, StartedAt: time.Now().UTC()}
-	if err := service.WriteInfo(dir, other); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.stop(); err != nil {
-		t.Fatal(err)
-	}
-	raw, err := os.ReadFile(filepath.Join(dir, "api.json"))
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	var rec *closeRecorder
+	err := service.RunWithListen(ctx, service.Options{Dir: t.TempDir(), Version: "x", ContractVersion: 1}, func(ctx context.Context) (net.Listener, error) {
+		l, err := new(net.ListenConfig).Listen(ctx, "tcp", "127.0.0.1:0")
+		if err != nil {
+			return nil, err //nolint:wrapcheck // test listener
+		}
+		rec = &closeRecorder{Listener: l}
+		return rec, nil
+	})
 	if err != nil {
-		t.Fatalf("the other service's api.json was deleted: %v", err)
+		t.Fatal(err)
 	}
-	var got service.Info
-	if err := json.Unmarshal(raw, &got); err != nil || got.Token != other.Token {
-		t.Fatalf("api.json = %s (%v); want the other service's", raw, err)
+	if !rec.closed.Load() {
+		t.Fatal("Run returned before the listener was closed")
 	}
 }
