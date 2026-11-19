@@ -67,7 +67,7 @@ func RunWith(env Env, args []string) int {
 	case "raw":
 		return runRaw(env, args[1:], jsonMode)
 	case "serve":
-		return runServe(env, args[1:])
+		return runServe(env, args[1:], logger)
 	case claude.SinkCommand:
 		// Hidden: Claude runs it as the probe's status line, never a user.
 		return claude.Sink(args[1:], env.Stdin)

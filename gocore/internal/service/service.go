@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"errors"
 	"fmt"
 	"log/slog"
 	"net"
@@ -66,7 +65,11 @@ func Run(ctx context.Context, opts Options) error {
 			Token: token, Host: net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
 			Version: opts.Version, ContractVersion: opts.ContractVersion,
 		}),
-		BaseContext:       func(net.Listener) context.Context { return workCtx },
+		BaseContext:    func(net.Listener) context.Context { return workCtx },
+		ErrorLog:       slog.NewLogLogger(opts.Logger.Handler(), slog.LevelWarn),
+		MaxHeaderBytes: 64 << 10,
+		// No WriteTimeout on purpose: a refresh can last minutes. Endpoints that
+		// can be slow set their own deadline (http.ResponseController).
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       30 * time.Second,
 		IdleTimeout:       60 * time.Second,
@@ -101,13 +104,16 @@ func Run(ctx context.Context, opts Options) error {
 	cancelWork()
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
-	var result error
+	// The stop was asked for, so it succeeds: what could not be done cleanly is
+	// logged. Connections that outlast the bound are closed by force, and api.json
+	// is only a hint (clients check it against /health), so neither makes a stop
+	// look like a crash to a supervisor.
 	if err := server.Shutdown(shutdownCtx); err != nil {
+		opts.Logger.Warn("Shutdown bound reached; closing connections", "error", err)
 		_ = server.Close()
-		result = fmt.Errorf("shutdown: %w", err)
 	}
 	if err := RemoveInfo(opts.Dir); err != nil {
-		result = errors.Join(result, err)
+		opts.Logger.Warn("Cannot delete api.json", "error", err)
 	}
-	return result
+	return nil
 }
