@@ -41,8 +41,10 @@ func NewHandler(cfg HandlerConfig) http.Handler {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		bearer, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		got := sha256.Sum256([]byte(bearer))
+		// RFC 7235: the scheme is case-insensitive, then 1*SP; the token is not.
+		scheme, bearer, ok := strings.Cut(r.Header.Get("Authorization"), " ")
+		ok = ok && strings.EqualFold(scheme, "Bearer")
+		got := sha256.Sum256([]byte(strings.TrimLeft(bearer, " ")))
 		if !ok || subtle.ConstantTimeCompare(got[:], want[:]) != 1 {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return

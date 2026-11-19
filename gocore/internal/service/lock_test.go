@@ -50,9 +50,10 @@ func TestAcquireLockIsExclusive(t *testing.T) {
 	}
 }
 
-// Not parallel on purpose: the fork below briefly gives the child a copy of every
-// open descriptor, and a flock lives as long as any copy does, so a parallel test
-// releasing its lock at that moment would still see it held.
+// Serial on purpose: the fork below briefly gives the child a copy of every open
+// descriptor, and a flock lives as long as any copy does. Run in parallel with the
+// other lock tests, a Release in one of them could still see its lock held by that
+// copy (found with -race -count=40). Serial tests never overlap parallel ones.
 func TestAcquireLockSurvivesKilledHolder(t *testing.T) { //nolint:paralleltest // see above
 	if runtime.GOOS == "windows" {
 		t.Skip("covered by the manual check on the Windows 11 VM (#247)")
