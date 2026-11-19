@@ -36,6 +36,9 @@ func runServe(env Env, args []string) int {
 		var stop context.CancelFunc
 		ctx, stop = signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
+		// After the first signal a second one gets the default action, so a stuck
+		// shutdown can still be interrupted.
+		go func() { <-ctx.Done(); stop() }()
 	}
 	err = service.Run(ctx, service.Options{
 		Dir: dir, Version: buildinfo.Version, ContractVersion: usage.SchemaVersion, Logger: logging.New(env.Stderr),

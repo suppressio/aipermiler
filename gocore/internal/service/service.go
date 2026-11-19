@@ -37,6 +37,12 @@ func Run(ctx context.Context, opts Options) error {
 		return err
 	}
 	defer func() { _ = lock.Release() }()
+	// The lock is ours, so whatever api.json and temp files are here are stale:
+	// drop them now, so a failed start never leaves an old port and token behind.
+	removeLeftovers(opts.Dir)
+	if opts.Logger == nil {
+		opts.Logger = slog.New(slog.DiscardHandler)
+	}
 
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
@@ -44,7 +50,9 @@ func Run(ctx context.Context, opts Options) error {
 	}
 	token := hex.EncodeToString(tokenBytes)
 
-	listener, err := new(net.ListenConfig).Listen(ctx, "tcp", "127.0.0.1:0")
+	// Not the stop context: a stop that arrives while starting is a clean stop
+	// (the select below sees it at once), not a listen error.
+	listener, err := new(net.ListenConfig).Listen(context.WithoutCancel(ctx), "tcp", "127.0.0.1:0")
 	if err != nil {
 		return fmt.Errorf("listen on loopback: %w", err)
 	}
@@ -60,18 +68,20 @@ func Run(ctx context.Context, opts Options) error {
 		}),
 		BaseContext:       func(net.Listener) context.Context { return workCtx },
 		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		IdleTimeout:       60 * time.Second,
 	}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- server.Serve(listener) }()
 
-	// The lock is ours, so any api.json here is stale: replace it.
 	info := Info{
-		SchemaVersion: 1, Port: port, Token: token, Version: opts.Version,
+		SchemaVersion: SchemaVersion, Port: port, Token: token, Version: opts.Version,
 		ContractVersion: opts.ContractVersion, PID: os.Getpid(), StartedAt: time.Now().UTC(),
 	}
 	if err := WriteInfo(opts.Dir, info); err != nil {
 		cancelWork()
 		_ = server.Close()
+		removeLeftovers(opts.Dir)
 		return err
 	}
 	opts.Logger.Info("Service listening", "port", port, "version", opts.Version)

@@ -15,17 +15,21 @@ import (
 
 type served struct {
 	cancel context.CancelFunc
-	done   chan int
+	exited chan struct{}
+	code   int
 	stderr *bytes.Buffer
 }
 
 func startServe(t *testing.T) *served {
 	t.Helper()
 	ctx, cancel := context.WithCancel(t.Context())
-	s := &served{cancel: cancel, done: make(chan int, 1), stderr: new(bytes.Buffer)}
+	s := &served{cancel: cancel, exited: make(chan struct{}), stderr: new(bytes.Buffer)}
 	env := cli.Env{Providers: provider.Registry{}, Stdin: strings.NewReader(""), Stdout: new(bytes.Buffer), Stderr: s.stderr, Context: ctx}
-	go func() { s.done <- cli.RunWith(env, []string{"serve"}) }()
-	t.Cleanup(cancel)
+	go func() { s.code = cli.RunWith(env, []string{"serve"}); close(s.exited) }()
+	t.Cleanup(func() {
+		cancel()
+		<-s.exited // the instance must be gone before the temp dir is removed
+	})
 	return s
 }
 
@@ -48,9 +52,9 @@ func TestServeRunsUntilCancelled(t *testing.T) {
 	waitForFile(t, filepath.Join(dir, "api.json"))
 	s.cancel()
 	select {
-	case code := <-s.done:
-		if code != cli.ExitOK {
-			t.Fatalf("exit = %d; want 0 (stderr: %s)", code, s.stderr)
+	case <-s.exited:
+		if s.code != cli.ExitOK {
+			t.Fatalf("exit = %d; want 0 (stderr: %s)", s.code, s.stderr)
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("serve did not stop")

@@ -17,8 +17,10 @@ type HandlerConfig struct {
 }
 
 // NewHandler builds the API. Every request passes three gates before routing:
-// no Origin header (a browser page), the exact loopback Host (DNS rebinding),
-// then the bearer token compared in constant time.
+// no Origin header, the exact loopback Host (DNS rebinding), then the bearer
+// token compared in constant time. The token is the real protection: browsers
+// send no Origin on simple cross-origin GETs, so the Origin gate only narrows
+// what a page can try and must never be relied on in place of the token.
 func NewHandler(cfg HandlerConfig) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/v1/health", func(w http.ResponseWriter, _ *http.Request) {
@@ -27,7 +29,7 @@ func NewHandler(cfg HandlerConfig) http.Handler {
 			SchemaVersion   int    `json:"schemaVersion"`
 			Version         string `json:"version"`
 			ContractVersion int    `json:"contractVersion"`
-		}{1, cfg.Version, cfg.ContractVersion})
+		}{SchemaVersion, cfg.Version, cfg.ContractVersion})
 	})
 	want := sha256.Sum256([]byte(cfg.Token))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -39,8 +41,9 @@ func NewHandler(cfg HandlerConfig) http.Handler {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		got := sha256.Sum256([]byte(strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")))
-		if !strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") || subtle.ConstantTimeCompare(got[:], want[:]) != 1 {
+		bearer, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
+		got := sha256.Sum256([]byte(bearer))
+		if !ok || subtle.ConstantTimeCompare(got[:], want[:]) != 1 {
 			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
