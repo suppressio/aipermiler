@@ -16,6 +16,10 @@ import (
 // DefaultShutdownTimeout bounds the clean stop.
 const DefaultShutdownTimeout = 10 * time.Second
 
+// handlerGrace is how long a stop waits, after closing every connection, for
+// handlers that ignored the cancellation, before it releases the lock anyway.
+const handlerGrace = time.Second
+
 // Options configures Run.
 type Options struct {
 	Dir             string // the config dir: service.lock and api.json live here
@@ -44,11 +48,13 @@ func run(ctx context.Context, opts Options, listen func(context.Context) (net.Li
 		return err
 	}
 	defer func() { _ = lock.Release() }()
-	// The lock is ours, so whatever api.json and temp files are here are stale:
-	// drop them now, so a failed start never leaves an old port and token behind.
-	_ = removeLeftovers(opts.Dir)
 	if opts.Logger == nil {
 		opts.Logger = slog.New(slog.DiscardHandler)
+	}
+	// The lock is ours, so whatever api.json and temp files are here are stale:
+	// drop them now, so a failed start never leaves an old port and token behind.
+	if err := removeLeftovers(opts.Dir); err != nil {
+		opts.Logger.Warn("Cannot clean up the files of an earlier service", "error", err)
 	}
 
 	tokenBytes := make([]byte, 32)
@@ -68,18 +74,24 @@ func run(ctx context.Context, opts Options, listen func(context.Context) (net.Li
 	// In-flight work gets its own context so a stop can cancel it.
 	workCtx, cancelWork := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelWork()
-	server := newHTTPServer(workCtx, NewHandler(HandlerConfig{
+	var handlers inflight
+	server := newHTTPServer(workCtx, handlers.wrap(NewHandler(HandlerConfig{
 		Token: token, Host: net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
 		Version: opts.Version, ContractVersion: opts.ContractVersion,
-	}), opts.Logger)
-	// abort is the one teardown: cancel the work, close whatever is still open,
-	// remove api.json and temp files. A failed start and a dead server call it
-	// directly; a stop calls it after the drain. Every step is idempotent. It
-	// returns why api.json could not be deleted, which is only ever logged.
-	abort := func() error {
+	})), opts.Logger)
+	// teardown is the one way out after the server exists: cancel the work, close
+	// whatever is still open, give handlers that ignored the cancellation a short
+	// grace, remove api.json and its temp files. Every step is idempotent and
+	// what fails is logged here; the deferred release of the lock comes after.
+	teardown := func() {
 		cancelWork()
 		_ = server.Close()
-		return removeLeftovers(opts.Dir)
+		if !handlers.wait(handlerGrace) {
+			opts.Logger.Warn("Handlers still running after the stop; releasing the lock anyway")
+		}
+		if err := removeLeftovers(opts.Dir); err != nil {
+			opts.Logger.Warn("Cannot clean up the service files", "error", err)
+		}
 	}
 	serveErr := make(chan error, 1)
 	go func() { serveErr <- server.Serve(listener) }()
@@ -89,16 +101,14 @@ func run(ctx context.Context, opts Options, listen func(context.Context) (net.Li
 		ContractVersion: opts.ContractVersion, PID: os.Getpid(), StartedAt: time.Now().UTC(),
 	}
 	if err := WriteInfo(opts.Dir, info); err != nil {
-		_ = abort() // api.json was never written
+		teardown()
 		return err
 	}
 	opts.Logger.Info("Service listening", "port", port, "version", opts.Version)
 
 	select {
 	case err := <-serveErr:
-		if rmErr := abort(); rmErr != nil {
-			opts.Logger.Warn("Cannot clean up api.json", "error", rmErr)
-		}
+		teardown()
 		return fmt.Errorf("serve: %w", err)
 	case <-ctx.Done():
 	}
@@ -108,10 +118,11 @@ func run(ctx context.Context, opts Options, listen func(context.Context) (net.Li
 		timeout = DefaultShutdownTimeout
 	}
 	opts.Logger.Info("Service stopping")
-	// By design (#246, decision 4) a stop cancels in-flight work at once instead of
-	// draining it: fetches are re-run by the next refresh. api.json goes first, so
-	// no client is pointed at a port that is going away while connections drain;
-	// abort below tries again once they are gone (a reader may have held it open).
+	// Before the drain: by design (#246, decision 4) a stop cancels in-flight work
+	// at once instead of waiting for it (fetches are re-run by the next refresh),
+	// and api.json goes first, so no client is pointed at a port that is going
+	// away while connections drain. teardown tries the delete again afterwards
+	// (a reader may have held the file open).
 	cancelWork()
 	_ = RemoveInfo(opts.Dir)
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
@@ -123,9 +134,7 @@ func run(ctx context.Context, opts Options, listen func(context.Context) (net.Li
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		opts.Logger.Warn("Shutdown bound reached; closing connections", "error", err)
 	}
-	if err := abort(); err != nil {
-		opts.Logger.Warn("Cannot clean up api.json", "error", err)
-	}
+	teardown()
 	return nil
 }
 
