@@ -126,7 +126,7 @@ func run(ctx context.Context, opts Options, listen func(context.Context) (net.Li
 	// teardown deletes it again afterwards, in case a reader held it open.
 	cancelWork()
 	if err := RemoveInfo(opts.Dir); err != nil {
-		opts.Logger.Info("api.json not deleted yet; retrying after the drain", "error", err)
+		opts.Logger.Warn("Cannot delete api.json before the drain; retrying after it", "error", err)
 	}
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
