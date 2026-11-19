@@ -10,8 +10,7 @@ import (
 // NewHTTPServer exposes the server configuration.
 var NewHTTPServer = newHTTPServer
 
-// WithListen replaces the loopback listener, to simulate a listener that dies.
-func WithListen(opts Options, listen func(context.Context) (net.Listener, error)) Options {
-	opts.listen = listen
-	return opts
+// RunWithListen is Run with a listener the test makes, to simulate one that dies.
+func RunWithListen(ctx context.Context, opts Options, listen func(context.Context) (net.Listener, error)) error {
+	return run(ctx, opts, listen)
 }

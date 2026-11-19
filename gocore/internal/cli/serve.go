@@ -36,8 +36,9 @@ func runServe(env Env, args []string, logger *slog.Logger) int {
 		var stop context.CancelFunc
 		ctx, stop = signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 		defer stop()
-		// After the first signal a second one gets the default action, so a stuck
-		// shutdown can still be interrupted.
+		// After the first signal a further one gets the default action, so a stuck
+		// shutdown can still be interrupted. One that arrives before stop() runs
+		// is absorbed by NotifyContext's buffer: an instant, documented.
 		go func() { <-ctx.Done(); stop() }()
 	}
 	err = service.Run(ctx, service.Options{

@@ -38,12 +38,13 @@ func (b *logBuffer) String() string {
 }
 
 type running struct {
-	info   service.Info
-	cancel context.CancelFunc
-	done   chan error
-	logs   *logBuffer
-	once   sync.Once
-	err    error
+	info      service.Info
+	cancel    context.CancelFunc
+	done      chan error
+	logs      *logBuffer
+	once      sync.Once
+	err       error
+	expectErr bool // the test checks Run's error itself
 }
 
 // wait returns Run's result, at most 5 s after it is asked; later calls repeat it.
@@ -74,10 +75,10 @@ func (r *running) returned() bool {
 	}
 }
 
-// startWith runs the service and waits for its api.json. The cleanup stops it
-// and waits, so Run is gone before the temp dir is removed; tests that care
-// about Run's result check it themselves.
-func startWith(t *testing.T, opts service.Options) *running {
+// startWith runs the service (on the listener listen makes, when not nil) and
+// waits for its api.json. The cleanup stops it, waits, so Run is gone before
+// the temp dir is removed, and requires a clean stop unless expectErr is set.
+func startWith(t *testing.T, opts service.Options, listen func(context.Context) (net.Listener, error)) *running {
 	t.Helper()
 	if opts.Version == "" {
 		opts.Version = "9.9.9"
@@ -85,20 +86,33 @@ func startWith(t *testing.T, opts service.Options) *running {
 	if opts.ContractVersion == 0 {
 		opts.ContractVersion = 1
 	}
+	if opts.ShutdownTimeout == 0 {
+		opts.ShutdownTimeout = 2 * time.Second // below wait()'s 5 s
+	}
 	r := &running{done: make(chan error, 1), logs: new(logBuffer)}
 	opts.Logger = slog.New(slog.NewTextHandler(r.logs, nil))
 	ctx, cancel := context.WithCancel(context.Background())
 	r.cancel = cancel
-	go func() { r.done <- service.Run(ctx, opts) }()
-	t.Cleanup(func() { _ = r.stop() })
+	go func() {
+		if listen != nil {
+			r.done <- service.RunWithListen(ctx, opts, listen)
+			return
+		}
+		r.done <- service.Run(ctx, opts)
+	}()
+	t.Cleanup(func() {
+		if err := r.stop(); err != nil && !r.expectErr {
+			t.Errorf("stop: %v", err)
+		}
+	})
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if r.returned() {
 			t.Fatalf("Run returned early: %v", r.wait())
 		}
 		if raw, err := os.ReadFile(filepath.Join(opts.Dir, "api.json")); err == nil {
-			// A stale file left by the test has no 64-character token.
-			if json.Unmarshal(raw, &r.info) == nil && r.info.Port != 0 && len(r.info.Token) == 64 {
+			// This instance's file, not a stale one a test left: it carries our pid.
+			if json.Unmarshal(raw, &r.info) == nil && r.info.Port != 0 && r.info.PID == os.Getpid() {
 				return r
 			}
 		}
@@ -110,7 +124,7 @@ func startWith(t *testing.T, opts service.Options) *running {
 
 func start(t *testing.T, dir string) *running {
 	t.Helper()
-	return startWith(t, service.Options{Dir: dir, ShutdownTimeout: 2 * time.Second})
+	return startWith(t, service.Options{Dir: dir}, nil)
 }
 
 func (r *running) url(path string) string {
@@ -164,6 +178,9 @@ func TestRunServesHealthAndCleansUp(t *testing.T) {
 
 	if r.info.SchemaVersion != 1 || r.info.Version != "9.9.9" || r.info.ContractVersion != 1 || r.info.PID != os.Getpid() || r.info.StartedAt.IsZero() {
 		t.Errorf("api.json = %+v", r.info)
+	}
+	if len(r.info.Token) != 64 { // 32 random bytes, hex
+		t.Errorf("token length = %d; want 64 hex characters", len(r.info.Token))
 	}
 	if resp := r.get(t, r.info.Token); resp.StatusCode != http.StatusOK {
 		t.Fatalf("health with the token = %d", resp.StatusCode)
@@ -249,7 +266,7 @@ func TestRunStopBeforeStartIsClean(t *testing.T) {
 // read exit 1 as a crash; api.json is only a hint). Both are logged.
 func TestRunStopSucceedsWhenShutdownTimesOut(t *testing.T) {
 	t.Parallel()
-	r := startWith(t, service.Options{Dir: t.TempDir(), ShutdownTimeout: 100 * time.Millisecond})
+	r := startWith(t, service.Options{Dir: t.TempDir(), ShutdownTimeout: 100 * time.Millisecond}, nil)
 	r.holdConnection(t)
 	if err := r.stop(); err != nil {
 		t.Fatalf("Run after a stop that hit the shutdown bound = %v; want nil", err)
@@ -262,7 +279,7 @@ func TestRunStopSucceedsWhenShutdownTimesOut(t *testing.T) {
 func TestRunStopSucceedsWhenInfoCannotBeDeleted(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	r := startWith(t, service.Options{Dir: dir})
+	r := startWith(t, service.Options{Dir: dir}, nil)
 	// Replace api.json by a non-empty folder: os.Remove fails on it.
 	path := filepath.Join(dir, "api.json")
 	if err := os.Remove(path); err != nil {
@@ -274,7 +291,7 @@ func TestRunStopSucceedsWhenInfoCannotBeDeleted(t *testing.T) {
 	if err := r.stop(); err != nil {
 		t.Fatalf("Run with an undeletable api.json = %v; want nil", err)
 	}
-	if logs := r.logs.String(); !strings.Contains(logs, "Cannot delete api.json") || !strings.Contains(logs, "error=") {
+	if logs := r.logs.String(); !strings.Contains(logs, "Cannot clean up api.json") || !strings.Contains(logs, "error=") {
 		t.Errorf("the failed delete was not logged with its cause:\n%s", logs)
 	}
 }
@@ -284,9 +301,9 @@ func TestRunStopSucceedsWhenInfoCannotBeDeleted(t *testing.T) {
 func TestRunDeletesInfoBeforeWaitingForConnections(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
-	// The bound (4 s) is well above the polling window (1 s) and below net/http's
-	// 5 s StateNew rule (see holdConnection).
-	r := startWith(t, service.Options{Dir: dir, ShutdownTimeout: 4 * time.Second})
+	// The bound (3 s) is well above the polling window (1 s) and leaves 2 s below
+	// net/http's 5 s StateNew rule (see holdConnection).
+	r := startWith(t, service.Options{Dir: dir, ShutdownTimeout: 3 * time.Second}, nil)
 	r.holdConnection(t)
 	r.cancel()
 	deadline := time.Now().Add(time.Second)
@@ -318,14 +335,14 @@ func TestRunListenerFailureCleansUp(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	broken := make(chan struct{})
-	opts := service.WithListen(service.Options{Dir: dir}, func(ctx context.Context) (net.Listener, error) {
+	r := startWith(t, service.Options{Dir: dir}, func(ctx context.Context) (net.Listener, error) {
 		l, err := new(net.ListenConfig).Listen(ctx, "tcp", "127.0.0.1:0")
 		if err != nil {
 			return nil, err //nolint:wrapcheck // test listener
 		}
 		return &brokenListener{Listener: l, broken: broken}, nil
 	})
-	r := startWith(t, opts)
+	r.expectErr = true
 	leftover := filepath.Join(dir, "api.json.999.tmp")
 	if err := os.WriteFile(leftover, []byte("partial"), 0o600); err != nil {
 		t.Fatal(err)
