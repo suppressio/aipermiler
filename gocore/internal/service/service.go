@@ -125,9 +125,7 @@ func run(ctx context.Context, opts Options, listen func(context.Context) (net.Li
 	// client is pointed at a port that is going away while connections drain.
 	// teardown deletes it again afterwards, in case a reader held it open.
 	cancelWork()
-	if err := RemoveInfo(opts.Dir); err != nil {
-		opts.Logger.Warn("Cannot delete api.json before the drain; retrying after it", "error", err)
-	}
+	_ = RemoveInfo(opts.Dir) // a failure here is retried, and logged once, by teardown
 	shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), timeout)
 	defer cancel()
 	// The stop was asked for, so it succeeds: what could not be done cleanly is
