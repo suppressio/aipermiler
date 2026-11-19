@@ -205,7 +205,9 @@ func TestRunStopSucceedsWhenShutdownTimesOut(t *testing.T) {
 		done <- service.Run(ctx, service.Options{Dir: dir, Version: "x", ContractVersion: 1, ShutdownTimeout: 100 * time.Millisecond})
 	}()
 	info := waitInfo(t, dir)
-	// A request that never completes: the connection stays active until the bound.
+	// Headers that never complete: net/http keeps the connection in StateNew and
+	// Shutdown waits for it, as long as it is younger than 5 s (older StateNew
+	// connections count as idle, net/http issue 22682). Keep the bounds below that.
 	conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", "127.0.0.1:"+strconv.Itoa(info.Port))
 	if err != nil {
 		t.Fatal(err)
@@ -276,14 +278,13 @@ func TestRunDeletesInfoBeforeWaitingForConnections(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() {
-		done <- service.Run(ctx, service.Options{Dir: dir, Version: "x", ContractVersion: 1, ShutdownTimeout: 3 * time.Second})
+		done <- service.Run(ctx, service.Options{Dir: dir, Version: "x", ContractVersion: 1, ShutdownTimeout: time.Second})
 	}()
 	info := waitInfo(t, dir)
 	conn, err := (&net.Dialer{}).DialContext(t.Context(), "tcp", "127.0.0.1:"+strconv.Itoa(info.Port))
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer conn.Close() //nolint:errcheck // test connection
 	if _, err := conn.Write([]byte("GET /api/v1/health HTTP/1.1\r\nHost: 127.0.0.1\r\n")); err != nil {
 		t.Fatal(err)
 	}
@@ -291,8 +292,13 @@ func TestRunDeletesInfoBeforeWaitingForConnections(t *testing.T) {
 	defer func() { // Run must be gone before the temp dir is removed
 		cancel()
 		_ = conn.Close()
-		if err := <-done; err != nil {
-			t.Errorf("Run: %v", err)
+		select {
+		case err := <-done:
+			if err != nil {
+				t.Errorf("Run: %v", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Error("Run did not stop")
 		}
 	}()
 	cancel()
