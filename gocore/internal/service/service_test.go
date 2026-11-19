@@ -300,8 +300,10 @@ func TestRunStopSucceedsWhenInfoCannotBeDeleted(t *testing.T) {
 	if err := r.stop(); err != nil {
 		t.Fatalf("Run with an undeletable api.json = %v; want nil", err)
 	}
-	if logs := r.logs.String(); !strings.Contains(logs, "Cannot delete api.json before the drain") || !strings.Contains(logs, "Cannot delete api.json\"") || !strings.Contains(logs, "remove api.json") {
-		t.Errorf("the failed delete was not logged with its cause:\n%s", logs)
+	// One warning for one failure, at warn (serve's default level), with its cause.
+	logs := r.logs.String()
+	if n := strings.Count(logs, "level=WARN"); n != 1 || !strings.Contains(logs, `level=WARN msg="Cannot delete api.json" error="remove api.json`) {
+		t.Errorf("want exactly one WARN line for the failed delete, with its cause; got %d:\n%s", n, logs)
 	}
 }
 
