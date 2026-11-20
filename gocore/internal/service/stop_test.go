@@ -25,7 +25,17 @@ func stopWith(t *testing.T, dir string, timeout time.Duration) service.StopStatu
 // fakeService answers like a service that accepted the shutdown but never lets go of the lock.
 func fakeService(t *testing.T, dir, token string) *atomic.Int32 {
 	t.Helper()
-	var calls atomic.Int32
+	calls, info := fakeServer(t, token)
+	if err := service.WriteInfo(dir, info); err != nil {
+		t.Fatal(err)
+	}
+	return calls
+}
+
+// fakeServer is fakeService without the api.json, for a test that writes it later.
+func fakeServer(t *testing.T, token string) (*atomic.Int32, service.Info) {
+	t.Helper()
+	calls := new(atomic.Int32)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Method == http.MethodPost && r.URL.Path == "/api/v1/shutdown" && r.Header.Get("Authorization") == "Bearer "+token {
 			calls.Add(1)
@@ -36,10 +46,7 @@ func fakeService(t *testing.T, dir, token string) *atomic.Int32 {
 	}))
 	t.Cleanup(srv.Close)
 	port := srv.Listener.Addr().(*net.TCPAddr).Port //nolint:forcetypeassert // a tcp listener
-	if err := service.WriteInfo(dir, service.Info{SchemaVersion: 1, Port: port, Token: token, Version: "9.9.9", ContractVersion: 1, PID: 1, StartedAt: time.Now()}); err != nil {
-		t.Fatal(err)
-	}
-	return &calls
+	return calls, service.Info{SchemaVersion: 1, Port: port, Token: token, Version: "9.9.9", ContractVersion: 1, PID: 1, StartedAt: time.Now()}
 }
 
 func TestStopWithNothingRunning(t *testing.T) {
@@ -70,9 +77,8 @@ func TestStopStopsARunningService(t *testing.T) {
 	if got := stopWith(t, dir, 5*time.Second); got != service.StopStopped {
 		t.Fatalf("status = %q; want %q", got, service.StopStopped)
 	}
-	if !r.returned() {
-		t.Error("Stop reported stopped while Run was still going")
-	}
+	// The lock is released just before Run returns: wait (bounded) rather than
+	// require that Run has already returned.
 	if err := r.wait(); err != nil {
 		t.Errorf("Run: %v", err)
 	}
@@ -135,8 +141,13 @@ func TestStopRetriesUntilAPIFileAppears(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = lock.Release() })
+	calls, info := fakeServer(t, "late")
 	time.AfterFunc(150*time.Millisecond, func() {
-		calls := fakeService(t, dir, "late")
+		if err := service.WriteInfo(dir, info); err != nil {
+			t.Errorf("WriteInfo: %v", err) // not Fatal: this is not the test goroutine
+			_ = lock.Release()
+			return
+		}
 		go func() {
 			for calls.Load() == 0 {
 				time.Sleep(5 * time.Millisecond)
@@ -163,5 +174,46 @@ func TestStopOnlyTalksToLoopback(t *testing.T) {
 	}
 	if got := stopWith(t, dir, 200*time.Millisecond); got != service.StopTimeout {
 		t.Fatalf("status = %q; want %q", got, service.StopTimeout)
+	}
+}
+
+// A service that takes the lock after the first one accepted the shutdown gets
+// its own shutdown: its api.json carries another token.
+func TestStopSendsTheShutdownToANewInstance(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	lock, err := service.AcquireLock(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = lock.Release() })
+	first := fakeService(t, dir, "first")
+	second, info := fakeServer(t, "second")
+	go func() {
+		for first.Load() == 0 {
+			time.Sleep(5 * time.Millisecond)
+		}
+		if err := service.WriteInfo(dir, info); err != nil { // the new instance
+			t.Errorf("WriteInfo: %v", err)
+		}
+		for second.Load() == 0 {
+			time.Sleep(5 * time.Millisecond)
+		}
+		_ = lock.Release()
+	}()
+	if got := stopWith(t, dir, 5*time.Second); got != service.StopStopped {
+		t.Fatalf("status = %q; want %q (the new instance never got the shutdown)", got, service.StopStopped)
+	}
+}
+
+// No config folder at all: nothing to stop, and Stop does not create one.
+func TestStopWithoutConfigFolder(t *testing.T) {
+	t.Parallel()
+	dir := filepath.Join(t.TempDir(), "missing")
+	if got := stopWith(t, dir, time.Second); got != service.StopNotRunning {
+		t.Fatalf("status = %q; want %q", got, service.StopNotRunning)
+	}
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("Stop created the config folder: %v", err)
 	}
 }

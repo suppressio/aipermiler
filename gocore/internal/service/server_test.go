@@ -109,8 +109,14 @@ func TestBearerSchemeIsCaseInsensitive(t *testing.T) {
 func TestShutdownStartsTheStopAfterAnswering(t *testing.T) {
 	t.Parallel()
 	calls := 0
-	h := service.NewHandler(service.HandlerConfig{Token: testToken, Host: testHost, Shutdown: func() { calls++ }})
 	w := httptest.NewRecorder()
+	h := service.NewHandler(service.HandlerConfig{Token: testToken, Host: testHost, Shutdown: func() {
+		calls++
+		// The stop cancels the request: the reply must already be out.
+		if !w.Flushed || w.Code != http.StatusAccepted || !strings.Contains(w.Body.String(), "stopping") {
+			t.Error("Shutdown ran before the 202 reply was written and flushed")
+		}
+	}})
 	h.ServeHTTP(w, newRequest(http.MethodPost, "/api/v1/shutdown"))
 	if w.Code != http.StatusAccepted {
 		t.Fatalf("status = %d; want 202", w.Code)
