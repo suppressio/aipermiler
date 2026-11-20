@@ -33,11 +33,15 @@ func runService(env Env, args []string, jsonMode bool) int {
 	if *timeout <= 0 || *timeout > maxStopTimeout {
 		return usageError(env, jsonMode, fmt.Sprintf("Timeout must be positive and at most %s", maxStopTimeout))
 	}
-	dir, err := config.Ensure()
+	dir, err := config.Dir()
 	if err != nil {
 		return stopFailure(env, jsonMode, err)
 	}
-	status, err := service.Stop(context.Background(), service.StopOptions{Dir: dir, Timeout: *timeout})
+	ctx := env.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	status, err := service.Stop(ctx, service.StopOptions{Dir: dir, Timeout: *timeout})
 	if err != nil {
 		return stopFailure(env, jsonMode, err)
 	}

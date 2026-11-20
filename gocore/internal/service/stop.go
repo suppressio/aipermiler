@@ -48,6 +48,10 @@ func Stop(ctx context.Context, opts StopOptions) (StopStatus, error) {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
+	// No config folder: no service ever ran for this user; do not create one.
+	if _, err := os.Stat(opts.Dir); errors.Is(err, os.ErrNotExist) {
+		return StopNotRunning, nil
+	}
 	free, err := lockIsFree(opts.Dir)
 	if err != nil {
 		return "", err
@@ -56,12 +60,14 @@ func Stop(ctx context.Context, opts StopOptions) (StopStatus, error) {
 		return StopNotRunning, nil
 	}
 	client := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}, Timeout: 5 * time.Second}
-	accepted := false
+	// The token of the instance that accepted: a new instance that takes the lock
+	// meanwhile has another token in api.json, and gets the shutdown too.
+	accepted := ""
 	ticker := time.NewTicker(stopPoll)
 	defer ticker.Stop()
 	for {
-		if !accepted {
-			accepted = requestShutdown(ctx, client, opts.Dir)
+		if token := requestShutdown(ctx, client, opts.Dir, accepted); token != "" {
+			accepted = token
 		}
 		select {
 		case <-ctx.Done():
@@ -90,26 +96,31 @@ func lockIsFree(dir string) (bool, error) {
 	return true, lock.Release()
 }
 
-// requestShutdown reads api.json and posts the shutdown; false means try again later.
-func requestShutdown(ctx context.Context, client *http.Client, dir string) bool {
+// requestShutdown reads api.json and posts the shutdown to the instance it names,
+// unless that instance (its token) already accepted one. It returns the token of
+// an instance that accepted now, "" otherwise (try again later).
+func requestShutdown(ctx context.Context, client *http.Client, dir, accepted string) string {
 	raw, err := os.ReadFile(filepath.Join(dir, infoName)) //nolint:gosec // dir is the core's own config folder
 	if err != nil {
-		return false
+		return ""
 	}
 	var info Info
-	if json.Unmarshal(raw, &info) != nil || info.Port < 1 || info.Port > 65535 || info.Token == "" {
-		return false
+	if json.Unmarshal(raw, &info) != nil || info.Port < 1 || info.Port > 65535 || info.Token == "" || info.Token == accepted {
+		return ""
 	}
 	url := "http://" + net.JoinHostPort("127.0.0.1", strconv.Itoa(info.Port)) + "/api/v1/shutdown"
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, nil)
 	if err != nil {
-		return false
+		return ""
 	}
 	req.Header.Set("Authorization", "Bearer "+info.Token)
 	resp, err := client.Do(req)
 	if err != nil {
-		return false
+		return ""
 	}
 	defer func() { _ = resp.Body.Close() }()
-	return resp.StatusCode == http.StatusAccepted
+	if resp.StatusCode != http.StatusAccepted {
+		return ""
+	}
+	return info.Token
 }

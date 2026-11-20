@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 )
 
 // ErrAlreadyRunning means another process holds the service lock.
@@ -18,7 +19,7 @@ const lockName = "service.lock"
 // Lock is the single-instance lock. The operating system drops it when the
 // process dies, however it dies, so a crash never leaves a stale lock.
 type Lock struct {
-	f *os.File
+	f atomic.Pointer[os.File] // swapped out by Release: safe to call twice, from any goroutine
 }
 
 // AcquireLock takes the exclusive lock in dir without waiting. It returns
@@ -35,16 +36,20 @@ func AcquireLock(dir string) (*Lock, error) {
 		}
 		return nil, fmt.Errorf("lock %s: %w", lockName, err)
 	}
-	return &Lock{f: f}, nil
+	l := &Lock{}
+	l.f.Store(f)
+	return l, nil
 }
 
 // Release gives the lock up. The file stays: it carries no data.
 func (l *Lock) Release() error {
-	if l == nil || l.f == nil {
+	if l == nil {
 		return nil
 	}
-	f := l.f
-	l.f = nil
+	f := l.f.Swap(nil)
+	if f == nil {
+		return nil
+	}
 	if err := f.Close(); err != nil { // closing the descriptor releases the lock
 		return fmt.Errorf("release lock: %w", err)
 	}
