@@ -1,0 +1,10 @@
+[
+  {"id": "Q-1", "description": "S, x = 60", "remaining": 40, "units": 9, "total": 22, "ok": true, "q": 4.444444444444445, "s": 4.545454545454546, "ratio": 0.9777777777777779},
+  {"id": "Q-2", "description": "S, x = 40", "remaining": 60, "units": 9, "total": 22, "ok": true, "q": 6.666666666666667, "s": 4.545454545454546, "ratio": 1.4666666666666668},
+  {"id": "Q-3", "description": "S, x = 80", "remaining": 20, "units": 9, "total": 22, "ok": true, "q": 2.2222222222222223, "s": 4.545454545454546, "ratio": 0.4888888888888889},
+  {"id": "Q-4", "description": "S on Saturday 10-24, x = 70", "remaining": 30, "units": 5, "total": 22, "ok": true, "q": 6, "s": 4.545454545454546, "ratio": 1.32},
+  {"id": "Q-5", "description": "S, x = 100", "remaining": 0, "units": 9, "total": 22, "ok": true, "q": 0, "s": 4.545454545454546, "ratio": 0},
+  {"id": "Q-6", "description": "start of the window, S on 10-01", "remaining": 100, "units": 22, "total": 22, "ok": true, "q": 4.545454545454546, "s": 4.545454545454546, "ratio": 1},
+  {"id": "D-3.18", "description": "no working units from today on", "remaining": 30, "units": 0, "total": 22, "ok": false},
+  {"id": "D-3.18", "description": "no total units", "remaining": 30, "units": 5, "total": 0, "ok": false}
+]
