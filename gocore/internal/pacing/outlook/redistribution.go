@@ -1,5 +1,7 @@
 package outlook
 
+import "github.com/suppressio/aipermiler/gocore/internal/pacing/pace"
+
 // Redistribution is the remaining quota spread over the working units from
 // today on, next to the even share (§3.8).
 type Redistribution struct {
@@ -9,8 +11,14 @@ type Redistribution struct {
 	EvenShare float64
 	// Units is U, the working units from today on, today whole.
 	Units float64
-	// Ratio is rho = q / s (D-3.19).
-	Ratio float64
+}
+
+// Ratio is rho = q / s (D-3.19), derived so it cannot disagree with q and s.
+func (r Redistribution) Ratio() float64 {
+	if r.EvenShare <= 0 {
+		return 0
+	}
+	return r.PerUnit / r.EvenShare
 }
 
 // Redistribute returns what is left now over the working units from today on
@@ -18,10 +26,9 @@ type Redistribution struct {
 // q / s. It follows the day's consumption and needs no history. It is false
 // when U <= 0 or N <= 0.
 func Redistribute(remaining, unitsFromToday, totalUnits float64) (Redistribution, bool) {
-	if unitsFromToday <= 0 || totalUnits <= 0 {
+	share, ok := pace.EvenShare(totalUnits)
+	if unitsFromToday <= 0 || !ok {
 		return Redistribution{}, false
 	}
-	perUnit := max(0, remaining) / unitsFromToday
-	share := 100 / totalUnits
-	return Redistribution{PerUnit: perUnit, EvenShare: share, Units: unitsFromToday, Ratio: perUnit / share}, true
+	return Redistribution{PerUnit: max(0, remaining) / unitsFromToday, EvenShare: share, Units: unitsFromToday}, true
 }

@@ -44,17 +44,9 @@ type VerdictInput struct {
 	// Redistribution is set when q and s are defined.
 	Redistribution *Redistribution
 
-	// Pace is the blended pace p in pp per unit; HasPace tells it is known.
-	Pace    float64
-	HasPace bool
-	// Preliminary is E < 2 (D-3.13 summary): the pace override is off.
-	Preliminary bool
-
-	// Autonomy (working units) and Projection (pp) are the D-3.10 and D-3.9
-	// values, Remaining is R. Used only without a redistribution.
-	Autonomy       float64
-	Projection     float64
-	RemainingUnits float64
+	// Summary is the projection summary of §3.13 (pace, preliminary,
+	// projection, autonomy, R); nil when the window has none.
+	Summary *Summary
 }
 
 // Judgement is the verdict with the rule behind it and, for a rolling-hours
@@ -72,35 +64,41 @@ func Judge(in VerdictInput) Judgement {
 	if in.Used >= 100 {
 		return Judgement{Verdict: Exhausted}
 	}
-	// 2. A rolling-hours window with the reset passed falls through.
-	if h := in.Hourly; h != nil && !h.ResetPassed {
+	// 2. A rolling-hours window with the reset passed falls through to 5: its
+	// other values are stale too (E5).
+	if h := in.Hourly; h != nil {
+		if h.ResetPassed {
+			return Judgement{Verdict: NoPacing}
+		}
 		if h.ProjectedAtReset > 100 {
 			return Judgement{Verdict: AtRisk, Reason: ReasonHourly, AutonomyHours: h.AutonomyHours, HasAutonomy: h.HasAutonomy}
 		}
 		return Judgement{Verdict: OnTrack, Reason: ReasonHourly}
 	}
+	s := in.Summary
+	hasPace := s != nil && s.HasPace
 	// 3.
 	if r := in.Redistribution; r != nil && r.EvenShare > 0 {
-		if in.HasPace && !in.Preliminary && in.Pace > PaceAlertRatio*r.PerUnit {
+		if hasPace && !s.Preliminary && s.Pace > PaceAlertRatio*r.PerUnit {
 			return Judgement{Verdict: AtRisk, Reason: ReasonPace}
 		}
-		switch {
-		case r.Ratio < atRiskRatio:
+		switch ratio := r.Ratio(); {
+		case ratio < atRiskRatio:
 			return Judgement{Verdict: AtRisk, Reason: ReasonRatio}
-		case r.Ratio < behindRatio:
+		case ratio < behindRatio:
 			return Judgement{Verdict: Behind, Reason: ReasonRatio}
-		case r.Ratio <= aheadRatio:
+		case ratio <= aheadRatio:
 			return Judgement{Verdict: OnTrack, Reason: ReasonRatio}
 		default:
 			return Judgement{Verdict: Ahead, Reason: ReasonRatio}
 		}
 	}
 	// 4.
-	if in.HasPace {
+	if hasPace {
 		switch {
-		case in.Autonomy < in.RemainingUnits:
+		case s.HasAutonomy && s.Autonomy < s.WorkingUnitsToReset:
 			return Judgement{Verdict: AtRisk, Reason: ReasonAutonomy}
-		case in.Projection > 100:
+		case s.Projection > 100:
 			return Judgement{Verdict: AtRisk, Reason: ReasonProjection}
 		default:
 			return Judgement{Verdict: OnTrack}

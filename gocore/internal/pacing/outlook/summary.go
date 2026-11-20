@@ -1,6 +1,10 @@
 package outlook
 
-import "github.com/suppressio/aipermiler/gocore/internal/pacing/pace"
+import (
+	"math"
+
+	"github.com/suppressio/aipermiler/gocore/internal/pacing/pace"
+)
 
 // preliminaryBelow is the elapsed working units under which projection and
 // autonomy are flagged preliminary (§3.13).
@@ -20,8 +24,10 @@ type Summary struct {
 	HasPace bool
 	// Projection is x + p * R in pp, not capped at 100.
 	Projection float64
-	// Autonomy is in working units; +Inf when unknown or not consuming.
-	Autonomy float64
+	// Autonomy is in working units, finite; HasAutonomy is false when it is
+	// unknown or the window is not consuming (no +Inf: the value goes into JSON).
+	Autonomy    float64
+	HasAutonomy bool
 	// WorkingUnitsToReset is R.
 	WorkingUnitsToReset float64
 	Preliminary         bool
@@ -31,11 +37,17 @@ type Summary struct {
 // and remaining working units and the recent pace (D-3.8 to D-3.10, §3.13).
 func Summarize(used, elapsedUnits, remainingUnits, recentPace float64, hasRecent bool) Summary {
 	p, ok := pace.Blend(used, elapsedUnits, recentPace, hasRecent)
+	autonomy := pace.Autonomy(used, p, ok)
+	hasAutonomy := !math.IsInf(autonomy, 0)
+	if !hasAutonomy {
+		autonomy = 0
+	}
 	return Summary{
 		Pace:                p,
 		HasPace:             ok,
 		Projection:          pace.Projection(used, p, ok, remainingUnits),
-		Autonomy:            pace.Autonomy(used, p, ok),
+		Autonomy:            autonomy,
+		HasAutonomy:         hasAutonomy,
 		WorkingUnitsToReset: remainingUnits,
 		Preliminary:         Preliminary(elapsedUnits),
 	}
