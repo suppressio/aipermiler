@@ -14,6 +14,8 @@ type HandlerConfig struct {
 	Host            string // the only accepted Host header, "127.0.0.1:<port>"
 	Version         string
 	ContractVersion int
+	// Shutdown starts the clean stop (POST /api/v1/shutdown); nil does nothing.
+	Shutdown func()
 }
 
 // NewHandler builds the API. Every request passes three gates before routing:
@@ -30,6 +32,22 @@ func NewHandler(cfg HandlerConfig) http.Handler {
 			Version         string `json:"version"`
 			ContractVersion int    `json:"contractVersion"`
 		}{SchemaVersion, cfg.Version, cfg.ContractVersion})
+	})
+	mux.HandleFunc("POST /api/v1/shutdown", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusAccepted)
+		_ = json.NewEncoder(w).Encode(struct {
+			SchemaVersion int    `json:"schemaVersion"`
+			Status        string `json:"status"`
+		}{SchemaVersion, "stopping"})
+		// Answer first: the stop cancels the request contexts and closes the
+		// connections once it drains, so the caller must already have its reply.
+		if f, ok := w.(http.Flusher); ok {
+			f.Flush()
+		}
+		if cfg.Shutdown != nil {
+			cfg.Shutdown()
+		}
 	})
 	want := sha256.Sum256([]byte(cfg.Token))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

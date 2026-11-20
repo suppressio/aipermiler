@@ -29,7 +29,11 @@ const (
 	ExitUsage = 2
 	// ExitAlreadyRunning indicates that `serve` found another service holding the lock (#247).
 	ExitAlreadyRunning = 3
-	maxSecretBytes     = 64 * 1024
+	// ExitNotRunning indicates that `service stop` found no service: nothing to stop, not an error for an installer (#286).
+	ExitNotRunning = 4
+	// ExitStopTimeout indicates that the service was still running when `service stop` ran out of time (#286).
+	ExitStopTimeout = 5
+	maxSecretBytes  = 64 * 1024
 )
 
 // Env supplies providers, streams and clock without process-global test state.
@@ -68,6 +72,8 @@ func RunWith(env Env, args []string) int {
 		return runRaw(env, args[1:], jsonMode)
 	case "serve":
 		return runServe(env, args[1:], logger)
+	case "service":
+		return runService(env, args[1:], jsonMode)
 	case claude.SinkCommand:
 		// Hidden: Claude runs it as the probe's status line, never a user.
 		return claude.Sink(args[1:], env.Stdin)
@@ -257,6 +263,7 @@ Commands:
   login <provider> [flags]         Sign in with an OAuth App (client secret on stdin)
   raw <provider> [flags]           Print the provider's raw usage response (JSON, for diagnostics)
   serve                            Run the always-on service (loopback API, one instance per user)
+  service stop [flags]             Stop the running service and wait until it is gone (exit 0 stopped, 4 not running, 5 timeout)
   version [--json]                 Print version and platform
   paths [--json]                   Print the folders a client must know (the Claude probe folder)
   help                             Show this help
