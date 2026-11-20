@@ -2,7 +2,7 @@
   "todayBudget": [
     {"id": "B-1", "description": "S, x0 = 57", "baseline": 57, "hasBaseline": true, "units": 9, "dayUnit": 1, "ok": true, "want": 4.777777777777778},
     {"id": "B-5", "description": "S, x0 = 90", "baseline": 90, "hasBaseline": true, "units": 9, "dayUnit": 1, "ok": true, "want": 1.1111111111111112},
-    {"id": "B-5", "description": "baseline over 100 gives no negative budget", "baseline": 103, "hasBaseline": true, "units": 5, "dayUnit": 1, "ok": true, "want": 0},
+    {"id": "D-3.15", "description": "baseline over 100 gives no negative budget", "baseline": 103, "hasBaseline": true, "units": 5, "dayUnit": 1, "ok": true, "want": 0},
     {"id": "B-6", "description": "day off (Saturday)", "baseline": 57, "hasBaseline": true, "units": 5, "dayUnit": 0, "ok": false, "want": 0},
     {"id": "B-7", "description": "no baseline", "baseline": 0, "hasBaseline": false, "units": 9, "dayUnit": 1, "ok": false, "want": 0},
     {"id": "B-9", "description": "S, Friday 10-30 17:00, x0 = 58, U = 1", "baseline": 58, "hasBaseline": true, "units": 1, "dayUnit": 1, "ok": true, "want": 42},
