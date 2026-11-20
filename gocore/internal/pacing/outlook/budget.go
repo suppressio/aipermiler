@@ -6,6 +6,8 @@
 // ok.
 package outlook
 
+import "github.com/suppressio/aipermiler/gocore/internal/pacing/pace"
+
 // PaceAlertRatio is how many times today's budget a day's consumption may be
 // before the pace alert (D-3.17), and how many times the redistributed quota
 // the blended pace may be before the verdict turns at risk (§3.10 step 3a).
@@ -16,6 +18,10 @@ const PaceAlertRatio = 1.5
 // (D-3.16).
 const resetDrop = 1.0
 
+// dropTolerance absorbs floating point error in baseline - used, so an exact
+// 1 pp drop (e.g. 1.1 to 0.1) stays noise.
+const dropTolerance = 1e-9
+
 // TodayBudget returns B = (100 - x0) / U * u(today) in pp (D-3.15): what was
 // left at the start of the day spread over the working units from today on
 // (today whole), times today's unit. It is fixed for the whole day and false
@@ -25,7 +31,7 @@ func TodayBudget(baseline float64, hasBaseline bool, unitsFromToday, dayUnit flo
 	if !hasBaseline || dayUnit <= 0 || unitsFromToday <= 0 {
 		return 0, false
 	}
-	return (100 - baseline) / unitsFromToday * dayUnit, true
+	return pace.Remaining(baseline) / unitsFromToday * dayUnit, true
 }
 
 // UsedToday returns the consumption of the day in pp (D-3.16): x - x0, never
@@ -33,7 +39,7 @@ func TodayBudget(baseline float64, hasBaseline bool, unitsFromToday, dayUnit flo
 // day, and the new count x is the consumption; a fall up to 1 pp is noise.
 // Both sides keep full precision.
 func UsedToday(used, baseline float64) float64 {
-	if used < baseline-resetDrop {
+	if baseline-used > resetDrop+dropTolerance {
 		return used
 	}
 	return max(0, used-baseline)

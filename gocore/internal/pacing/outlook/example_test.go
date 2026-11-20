@@ -18,7 +18,7 @@ func ExampleRedistribute() {
 	// Q-1: 40 pp left over the 9 units from today on, against an even share
 	// of 4.545.
 	r, _ := outlook.Redistribute(40, 9, 22)
-	fmt.Printf("%.3f %.3f %.3f\n", r.PerUnit, r.EvenShare, r.Ratio)
+	fmt.Printf("%.3f %.3f %.3f\n", r.PerUnit, r.EvenShare, r.Ratio())
 	// Output: 4.444 4.545 0.978
 }
 
@@ -26,7 +26,7 @@ func ExampleJudge() {
 	// V-6: the redistribution looks fine, but the pace is above 1.5 times
 	// what is left per unit.
 	r, _ := outlook.Redistribute(40, 9, 22)
-	got := outlook.Judge(outlook.VerdictInput{Used: 60, Redistribution: &r, Pace: 7, HasPace: true})
+	got := outlook.Judge(outlook.VerdictInput{Used: 60, Redistribution: &r, Summary: &outlook.Summary{Pace: 7, HasPace: true}})
 	fmt.Println(got.Verdict, got.Reason)
 	// Output: at-risk pace
 }

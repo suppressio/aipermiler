@@ -89,8 +89,6 @@ linters:
             - "!$test"
           allow:
             - $gostd
-            - github.com/suppressio/aipermiler/gocore/internal/pacing/quotaperiod
-            - github.com/suppressio/aipermiler/gocore/internal/pacing/history
             - github.com/suppressio/aipermiler/gocore/internal/pacing/pace
           deny:
             - pkg: os

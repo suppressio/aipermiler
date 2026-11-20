@@ -104,7 +104,7 @@ func TestRedistribute(t *testing.T) {
 			if !ok {
 				return
 			}
-			if !near(got.PerUnit, tc.Q, 1e-9) || !near(got.EvenShare, tc.S, 1e-9) || !near(got.Ratio, tc.Ratio, 1e-9) || got.Units != tc.Units {
+			if !near(got.PerUnit, tc.Q, 1e-9) || !near(got.EvenShare, tc.S, 1e-9) || !near(got.Ratio(), tc.Ratio, 1e-9) || got.Units != tc.Units {
 				t.Fatalf("Redistribute = %+v; want q %v s %v ratio %v", got, tc.Q, tc.S, tc.Ratio)
 			}
 		})
@@ -181,18 +181,21 @@ func TestJudge(t *testing.T) {
 		t.Run(tc.ID+" "+tc.Description, func(t *testing.T) {
 			t.Parallel()
 
-			in := outlook.VerdictInput{
-				Used: tc.Used, Pace: tc.Pace, HasPace: tc.HasPace, Preliminary: tc.Preliminary,
-				Autonomy: tc.Autonomy, Projection: tc.Projection, RemainingUnits: tc.Remaining,
+			in := outlook.VerdictInput{Used: tc.Used}
+			if tc.HasPace {
+				in.Summary = &outlook.Summary{
+					Pace: tc.Pace, HasPace: true, Preliminary: tc.Preliminary, Projection: tc.Projection,
+					Autonomy: tc.Autonomy, HasAutonomy: tc.Autonomy > 0, WorkingUnitsToReset: tc.Remaining,
+				}
 			}
 			if h := tc.Hourly; h != nil {
 				in.Hourly = &outlook.Hourly{ProjectedAtReset: h.Projected, HasAutonomy: h.HasAutonomy, AutonomyHours: h.Autonomy, ResetPassed: h.Passed}
 			}
 			if tc.HasRedistribution {
-				in.Redistribution = &outlook.Redistribution{PerUnit: tc.Q, EvenShare: tc.S, Ratio: tc.Q / tc.S}
+				in.Redistribution = &outlook.Redistribution{PerUnit: tc.Q, EvenShare: tc.S}
 			}
 			got := outlook.Judge(in)
-			if got.Verdict != tc.Want || got.Reason != tc.Reason || got.AutonomyHours != tc.AutonomyHours {
+			if got.Verdict != tc.Want || got.Reason != tc.Reason || got.AutonomyHours != tc.AutonomyHours || got.HasAutonomy != (tc.AutonomyHours > 0) {
 				t.Fatalf("Judge = %+v; want %v (%q) autonomy hours %v", got, tc.Want, tc.Reason, tc.AutonomyHours)
 			}
 		})
@@ -218,9 +221,10 @@ func TestSummarize(t *testing.T) {
 			t.Parallel()
 
 			got := outlook.Summarize(tc.Used, tc.Elapsed, tc.Remaining, tc.Recent, tc.HasRecent)
-			autonomyOK := near(got.Autonomy, tc.Autonomy, 0.1)
+			// Unknown autonomy is a flag, not +Inf: the value goes into JSON.
+			autonomyOK := got.HasAutonomy && near(got.Autonomy, tc.Autonomy, 0.1) && !math.IsInf(got.Autonomy, 0)
 			if tc.AutonomyInf {
-				autonomyOK = math.IsInf(got.Autonomy, 1)
+				autonomyOK = !got.HasAutonomy && got.Autonomy == 0
 			}
 			if got.HasPace != tc.HasPace || got.Preliminary != tc.Preliminary || !autonomyOK ||
 				!near(got.Pace, tc.Pace, 0.01) || !near(got.Projection, tc.Projection, 0.1) || got.WorkingUnitsToReset != tc.Remaining {

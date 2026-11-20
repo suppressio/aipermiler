@@ -16,5 +16,6 @@
   {"id": "V-10", "description": "no redistribution, autonomy fine, projection over 100", "used": 60, "pace": 4, "hasPace": true, "autonomy": 10, "projection": 101, "remaining": 8.625, "want": "at-risk", "reason": "projection"},
   {"id": "V-10", "description": "no redistribution, everything fine", "used": 40, "pace": 4, "hasPace": true, "autonomy": 15, "projection": 70, "remaining": 8.625, "want": "on-track", "reason": ""},
   {"id": "V-11", "description": "nothing computable", "used": 10, "want": "no-pacing", "reason": ""},
-  {"id": "E5", "description": "rolling hours with the reset passed falls through to no pacing", "used": 80, "hourly": {"projected": 80, "passed": true}, "want": "no-pacing", "reason": ""}
+  {"id": "E5", "description": "rolling hours with the reset passed falls through to no pacing", "used": 80, "hourly": {"projected": 80, "passed": true}, "want": "no-pacing", "reason": ""},
+  {"id": "E5", "description": "reset passed: no pacing even with a redistribution and a pace", "used": 80, "hourly": {"projected": 120, "passed": true}, "q": 1, "s": 4.545454545454546, "hasRedistribution": true, "pace": 9, "hasPace": true, "autonomy": 2, "projection": 120, "remaining": 8, "want": "no-pacing", "reason": ""}
 ]
