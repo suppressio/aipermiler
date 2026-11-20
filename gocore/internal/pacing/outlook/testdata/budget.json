@@ -1,0 +1,26 @@
+{
+  "todayBudget": [
+    {"id": "B-1", "description": "S, x0 = 57", "baseline": 57, "hasBaseline": true, "units": 9, "dayUnit": 1, "ok": true, "want": 4.777777777777778},
+    {"id": "B-5", "description": "S, x0 = 90", "baseline": 90, "hasBaseline": true, "units": 9, "dayUnit": 1, "ok": true, "want": 1.1111111111111112},
+    {"id": "B-6", "description": "day off (Saturday)", "baseline": 57, "hasBaseline": true, "units": 5, "dayUnit": 0, "ok": false, "want": 0},
+    {"id": "B-7", "description": "no baseline", "baseline": 0, "hasBaseline": false, "units": 9, "dayUnit": 1, "ok": false, "want": 0},
+    {"id": "B-9", "description": "S, Friday 10-30 17:00, x0 = 58, U = 1", "baseline": 58, "hasBaseline": true, "units": 1, "dayUnit": 1, "ok": true, "want": 42},
+    {"id": "D-3.15", "description": "half day weighs half of the units", "baseline": 50, "hasBaseline": true, "units": 5, "dayUnit": 0.5, "ok": true, "want": 5},
+    {"id": "D-3.15", "description": "outside the period (U = 0)", "baseline": 50, "hasBaseline": true, "units": 0, "dayUnit": 1, "ok": false, "want": 0}
+  ],
+  "usedToday": [
+    {"id": "B-1", "description": "S, x0 = 57, x = 60", "used": 60, "baseline": 57, "want": 3},
+    {"id": "B-2", "description": "full precision, no rounding before comparing", "used": 57.0449, "baseline": 57.04, "want": 0.0049000000000025},
+    {"id": "B-3", "description": "drop of 0.4 is noise, not a reset", "used": 39.6, "baseline": 40, "want": 0},
+    {"id": "B-4", "description": "drop to 3.5 is a reset: the new count", "used": 3.5, "baseline": 40, "want": 3.5},
+    {"id": "B-5", "description": "over the limit stays uncapped", "used": 103, "baseline": 90, "want": 13},
+    {"id": "D-3.16", "description": "drop of exactly 1 pp is still noise", "used": 39, "baseline": 40, "want": 0}
+  ],
+  "paceAlert": [
+    {"id": "B-8", "description": "B = 4.78: 7.2 is above 7.17", "usedToday": 7.2, "budget": 4.78, "want": true},
+    {"id": "B-8", "description": "B = 4.78: 7.17 is not", "usedToday": 7.17, "budget": 4.78, "want": false},
+    {"id": "B-5", "description": "S, x0 = 90, x = 103", "usedToday": 13, "budget": 1.1111111111111112, "want": true},
+    {"id": "D-3.17", "description": "exactly 1.5 times is not an alert", "usedToday": 6, "budget": 4, "want": false},
+    {"id": "D-3.17", "description": "no budget, no alert", "usedToday": 5, "budget": 0, "want": false}
+  ]
+}

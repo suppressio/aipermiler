@@ -1,0 +1,20 @@
+[
+  {"id": "V-1", "description": "S, x = 100", "used": 100, "q": 0, "s": 4.545454545454546, "hasRedistribution": true, "want": "exhausted", "reason": ""},
+  {"id": "V-1", "description": "exhausted wins over a rolling-hours projection", "used": 100, "hourly": {"projected": 100, "hasAutonomy": true, "autonomy": 0}, "want": "exhausted", "reason": ""},
+  {"id": "V-2", "description": "S, x = 60, p = 4.743", "used": 60, "q": 4.444444444444445, "s": 4.545454545454546, "hasRedistribution": true, "pace": 4.743, "hasPace": true, "want": "on-track", "reason": "ratio"},
+  {"id": "V-3", "description": "S, x = 65", "used": 65, "q": 3.888888888888889, "s": 4.545454545454546, "hasRedistribution": true, "pace": 4.86, "hasPace": true, "want": "behind", "reason": "ratio"},
+  {"id": "V-4", "description": "S, x = 80", "used": 80, "q": 2.2222222222222223, "s": 4.545454545454546, "hasRedistribution": true, "want": "at-risk", "reason": "ratio"},
+  {"id": "V-5", "description": "S, x = 40", "used": 40, "q": 6.666666666666667, "s": 4.545454545454546, "hasRedistribution": true, "want": "ahead", "reason": "ratio"},
+  {"id": "V-6", "description": "p = 7.0 > 1.5 * 4.444", "used": 60, "q": 4.444444444444445, "s": 4.545454545454546, "hasRedistribution": true, "pace": 7, "hasPace": true, "want": "at-risk", "reason": "pace"},
+  {"id": "V-7", "description": "as V-6 but preliminary", "used": 60, "q": 4.444444444444445, "s": 4.545454545454546, "hasRedistribution": true, "pace": 7, "hasPace": true, "preliminary": true, "want": "on-track", "reason": "ratio"},
+  {"id": "V-8", "description": "ratio exactly 0.95", "used": 5, "q": 95, "s": 100, "hasRedistribution": true, "want": "on-track", "reason": "ratio"},
+  {"id": "V-8", "description": "ratio exactly 1.05", "used": 5, "q": 105, "s": 100, "hasRedistribution": true, "want": "on-track", "reason": "ratio"},
+  {"id": "V-8", "description": "ratio exactly 0.5", "used": 5, "q": 50, "s": 100, "hasRedistribution": true, "want": "behind", "reason": "ratio"},
+  {"id": "V-9", "description": "rolling hours, projected 87", "used": 67, "hourly": {"projected": 87, "hasAutonomy": true, "autonomy": 3.3}, "want": "on-track", "reason": "hourly"},
+  {"id": "V-9", "description": "rolling hours, projected 107", "used": 67, "hourly": {"projected": 107, "hasAutonomy": true, "autonomy": 1.65}, "want": "at-risk", "reason": "hourly", "autonomyHours": 1.65},
+  {"id": "V-10", "description": "no redistribution, a = 8.4 < R = 8.625", "used": 60, "pace": 4.743, "hasPace": true, "autonomy": 8.4, "projection": 100.9, "remaining": 8.625, "want": "at-risk", "reason": "autonomy"},
+  {"id": "V-10", "description": "no redistribution, autonomy fine, projection over 100", "used": 60, "pace": 4, "hasPace": true, "autonomy": 10, "projection": 101, "remaining": 8.625, "want": "at-risk", "reason": "projection"},
+  {"id": "V-10", "description": "no redistribution, everything fine", "used": 40, "pace": 4, "hasPace": true, "autonomy": 15, "projection": 70, "remaining": 8.625, "want": "on-track", "reason": ""},
+  {"id": "V-11", "description": "nothing computable", "used": 10, "want": "no-pacing", "reason": ""},
+  {"id": "E5", "description": "rolling hours with the reset passed falls through to no pacing", "used": 80, "hourly": {"projected": 80, "passed": true}, "want": "no-pacing", "reason": ""}
+]

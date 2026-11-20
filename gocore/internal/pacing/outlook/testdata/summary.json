@@ -1,0 +1,10 @@
+[
+  {"id": "P-1", "description": "S, x = 60, p_r = 5.0", "used": 60, "elapsed": 13.375, "remaining": 8.625, "recent": 5, "hasRecent": true, "hasPace": true, "pace": 4.743, "projection": 100.9, "autonomy": 8.4, "preliminary": false},
+  {"id": "P-2", "description": "S, x = 60, no p_r", "used": 60, "elapsed": 13.375, "remaining": 8.625, "hasPace": true, "pace": 4.486, "projection": 98.7, "autonomy": 8.9, "preliminary": false},
+  {"id": "P-3", "description": "S on 10-01 09:00, x = 0", "used": 0, "elapsed": 0, "remaining": 22, "hasPace": false, "pace": 0, "projection": 0, "autonomyInf": true, "preliminary": true},
+  {"id": "P-4", "description": "S, x = 100", "used": 100, "elapsed": 13.375, "remaining": 8.625, "hasPace": true, "pace": 7.477, "projection": 164.5, "autonomy": 0, "preliminary": false},
+  {"id": "P-7", "description": "S, x = 103: uncapped projection", "used": 103, "elapsed": 13.375, "remaining": 8.625, "hasPace": true, "pace": 7.70, "projection": 169.4, "autonomy": 0, "preliminary": false},
+  {"id": "§3.13", "description": "E = 2 is no longer preliminary", "used": 10, "elapsed": 2, "remaining": 20, "hasPace": true, "pace": 5, "projection": 110, "autonomy": 18, "preliminary": false},
+  {"id": "§3.13", "description": "E just under 2 is preliminary", "used": 10, "elapsed": 1.99, "remaining": 20, "hasPace": true, "pace": 5.025, "projection": 110.5, "autonomy": 17.9, "preliminary": true},
+  {"id": "D-3.8", "description": "E = 0 with a recent pace uses just the recent pace", "used": 0, "elapsed": 0, "remaining": 22, "recent": 4, "hasRecent": true, "hasPace": true, "pace": 4, "projection": 88, "autonomy": 25, "preliminary": true}
+]
