@@ -44,6 +44,9 @@ func run(ctx context.Context, opts Options, listen func(context.Context) (net.Li
 		return err
 	}
 	defer func() { _ = lock.Release() }()
+	// POST /api/v1/shutdown ends the run like a cancelled ctx does (#286).
+	ctx, requestStop := context.WithCancel(ctx)
+	defer requestStop()
 	if opts.Logger == nil {
 		opts.Logger = slog.New(slog.DiscardHandler)
 	}
@@ -75,6 +78,7 @@ func run(ctx context.Context, opts Options, listen func(context.Context) (net.Li
 	server := newHTTPServer(workCtx, NewHandler(HandlerConfig{
 		Token: token, Host: net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
 		Version: opts.Version, ContractVersion: opts.ContractVersion,
+		Shutdown: requestStop,
 	}), opts.Logger)
 	serveErr, serveDone := make(chan error, 1), make(chan struct{})
 	go func() {

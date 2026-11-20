@@ -467,3 +467,28 @@ func TestRunLogsLeftoversItCannotRemove(t *testing.T) {
 		t.Errorf("the failed cleanup was not logged with its cause:\n%s", logs)
 	}
 }
+
+func TestShutdownEndpointStopsRun(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	r := start(t, dir)
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, r.url("/api/v1/shutdown"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer "+r.info.Token)
+	resp, err := (&http.Client{Transport: &http.Transport{DisableKeepAlives: true}}).Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode != http.StatusAccepted {
+		t.Fatalf("status = %d; want 202", resp.StatusCode)
+	}
+	if err := r.wait(); err != nil {
+		t.Fatalf("Run after shutdown: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "api.json")); !os.IsNotExist(err) {
+		t.Errorf("api.json survived: %v", err)
+	}
+}

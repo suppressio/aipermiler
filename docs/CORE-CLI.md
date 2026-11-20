@@ -15,6 +15,7 @@ aipermiler raw <provider> [provider flags]
 aipermiler version [--json]
 aipermiler paths [--json]
 aipermiler serve
+aipermiler service stop [--json] [--timeout 15s]
 aipermiler help
 ```
 
@@ -273,17 +274,32 @@ These are the normative single-line fixtures from `gocore/contract/v1/`; no READ
 | `1` | Provider error. Output write failures also return 1 and log the failure; so does `serve` when it cannot start or stops on a listener error. |
 | `2` | Usage error: unknown provider/command, bad flags, extra arguments, invalid timeout or secret input. |
 | `3` | `serve` only: another service already holds the lock. |
+| `4` | `service stop` only: no service was running (nothing to stop; not an error for an installer). |
+| `5` | `service stop` only: the service was still running when the time ran out. |
 
 With `--json`, usage errors have no provider key. Help is text-only; requesting help with `--json` produces a usage-error document. Without `--json`, help/version retain their plain text behavior.
 
 ## Service
 
-`aipermiler serve` keeps the process up as the always-on service (#31, first slice #247; approach in #246). It takes no flags. Today it only answers `GET /api/v1/health`: the refresh loop, the store and the other endpoints come in the next sub-issues of #31, and so does `service stop` (#286). Logs go to stderr (`AIPERMILER_LOG_LEVEL=info` shows start and stop).
+`aipermiler serve` keeps the process up as the always-on service (#31, first slice #247; approach in #246). It takes no flags. Today it only answers `GET /api/v1/health`: the refresh loop, the store and the other endpoints come in the next sub-issues of #31, and so does the rest of the API. Logs go to stderr (`AIPERMILER_LOG_LEVEL=info` shows start and stop).
 
 - **One instance per config folder** (so per user, unless `AIPERMILER_CONFIG_DIR` points elsewhere; a network filesystem may not honour the lock). Do not delete the config folder while a service runs: its lock file goes with it, so a second service could start next to the first. `serve` takes an exclusive lock on `service.lock` in the config folder (`flock(LOCK_EX|LOCK_NB)` on Unix, `LockFileEx` with `LOCKFILE_FAIL_IMMEDIATELY` on Windows). A second `serve` prints `The service is already running` and exits with **3**. The operating system drops the lock when the process dies, so a `kill -9` leaves nothing stale (tested on Unix with a killed process; on Windows to be checked by hand on the Windows 11 VM).
 - **Loopback only.** It listens on `127.0.0.1` (not `localhost`, which may resolve to `::1`) on a random port. Every request needs `Authorization: Bearer <token>`, a 32-byte random token generated at each start and compared in constant time (401 otherwise). A `Host` other than `127.0.0.1:<port>` (DNS rebinding) and any request with an `Origin` header get 403 before the token is looked at. The token is the real protection: browsers send no `Origin` on simple cross-origin GETs, so the `Origin` check only narrows what a web page can try.
 - **`api.json`** in the config folder, tells a client how to connect (on Unix the mode is `0600`; on Windows the file relies on the user-only ACL the profile folder inherits, to be checked on the Windows 11 VM): `{ "schemaVersion": 1, "port", "token", "version", "contractVersion", "pid", "startedAt" }`. It is written after the listener is up, atomically (temp file + rename), by the process holding the lock; a new service removes the `api.json` and temp files a dead instance left, and a clean stop deletes the file. A client never trusts the file alone: it calls `/health` with the token, and a refused connection, a 401 or an unknown `contractVersion` means "no usable service". `pid` is for diagnostics only. After a crash the file keeps a dead service's port and token; sending that token to whatever now owns the port leaks nothing, because every start generates a new one. Any process of the same OS user can read the file and use the API: the same trust boundary as the user's own files and the keyring.
 - **`GET /api/v1/health`** returns `{ "schemaVersion": 1, "version", "contractVersion" }`.
+- **`POST /api/v1/shutdown`** (authenticated like every request) answers `202 {"schemaVersion":1,"status":"stopping"}` and then starts the same clean stop as SIGTERM. The reply is written and flushed before the stop begins. Only `POST`; any other method gets 405.
+
+### Stopping the service: `service stop` (#286, for the installer and the updater of #152)
+
+`aipermiler service stop [--json] [--timeout <duration>]` is the one way a planned stop is done, the same on Linux, macOS and Windows, with no signal involved (Windows has no simple equivalent of SIGTERM from a script). The installer and the updater call it before they replace the binary, and treat exit **0** and **4** as success.
+
+1. It tries the lock of `service.lock`. Free: no service, exit **4** (`not_running`); a stale `api.json` is not even read.
+2. Held: it reads `api.json` and sends `POST /api/v1/shutdown` with the token, to `127.0.0.1:<port>` only (the host is never taken from the file). While the lock is held but `api.json` is missing or refused (a service that is starting or already stopping), it keeps retrying.
+3. It polls the lock until it is free: exit **0** (`stopped`). The lock being free means the service process has released it, that is, it is gone or about to exit; a following `serve` can start.
+4. If the lock is still held when `--timeout` ends (default 15 s, a little above the service's own 10 s bound; at most 5 min): exit **5** (`timeout`). The command does not kill anything: what to do next (wait, or stop the process by other means) is the caller's call.
+
+`--json` prints one document, `{ "schemaVersion": 1, "status": "stopped" | "not_running" | "timeout" }` (exit 0, 4, 5). Other failures (for example the config folder cannot be opened) exit 1 with an error document; a usage error exits 2. For a moment while it checks, `service stop` holds the lock itself, so a `serve` started at that very instant may find it taken (exit 3) and must retry, as in the start/stop window above.
+
 - **Stop.** SIGINT or SIGTERM: cancel in-flight requests, delete `api.json` (so no client is pointed at a port that is going away), stop accepting, wait for open requests up to 10 s and close whatever is still open, release the lock. `serve` exits once every connection is closed, so endpoints must honour the request context, which the stop cancels: a handler that ignores it may still run briefly after the lock is released. A stop already requested when the service would write `api.json` skips it. While it drains the lock is still held and `api.json` is already gone: a client that starts `serve` in that window gets exit 3 with no `api.json`. The same happens while another service is starting (lock taken, listener not up yet): exit 3 with no `api.json` means a service is starting or stopping, and the client retries for a little longer than the 10 s stop bound. If it persists, a service holds the lock but cannot be reached (its `api.json` was deleted by hand, or it is stuck): the client reports it and falls back to the CLI; stopping that process is the user's call. A requested stop exits 0: connections still open at the bound are closed by force and a failure to delete `api.json` is only logged. Once the stop is under way, a further SIGINT or SIGTERM ends the process at once with the signal's default action, without cleanup (the next start removes the leftovers); one that arrives in the instant between the first signal and that switch is absorbed. Correctness never depends on a clean stop: the lock is released by the operating system and `api.json` is only a hint. Whether a hidden process on Windows receives SIGTERM at logoff is not verified yet (Windows 11 VM check of #247).
 
 ## Electron client

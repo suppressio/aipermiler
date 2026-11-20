@@ -105,3 +105,49 @@ func TestBearerSchemeIsCaseInsensitive(t *testing.T) {
 		}
 	}
 }
+
+func TestShutdownStartsTheStopAfterAnswering(t *testing.T) {
+	t.Parallel()
+	calls := 0
+	h := service.NewHandler(service.HandlerConfig{Token: testToken, Host: testHost, Shutdown: func() { calls++ }})
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, newRequest(http.MethodPost, "/api/v1/shutdown"))
+	if w.Code != http.StatusAccepted {
+		t.Fatalf("status = %d; want 202", w.Code)
+	}
+	if got, want := strings.TrimSpace(w.Body.String()), `{"schemaVersion":1,"status":"stopping"}`; got != want {
+		t.Errorf("body = %s; want %s", got, want)
+	}
+	if calls != 1 {
+		t.Errorf("shutdown called %d times; want 1", calls)
+	}
+}
+
+func TestShutdownIsAuthenticatedAndPostOnly(t *testing.T) {
+	t.Parallel()
+	calls := 0
+	h := service.NewHandler(service.HandlerConfig{Token: testToken, Host: testHost, Shutdown: func() { calls++ }})
+	for _, tt := range []struct {
+		name   string
+		method string
+		mutate func(*http.Request)
+		want   int
+	}{
+		{"no token", http.MethodPost, func(r *http.Request) { r.Header.Del("Authorization") }, http.StatusUnauthorized},
+		{"wrong token", http.MethodPost, func(r *http.Request) { r.Header.Set("Authorization", "Bearer nope") }, http.StatusUnauthorized},
+		{"origin", http.MethodPost, func(r *http.Request) { r.Header.Set("Origin", "http://evil.example") }, http.StatusForbidden},
+		{"foreign host", http.MethodPost, func(r *http.Request) { r.Host = "evil.example:4242" }, http.StatusForbidden},
+		{"GET", http.MethodGet, func(*http.Request) {}, http.StatusMethodNotAllowed},
+	} {
+		r := newRequest(tt.method, "/api/v1/shutdown")
+		tt.mutate(r)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		if w.Code != tt.want {
+			t.Errorf("%s: status = %d; want %d", tt.name, w.Code, tt.want)
+		}
+	}
+	if calls != 0 {
+		t.Errorf("a rejected request started the stop %d times", calls)
+	}
+}
