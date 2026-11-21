@@ -1,0 +1,10 @@
+[
+  {"id": "H-1", "description": "x = 67, 2 h left, v = 10", "used": 67, "pace": 10, "hasPace": true, "hoursLeft": 2, "hasReset": true, "ok": true, "projected": 87, "hasAutonomy": true, "autonomy": 3.3, "passed": false},
+  {"id": "H-2", "description": "x = 67, 2 h left, v = 20", "used": 67, "pace": 20, "hasPace": true, "hoursLeft": 2, "hasReset": true, "ok": true, "projected": 107, "hasAutonomy": true, "autonomy": 1.65, "passed": false},
+  {"id": "H-3", "description": "no measured pace counts as 0", "used": 67, "pace": 0, "hasPace": false, "hoursLeft": 2, "hasReset": true, "ok": true, "projected": 67, "hasAutonomy": false, "autonomy": 0, "passed": false},
+  {"id": "H-4", "description": "exhausted: autonomy 0", "used": 100, "pace": 0, "hasPace": false, "hoursLeft": 2, "hasReset": true, "ok": true, "projected": 100, "hasAutonomy": true, "autonomy": 0, "passed": false},
+  {"id": "H-5", "description": "reset passed (09:00, now 10:00)", "used": 80, "pace": 10, "hasPace": true, "hoursLeft": -1, "hasReset": true, "ok": true, "projected": 80, "hasAutonomy": false, "autonomy": 0, "passed": true},
+  {"id": "H-5", "description": "reset passed, exhausted: still no autonomy", "used": 100, "pace": 10, "hasPace": true, "hoursLeft": -1, "hasReset": true, "ok": true, "projected": 100, "hasAutonomy": false, "autonomy": 0, "passed": true},
+  {"id": "D-3.20", "description": "reset exactly now counts as passed", "used": 50, "pace": 10, "hasPace": true, "hoursLeft": 0, "hasReset": true, "ok": true, "projected": 50, "hasAutonomy": false, "autonomy": 0, "passed": true},
+  {"id": "D-3.20", "description": "no reset moment", "used": 50, "pace": 10, "hasPace": true, "hoursLeft": 0, "hasReset": false, "ok": false}
+]
