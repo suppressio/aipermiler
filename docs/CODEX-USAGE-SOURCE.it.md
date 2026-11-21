@@ -1,8 +1,8 @@
 🌐 [English](CODEX-USAGE-SOURCE.md) | **Italiano**
 
-# Spike #142 — Quote di Codex da `codex app-server` (`account/rateLimits/read`)
+# Fonte delle quote Codex: `codex app-server` (`account/rateLimits/read`)
 
-> Parte di #139. Stato: **completato su Linux, Windows (#158) e macOS Intel (#171), si procede come fonte Codex per il core Go.** Homebrew e Apple Silicon non sono ancora verificati: #174. I bucket in più dei piani business a pagamento sono coperti da una fixture sintetica ricavata dallo schema nell'adapter Codex #148, non da un account vero.
+> Risultati e decisione dello spike #142, parte di #139. Stato: **completato su Linux, Windows (#158) e macOS Intel (#171), si procede come fonte Codex per il core Go.** Homebrew e Apple Silicon non sono ancora verificati: #174. I bucket in più dei piani business a pagamento sono coperti da una fixture sintetica ricavata dallo schema nell'adapter Codex #148, non da un account vero.
 
 ## Setup
 

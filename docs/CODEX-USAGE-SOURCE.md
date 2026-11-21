@@ -1,8 +1,8 @@
 🌐 **English** | [Italiano](CODEX-USAGE-SOURCE.it.md)
 
-# Spike #142 — Codex quotas from `codex app-server` (`account/rateLimits/read`)
+# Codex quota source: `codex app-server` (`account/rateLimits/read`)
 
-> Part of #139. Status: **done on Linux, Windows (#158) and Intel macOS (#171), go as the Codex source for the Go core.** Homebrew and Apple Silicon are not checked yet: #174. Extra buckets of paid business plans are covered by a synthetic schema fixture in the Codex adapter #148, not by a real account.
+> Findings and decision of spike #142, part of #139. Status: **done on Linux, Windows (#158) and Intel macOS (#171), go as the Codex source for the Go core.** Homebrew and Apple Silicon are not checked yet: #174. Extra buckets of paid business plans are covered by a synthetic schema fixture in the Codex adapter #148, not by a real account.
 
 ## Setup
 
