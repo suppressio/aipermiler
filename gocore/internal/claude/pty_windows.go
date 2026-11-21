@@ -14,7 +14,7 @@ import (
 )
 
 // conTerminal is claude.exe in a pseudo console (ConPTY), inside a job object that
-// holds its whole process tree (#183, docs/SPIKE-CLAUDE-USAGE-PTY.md).
+// holds its whole process tree (#183, docs/CLAUDE-USAGE-SOURCE.md).
 type conTerminal struct {
 	in, out *os.File
 	hpc     windows.Handle

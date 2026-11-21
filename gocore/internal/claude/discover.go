@@ -1,6 +1,6 @@
 // Package claude reads the Claude subscription quotas through the user's own,
 // unmodified `claude` binary (#147). This file finds that binary, in the order
-// decided on #183 (docs/SPIKE-CLAUDE-USAGE-PTY.md, Decision).
+// decided on #183 (docs/CLAUDE-USAGE-SOURCE.md, Decision).
 package claude
 
 import (

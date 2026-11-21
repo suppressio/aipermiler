@@ -39,7 +39,7 @@ I secret sono accettati solo su stdin, mai come flag: argv è visibile nell'elen
 aipermiler usage claude [--json] [--claude-bin /percorso/assoluto/di/claude]
 ```
 
-Le quote arrivano solo attraverso il binario `claude` dell'utente, non modificato, e il suo login (#139, #140): il core non legge mai le credenziali di Claude e non fa mai login. L'approccio è stato deciso in #183 e #218 ([spike](SPIKE-CLAUDE-USAGE-PTY.it.md)). Linux, macOS e Windows (#223). Claude non accetta `--secret-stdin`.
+Le quote arrivano solo attraverso il binario `claude` dell'utente, non modificato, e il suo login (#139, #140): il core non legge mai le credenziali di Claude e non fa mai login. L'approccio è stato deciso in #183 e #218 ([spike](CLAUDE-USAGE-SOURCE.it.md)). Linux, macOS e Windows (#223). Claude non accetta `--secret-stdin`.
 
 Una lettura:
 
