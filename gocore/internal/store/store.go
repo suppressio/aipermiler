@@ -223,8 +223,8 @@ func (s *Store) Snapshot() State {
 // atomically. If fn fails or panics, or the write fails, neither the file nor
 // the in-memory state changes: a half-updated day is never visible. Once the
 // new file is in place the change is committed; a failed folder sync after
-// that is reported as ErrNotSynced. fn may keep nothing it put into the state:
-// the store keeps its own copy.
+// that is reported as ErrNotSynced. What fn put into the state stays its own:
+// the store keeps a copy.
 func (s *Store) Update(fn func(*State) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
