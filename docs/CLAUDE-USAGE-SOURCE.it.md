@@ -1,8 +1,8 @@
 🌐 [English](CLAUDE-USAGE-SOURCE.md) | **Italiano**
 
-# Spike #141 / #183 — Quote Claude da `claude /usage` in un PTY
+# Fonte delle quote Claude: `claude /usage` in un PTY
 
-> Parte di #139. Stato: **fatto su Linux (#141), Windows 11 e macOS Intel (#183), via libera come fonte Claude per il core Go (#147).** Non verificati: Apple Silicon e il cask Homebrew (#193), un vero prompt di aggiornamento, la lettura dalla status line su Windows. Ogni affermazione dice se è stata eseguita (*verificato*) o dedotta (*dedotto*).
+> Risultati e decisione degli spike #141 e #183, parte di #139. Stato: **fatto su Linux (#141), Windows 11 e macOS Intel (#183), via libera come fonte Claude per il core Go (#147).** Non verificati: Apple Silicon e il cask Homebrew (#193), un vero prompt di aggiornamento, la lettura dalla status line su Windows. Ogni affermazione dice se è stata eseguita (*verificato*) o dedotta (*dedotto*).
 
 ## Setup
 
