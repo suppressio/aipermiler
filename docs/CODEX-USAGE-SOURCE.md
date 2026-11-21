@@ -1,4 +1,4 @@
-🌐 **English** | [Italiano](SPIKE-CODEX-APP-SERVER.it.md)
+🌐 **English** | [Italiano](CODEX-USAGE-SOURCE.it.md)
 
 # Spike #142 — Codex quotas from `codex app-server` (`account/rateLimits/read`)
 

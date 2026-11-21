@@ -39,7 +39,7 @@ Secrets are accepted only on stdin, never as flags: argv is visible in the proce
 aipermiler usage claude [--json] [--claude-bin /absolute/path/to/claude]
 ```
 
-Quotas come only through the user's own, unmodified `claude` binary and sign-in (#139, #140): the core never reads Claude's credentials and never signs in. The approach was decided on #183 and #218 ([spike](SPIKE-CLAUDE-USAGE-PTY.md)). Linux, macOS and Windows (#223). Claude accepts no `--secret-stdin`.
+Quotas come only through the user's own, unmodified `claude` binary and sign-in (#139, #140): the core never reads Claude's credentials and never signs in. The approach was decided on #183 and #218 ([spike](CLAUDE-USAGE-SOURCE.md)). Linux, macOS and Windows (#223). Claude accepts no `--secret-stdin`.
 
 One fetch:
 

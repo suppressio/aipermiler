@@ -52,8 +52,8 @@ aipermiler/
 │   ├── RESEARCH.md              ← what the Claude/Copilot APIs really expose (Day 1 + addenda)
 │   ├── EVOLUTION.md             ← retrospective and future directions with cost/benefit analysis
 │   ├── PLAN.md                  ← the original 3-day plan (historical)
-│   ├── SPIKE-CLAUDE-USAGE-PTY.md ← spike: Claude `/usage` panel read through a PTY (#141, #183)
-│   ├── SPIKE-CODEX-APP-SERVER.md ← spike: Codex rate limits through `codex app-server` (#142)
+│   ├── CLAUDE-USAGE-SOURCE.md   ← Claude quota source: `/usage` panel read through a PTY, from spikes #141, #183
+│   ├── CODEX-USAGE-SOURCE.md    ← Codex quota source: rate limits through `codex app-server`, from spike #142
 │   ├── UPGRADE-FROM-0.4.md      ← user guide: settings from IA Hypermiler v0.4.x after skipping v0.5.0 (#260)
 │   └── screenshots/             ← README screenshots, synthetic data only
 ├── package.json, package-lock.json ← scripts, dependencies, electron-builder config
