@@ -29,7 +29,9 @@ const (
 	FileName = "store.json"
 	// tempPattern is the os.CreateTemp pattern of the temp files of a write.
 	tempPattern = FileName + ".*.tmp"
-	// SchemaVersion is the version of the file layout; additive fields keep it.
+	// SchemaVersion is the version of the file layout. Additive fields keep it,
+	// but an older core drops them at its next write: a field whose loss after a
+	// downgrade matters bumps it.
 	SchemaVersion = 1
 )
 
@@ -40,6 +42,10 @@ var ErrNewerSchema = errors.New("store file has a newer schema version")
 // ErrUnreadable means the file exists but is not a valid store. It is never
 // reset silently: the user's history would be lost.
 var ErrUnreadable = errors.New("store file is unreadable")
+
+// ErrNotSynced means the change is committed (file renamed, memory updated) but
+// the folder sync failed, so a power loss could still bring the old file back.
+var ErrNotSynced = errors.New("store change committed but its folder was not synced")
 
 // Settings are the global settings the core needs.
 type Settings struct {
@@ -215,7 +221,10 @@ func (s *Store) Snapshot() State {
 
 // Update runs fn on a copy of the state under the store's lock and commits it
 // atomically. If fn fails or panics, or the write fails, neither the file nor
-// the in-memory state changes: a half-updated day is never visible.
+// the in-memory state changes: a half-updated day is never visible. Once the
+// new file is in place the change is committed; a failed folder sync after
+// that is reported as ErrNotSynced. fn may keep nothing it put into the state:
+// the store keeps its own copy.
 func (s *Store) Update(fn func(*State) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -228,11 +237,12 @@ func (s *Store) Update(fn func(*State) error) error {
 	if err != nil {
 		return fmt.Errorf("encode %s: %w", FileName, err)
 	}
-	if err := writeAtomic(s.path, append(data, '\n')); err != nil {
+	err = writeAtomic(s.path, append(data, '\n'))
+	if err != nil && !errors.Is(err, ErrNotSynced) {
 		return err
 	}
-	s.state = next
-	return nil
+	s.state = decode(data) // what the file holds, sharing nothing with fn's values
+	return err
 }
 
 func clone(s State) State {
@@ -241,6 +251,10 @@ func clone(s State) State {
 	if err != nil {
 		panic(fmt.Sprintf("store: encode state: %v", err)) // plain data, cannot fail
 	}
+	return decode(data)
+}
+
+func decode(data []byte) State {
 	out := Empty()
 	if err := json.Unmarshal(data, &out); err != nil {
 		panic(fmt.Sprintf("store: decode state: %v", err))
@@ -272,15 +286,14 @@ func writeAtomic(path string, data []byte) error {
 	}
 	if runtime.GOOS != "windows" { // a directory cannot be opened for sync there
 		d, err := os.Open(dir)
-		if err != nil {
-			return fmt.Errorf("sync folder of %s: %w", FileName, err)
+		if err == nil {
+			err = d.Sync()
+			if closeErr := d.Close(); err == nil {
+				err = closeErr
+			}
 		}
-		err = d.Sync()
-		if closeErr := d.Close(); err == nil {
-			err = closeErr
-		}
 		if err != nil {
-			return fmt.Errorf("sync folder of %s: %w", FileName, err)
+			return fmt.Errorf("%w: %w", ErrNotSynced, err)
 		}
 	}
 	return nil

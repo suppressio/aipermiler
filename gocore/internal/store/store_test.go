@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -247,6 +248,62 @@ func TestFailedWriteKeepsOldFileAndState(t *testing.T) {
 		if strings.HasSuffix(e.Name(), ".tmp") {
 			t.Fatalf("temp file left behind: %s", e.Name())
 		}
+	}
+}
+
+// After the rename the new file is in place: a failed folder sync must not
+// leave the memory behind it, or the next write would revert this change.
+func TestFolderSyncFailureStillCommits(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("the folder is not synced on Windows; root ignores the permission")
+	}
+	dir := t.TempDir()
+	s := mustOpen(t, dir)
+	// Write and search but no read: the rename works, opening the folder to sync it fails.
+	if err := os.Chmod(dir, 0o300); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o700) })
+	for _, minutes := range []int{5, 10} {
+		err := s.Update(func(st *store.State) error {
+			if minutes == 5 {
+				st.Settings.RefreshIntervalMinutes = minutes
+			} else {
+				st.Settings.RetentionDays = minutes
+			}
+			return nil
+		})
+		if !errors.Is(err, store.ErrNotSynced) {
+			t.Fatalf("Update = %v, want ErrNotSynced", err)
+		}
+	}
+	if err := os.Chmod(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	got := mustOpen(t, dir).Snapshot().Settings
+	if got.RefreshIntervalMinutes != 5 || got.RetentionDays != 10 {
+		t.Fatalf("file settings = %+v, want both changes", got)
+	}
+	if !reflect.DeepEqual(s.Snapshot().Settings, got) {
+		t.Fatalf("memory %+v differs from the file %+v", s.Snapshot().Settings, got)
+	}
+}
+
+// What fn puts into the state is copied: a map the caller keeps is not the store's.
+func TestUpdateKeepsNoReferenceToTheCallersData(t *testing.T) {
+	t.Parallel()
+	s := mustOpen(t, t.TempDir())
+	h := map[string]history.State{}
+	if err := s.Update(func(st *store.State) error {
+		st.Accounts = append(st.Accounts, store.Account{ID: "a1", History: h})
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h["leak"] = history.State{}
+	if _, ok := s.Snapshot().Account("a1").History["leak"]; ok {
+		t.Fatal("the store shares the caller's map")
 	}
 }
 
