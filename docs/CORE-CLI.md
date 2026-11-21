@@ -302,6 +302,15 @@ With `--json`, usage errors have no provider key. Help is text-only; requesting 
 
 `--json` prints one document, `{ "schemaVersion": 1, "status": "stopped" | "not_running" | "timeout" }` (exit 0, 4, 5). Other failures (for example the config folder cannot be opened) exit 1 with an error document; a usage error exits 2. For a moment while it checks, `service stop` holds the lock itself, so a `serve` started at that very instant may find it taken (exit 3) and must retry, as in the start/stop window above.
 
+## Store
+
+`internal/store` (#295, part of #146) is the core's persisted state and its only writer. The service (#31) will own it once it runs the refresh loop (#283); nothing calls it yet. The import from electron-store is #296.
+
+- **One file**, `store.json` in the config folder, mode `0600`, plain JSON with `schemaVersion` (1). Not encrypted: the only secret, the Copilot token, is in the OS keyring (#179). The name differs from Electron's `aipermiler-config.json`, because on Windows and macOS both apps share the config folder and the file systems are case-insensitive.
+- **Content**: `settings` (`refreshIntervalMinutes`, `retentionDays`, `notificationThresholdPercent`) and `accounts`. An account has its id, provider, label, `enabled`, the manual `renewalDay` (0 = none), the work `schedule` (`days` Sunday first, weights 0 / 0.5 / 1), the provider fields the core needs (`host`, `scope`, `manualQuota`, `binaryPath`), its `history` per quota window id (`dailyUsage` with baselines and `recentSamples`, the `history.State` of #162) and `lastGood`, the last successful read. Fields are additive: a client or an older file missing one keeps its default, and unknown fields are ignored.
+- **Crash-safe writes.** Every change writes a temp file in the same folder, `fsync`s it, renames it over `store.json` and syncs the folder (not on Windows, where a folder cannot be opened for sync). A crash leaves the old file or the new one, never half a day. A crash can leave a `store.json.*.tmp`: `RemoveLeftovers` deletes them, and the service will call it at start, under its lock (#283).
+- **One writer per process.** `Store.Update(func(*State) error)` runs the function on a copy of the state under a mutex and commits it; if the function fails or panics, or the write fails, neither the file nor the memory changes. History changes only through `Account.Record`, which calls `history.Record`. Overlapping refreshes (timer, manual, wake from sleep) are applied one after the other, so they give the history of a sequential run in that order. The file is not locked against other processes: the service lock (`service.lock`) guarantees there is one.
+- **Errors, never a silent reset.** A missing file is an empty store with the app's defaults (nothing is written until the first `Update`). A file that is unreadable, not valid JSON or without a valid `schemaVersion` is `ErrUnreadable`; a newer `schemaVersion` is `ErrNewerSchema`. `Open` never modifies the file.
 
 ## Electron client
 

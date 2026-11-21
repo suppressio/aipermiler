@@ -7,21 +7,21 @@ import "time"
 // DailyPoint holds the last utilization of a local day and its fixed baseline.
 // Day is the local midnight; quota values are percentage points at full precision.
 type DailyPoint struct {
-	Day          time.Time
-	Used         float64
-	DayStartUsed float64
+	Day          time.Time `json:"day"`
+	Used         float64   `json:"used"`
+	DayStartUsed float64   `json:"dayStartUsed"`
 }
 
 // Reading is one timestamped utilization, including fresh readings with no rise.
 type Reading struct {
-	At   time.Time
-	Used float64
+	At   time.Time `json:"at"`
+	Used float64   `json:"used"`
 }
 
 // State belongs to a single account and quota window.
 type State struct {
-	DailyUsage    []DailyPoint
-	RecentSamples []Reading
+	DailyUsage    []DailyPoint `json:"dailyUsage"`
+	RecentSamples []Reading    `json:"recentSamples"`
 }
 
 // Sample identifies an observation by its fetch timestamp, not its value.
