@@ -14,6 +14,10 @@ const (
 	// tempPattern is the os.CreateTemp pattern of api.json's temp files; the
 	// cleanup matches leftovers against the same pattern.
 	tempPattern = infoName + ".*.tmp"
+	// busyWait bounds how long a rename or delete of api.json waits for a
+	// reader that holds the file (Windows only, see isBusy); busyStep is the pause between tries.
+	busyWait = time.Second
+	busyStep = 50 * time.Millisecond
 )
 
 // SchemaVersion is the version of api.json and of the API's own documents.
@@ -68,7 +72,7 @@ func WriteInfo(dir string, info Info) error {
 		err = closeErr
 	}
 	if err == nil {
-		err = os.Rename(tmp.Name(), filepath.Join(dir, infoName))
+		err = whileBusy(func() error { return os.Rename(tmp.Name(), filepath.Join(dir, infoName)) })
 	}
 	if err != nil {
 		_ = os.Remove(tmp.Name())
@@ -79,8 +83,22 @@ func WriteInfo(dir string, info Info) error {
 
 // RemoveInfo deletes api.json; a missing file is not an error.
 func RemoveInfo(dir string) error {
-	if err := os.Remove(filepath.Join(dir, infoName)); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := whileBusy(func() error { return os.Remove(filepath.Join(dir, infoName)) }); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove %s: %w", infoName, err)
 	}
 	return nil
+}
+
+// whileBusy runs op again while it fails because a reader holds the file, up to
+// busyWait: a client that reads api.json for a moment must not make the
+// service fail to start or leave the file behind at stop (#292).
+func whileBusy(op func() error) error {
+	deadline := time.Now().Add(busyWait)
+	for {
+		err := op()
+		if err == nil || !isBusy(err) || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(busyStep)
+	}
 }
