@@ -30,10 +30,10 @@ const sampleDoc = `# PACING
 
 1. **Target = ceiling**: wrong.
 2. **Reset passed** answers 0.
-   Intended: the gauge reads as over.
+   — intended: the gauge reads as over.
 3. ~~**Overflow**~~ — fixed (#111).
 4. **Mixed file**, continued
-   on a second line.
+   on a second line; not fixed, the intended rule is open.
 
 ## 10. Decisions
 
@@ -94,7 +94,7 @@ func TestScanCoveredMatchesWholeIDsInTestsAndFixtures(t *testing.T) {
 
 func TestParseAllowlist(t *testing.T) {
 	t.Parallel()
-	got, err := pacingcheck.ParseAllowlist(strings.NewReader("# comment\n\nG-12  needs a clock fixture\nI-1 reason\n"))
+	got, err := pacingcheck.ParseAllowlist(strings.NewReader("# comment\n\nG-12  needs a clock fixture\nI-1\treason\n"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -141,7 +141,7 @@ func TestCheck(t *testing.T) {
 
 func TestCheckOK(t *testing.T) {
 	t.Parallel()
-	doc := "| A-1 | x | y |\n\n## 9. Known deviations\n\n1. ~~done~~ fixed\n"
+	doc := "| A-1 | x | y |\n\n## 9. Known deviations\n\n1. ~~done~~ — fixed (#1)\n"
 	r := pacingcheck.Check(doc, map[string]bool{"A-1": true}, nil)
 	if !r.OK() {
 		t.Fatalf("report not OK: %+v", r)
@@ -172,5 +172,24 @@ func TestReportWriteIsStableAndShort(t *testing.T) {
 		"section 9 items neither fixed nor intended (2 of 6): 3 5\n"
 	if got := b.String(); got != want {
 		t.Fatalf("output:\n%s\nwant:\n%s", got, want)
+	}
+}
+
+// A document whose format the check no longer recognizes must not pass.
+func TestCheckFailsOnAnUnrecognizedDocument(t *testing.T) {
+	t.Parallel()
+	for name, doc := range map[string]string{
+		"no ids":     "## 9. Known deviations\n\n1. x — fixed (#1)\n",
+		"no section": "| A-1 | x | y |\n\n## 9 Known deviations\n\n1. x — fixed (#1)\n",
+	} {
+		r := pacingcheck.Check(doc, map[string]bool{"A-1": true}, nil)
+		if r.OK() {
+			t.Errorf("%s: report OK on an unrecognized document", name)
+		}
+		var b strings.Builder
+		r.Write(&b)
+		if !strings.Contains(b.String(), "format not recognized") {
+			t.Errorf("%s: output %q", name, b.String())
+		}
 	}
 }

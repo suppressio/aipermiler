@@ -23,11 +23,13 @@ import (
 const idPattern = `[A-Z]{1,2}-?[0-9]+(?:\.[0-9]+)?[a-z]?`
 
 var (
-	tableIDRe  = regexp.MustCompile(`^\|\s*(?:\*\*)?(` + idPattern + `)(?:\*\*)?\s*\|`)
-	boldIDRe   = regexp.MustCompile(`^(?:-\s+)?\*\*([A-Z]{1,2}-[0-9]+(?:\.[0-9]+)?[a-z]?)`)
-	mentionRe  = regexp.MustCompile(idPattern)
-	itemRe     = regexp.MustCompile(`^([0-9]+)\.\s`)
-	resolvedRe = regexp.MustCompile(`(?i)\b(fixed|intended)\b`)
+	tableIDRe = regexp.MustCompile(`^\|\s*(?:\*\*)?(` + idPattern + `)(?:\*\*)?\s*\|`)
+	boldIDRe  = regexp.MustCompile(`^(?:-\s+)?\*\*([A-Z]{1,2}-[0-9]+(?:\.[0-9]+)?[a-z]?)`)
+	mentionRe = regexp.MustCompile(idPattern)
+	itemRe    = regexp.MustCompile(`^([0-9]+)\.\s`)
+	// The marker after an item's text: "— fixed (#n)" or "— intended: why".
+	// A bare "fixed" or "intended" elsewhere in the text is ordinary prose.
+	resolvedRe = regexp.MustCompile(`—\s*(fixed|intended)\b`)
 )
 
 // Deviation is one numbered item of section 9.
@@ -55,7 +57,8 @@ func ExtractIDs(doc string) []string {
 }
 
 // ExtractDeviations returns the numbered items of the "## 9." section. An item
-// is resolved when its text, continuation lines included, says fixed or intended.
+// is resolved when its text, continuation lines included, carries the marker
+// "— fixed" or "— intended".
 func ExtractDeviations(doc string) []Deviation {
 	var items []Deviation
 	inSection := false
@@ -138,6 +141,9 @@ func ParseAllowlist(r io.Reader) (map[string]string, error) {
 			continue
 		}
 		id, reason, _ := strings.Cut(line, " ")
+		if i := strings.IndexAny(line, " \t"); i >= 0 {
+			id, reason = line[:i], line[i+1:]
+		}
 		reason = strings.TrimSpace(reason)
 		if reason == "" {
 			return nil, fmt.Errorf("allowlist line %d: %s has no reason", n, id)
@@ -161,6 +167,9 @@ type Report struct {
 	Unknown    []string // allowlisted but not in the document
 	Deviations int      // items in section 9
 	Unresolved []int    // section 9 items neither fixed nor intended
+	// Unrecognized lists what the check could not find in the document (no
+	// ids, no section 9): a changed format must not pass as covered.
+	Unrecognized []string
 }
 
 // Check compares the document with the coverage and the allowlist.
@@ -185,6 +194,12 @@ func Check(doc string, covered map[string]bool, allow map[string]string) Report 
 	}
 	devs := ExtractDeviations(doc)
 	r.Deviations = len(devs)
+	if len(ids) == 0 {
+		r.Unrecognized = append(r.Unrecognized, "no ids")
+	}
+	if len(devs) == 0 {
+		r.Unrecognized = append(r.Unrecognized, `no numbered item under "## 9."`)
+	}
 	for _, d := range devs {
 		if !d.Resolved {
 			r.Unresolved = append(r.Unresolved, d.N)
@@ -195,7 +210,7 @@ func Check(doc string, covered map[string]bool, allow map[string]string) Report 
 
 // OK reports whether nothing needs attention.
 func (r Report) OK() bool {
-	return len(r.Missing)+len(r.Stale)+len(r.Unknown)+len(r.Unresolved) == 0
+	return len(r.Missing)+len(r.Stale)+len(r.Unknown)+len(r.Unresolved)+len(r.Unrecognized) == 0
 }
 
 // Write prints the report: one line per kind of problem, ids in document order.
@@ -205,6 +220,9 @@ func (r Report) Write(w io.Writer) {
 		return
 	}
 	_, _ = fmt.Fprintln(w, "pacing check: FAILED")
+	if len(r.Unrecognized) > 0 {
+		_, _ = fmt.Fprintf(w, "PACING.md format not recognized: %s\n", strings.Join(r.Unrecognized, "; "))
+	}
 	if len(r.Missing) > 0 {
 		_, _ = fmt.Fprintf(w, "missing a test (%d of %d): %s\n", len(r.Missing), r.Total, strings.Join(r.Missing, " "))
 	}
