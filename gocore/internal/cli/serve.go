@@ -11,6 +11,7 @@ import (
 
 	"github.com/suppressio/aipermiler/gocore/internal/buildinfo"
 	"github.com/suppressio/aipermiler/gocore/internal/config"
+	"github.com/suppressio/aipermiler/gocore/internal/electronimport"
 	"github.com/suppressio/aipermiler/gocore/internal/service"
 	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
@@ -41,9 +42,14 @@ func runServe(env Env, args []string, logger *slog.Logger) int {
 		// is absorbed by NotifyContext's buffer: an instant, documented.
 		go func() { <-ctx.Done(); stop() }()
 	}
-	err = service.Run(ctx, service.Options{
-		Dir: dir, Version: buildinfo.Version, ContractVersion: usage.SchemaVersion, Logger: logger,
-	})
+	opts := service.Options{Dir: dir, Version: buildinfo.Version, ContractVersion: usage.SchemaVersion, Logger: logger}
+	// Electron's folder only locates the import; without one the service starts empty.
+	if electronDir, dirErr := electronimport.DefaultDir(); dirErr != nil {
+		logger.Warn("Cannot locate Electron's folder; no import", "error", dirErr)
+	} else {
+		opts.ElectronDir = electronDir
+	}
+	err = service.Run(ctx, opts)
 	switch {
 	case err == nil:
 		return ExitOK

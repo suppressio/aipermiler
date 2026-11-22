@@ -253,6 +253,57 @@ func TestRunCleansLeftoversAtStart(t *testing.T) {
 	}
 }
 
+func TestRunImportsElectronStoreOnce(t *testing.T) {
+	t.Parallel()
+	dir, electronDir := t.TempDir(), t.TempDir()
+	enc, err := os.ReadFile(filepath.Join("..", "electronimport", "testdata", "iv-ascii.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(electronDir, "aipermiler-config.json"), enc, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := startWith(t, service.Options{Dir: dir, ElectronDir: electronDir}, nil)
+	if !strings.Contains(r.logs.String(), "Imported the app's settings") {
+		t.Fatalf("no import logged:\n%s", r.logs)
+	}
+	if err := r.stop(); err != nil {
+		t.Fatal(err)
+	}
+	// A second start finds store.json and leaves it alone.
+	imported, err := os.ReadFile(filepath.Join(dir, "store.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r2 := startWith(t, service.Options{Dir: dir, ElectronDir: electronDir}, nil)
+	if strings.Contains(r2.logs.String(), "Imported") {
+		t.Fatalf("imported twice:\n%s", r2.logs)
+	}
+	again, _ := os.ReadFile(filepath.Join(dir, "store.json"))
+	if string(again) != string(imported) {
+		t.Fatal("store.json changed at the second start")
+	}
+}
+
+func TestRunStartsEmptyWhenTheImportFails(t *testing.T) {
+	t.Parallel()
+	dir, electronDir := t.TempDir(), t.TempDir()
+	bad := []byte("this is not an electron-store file")
+	if err := os.WriteFile(filepath.Join(electronDir, "aipermiler-config.json"), bad, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r := startWith(t, service.Options{Dir: dir, ElectronDir: electronDir}, nil)
+	if !strings.Contains(r.logs.String(), "starting with an empty store") {
+		t.Fatalf("failure not logged:\n%s", r.logs)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "store.json")); !os.IsNotExist(err) {
+		t.Fatalf("store.json exists: %v", err)
+	}
+	if got, _ := os.ReadFile(filepath.Join(electronDir, "aipermiler-config.json")); string(got) != string(bad) {
+		t.Fatal("electron file changed")
+	}
+}
+
 func TestRunStopBeforeStartIsClean(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

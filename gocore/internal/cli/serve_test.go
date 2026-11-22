@@ -22,6 +22,10 @@ type served struct {
 
 func startServe(t *testing.T) *served {
 	t.Helper()
+	// Never the real Electron folder of whoever runs the tests.
+	if os.Getenv("AIPERMILER_ELECTRON_DIR") == "" {
+		t.Setenv("AIPERMILER_ELECTRON_DIR", t.TempDir())
+	}
 	ctx, cancel := context.WithCancel(t.Context())
 	s := &served{cancel: cancel, exited: make(chan struct{}), stderr: new(bytes.Buffer)}
 	env := cli.Env{Providers: provider.Registry{}, Stdin: strings.NewReader(""), Stdout: new(bytes.Buffer), Stderr: s.stderr, Context: ctx}
@@ -103,5 +107,23 @@ func TestServeWarnsOnceAboutInvalidLogLevel(t *testing.T) {
 	<-s.exited
 	if n := strings.Count(s.stderr.String(), "Invalid AIPERMILER_LOG_LEVEL"); n != 1 {
 		t.Fatalf("the warning appeared %d times; want 1\n%s", n, s.stderr)
+	}
+}
+
+func TestServeImportsElectronStoreAtFirstStart(t *testing.T) {
+	dir, electronDir := t.TempDir(), t.TempDir()
+	t.Setenv("AIPERMILER_CONFIG_DIR", dir)
+	t.Setenv("AIPERMILER_ELECTRON_DIR", electronDir)
+	enc, err := os.ReadFile(filepath.Join("..", "electronimport", "testdata", "iv-ascii.bin"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(electronDir, "aipermiler-config.json"), enc, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	startServe(t)
+	waitForFile(t, filepath.Join(dir, "api.json"))
+	if _, err := os.Stat(filepath.Join(dir, "store.json")); err != nil {
+		t.Fatalf("store.json was not imported: %v", err)
 	}
 }

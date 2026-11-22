@@ -86,6 +86,7 @@ aipermiler/
 │       ├── codex/               ← native binary discovery, one-shot app-server probe and quota mapping
 │       ├── copilot/             ← Copilot usage (port of services/copilot.ts), token set/delete, OAuth PKCE login, raw response
 │       ├── github/              ← allowed GitHub hosts (github.com, <tenant>.ghe.com) and JSON client with a 10 s timeout
+│       ├── electronimport/      ← one-shot import of Electron's encrypted `aipermiler-config.json` into the store, run by the service at its first start (#296)
 │       ├── store/               ← the core's state file `store.json`: settings, accounts, history, lastGood; one writer, crash-safe writes (#295)
 │       ├── secrets/             ← OS keyring (go-keyring): the Copilot token, never in argv or documents
 │       ├── config/              ← OS config directory and development override

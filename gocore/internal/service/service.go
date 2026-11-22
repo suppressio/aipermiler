@@ -11,6 +11,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/suppressio/aipermiler/gocore/internal/electronimport"
 )
 
 // DefaultShutdownTimeout bounds the clean stop.
@@ -23,6 +25,9 @@ type Options struct {
 	ContractVersion int
 	Logger          *slog.Logger
 	ShutdownTimeout time.Duration // zero means DefaultShutdownTimeout
+	// ElectronDir is Electron's userData folder. When set, the first start
+	// imports its store file into store.json (#296); empty skips the import.
+	ElectronDir string
 }
 
 // Run holds the single-instance lock, serves the API on a random loopback port
@@ -54,6 +59,13 @@ func run(ctx context.Context, opts Options, listen func(context.Context) (net.Li
 	// drop them now, so a failed start never leaves an old port and token behind.
 	if err := removeLeftovers(opts.Dir); err != nil {
 		opts.Logger.Warn("Cannot clean up the files of an earlier service", "error", err)
+	}
+	// A failed import is not a failed start: the service goes on with an empty
+	// store and Electron's file untouched, and the next start tries again.
+	if opts.ElectronDir != "" {
+		if err := electronimport.Import(opts.Dir, opts.ElectronDir, opts.Logger); err != nil {
+			opts.Logger.Error("Cannot import the settings from electron-store; starting with an empty store", "error", err)
+		}
 	}
 
 	tokenBytes := make([]byte, 32)
