@@ -140,7 +140,7 @@ func ParseAllowlist(r io.Reader) (map[string]string, error) {
 		if line == "" || strings.HasPrefix(line, "#") {
 			continue
 		}
-		id, reason, _ := strings.Cut(line, " ")
+		id, reason := line, ""
 		if i := strings.IndexAny(line, " \t"); i >= 0 {
 			id, reason = line[:i], line[i+1:]
 		}
