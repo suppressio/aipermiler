@@ -240,7 +240,7 @@ export function computeWindowSnapshot(
   // day's samples, started earlier by today's first local Claude Code session when
   // known (budget.todayActivitySpan); the recent pace sharpens projection and autonomy
   // (budget.recentPacePerUnit).
-  const sessionStartIso = localInsights?.firstSessionStartByDay?.[budget.localDateKey(now)];
+  const sessionStartIso = localInsights?.firstSessionStartByDay[budget.localDateKey(now)];
   const span = budget.todayActivitySpan(
     recentSamples, todayPoint?.dayStartUsed ?? null, now, sessionStartIso ? new Date(sessionStartIso) : null,
   );

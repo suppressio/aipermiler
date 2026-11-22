@@ -15,6 +15,7 @@ import {
   execFileRunner,
   authorizeUrlOf,
   parseConnectedRun,
+  parseInsightsRun,
   parseDeletedRun,
   parseLoginRun,
   parseRawRun,
@@ -35,7 +36,6 @@ const runOf = (name: string, exitCode: number): CoreRun => ({ exitCode, stdout: 
 
 test('every shared fixture is read by this client (none left untested)', () => {
   const files = fs.readdirSync(FIXTURES).filter((f) => f.endsWith('.json')).sort();
-  // The insights fixtures (#298) are read by the client only from #299 on.
   assert.deepEqual(files, [
     'account-connected.json', 'account-deleted.json',
     'error-format-drift.json', 'error-insights-drift.json', 'error-not-ready.json', 'error-signed-out.json', 'error-timeout.json',
@@ -101,6 +101,52 @@ test('error-format-drift: becomes the FormatDriftError of the TypeScript service
     assert.deepEqual(err.shape, { active: 'boolean', items: [{ remaining: 'number' }], label: 'string', reset: 'null' });
     return true;
   });
+});
+
+test('insights-claude: ClaudeLocalInsights as the core counts them (#298)', () => {
+  const insights = parseInsightsRun(runOf('insights-claude', 0));
+  assert.deepEqual(insights, {
+    computedAt: '2026-10-31T21:10:00Z',
+    windowDays: 7,
+    sessionsAnalyzed: 1,
+    totalOutputTokens: 4000,
+    highContextOutputTokens: 1000,
+    longSessionOutputTokens: 0,
+    highContextSharePercent: 25,
+    longSessionSharePercent: 0,
+    topTools: [{ name: 'Bash', sharePercent: 50 }, { name: 'Read', sharePercent: 50 }],
+    daily: [{ date: '2026-10-31', outputTokens: 4000, highContextOutputTokens: 1000 }],
+    firstSessionStartByDay: { '2026-10-31': '2026-10-31T08:00:00.000Z' },
+  });
+});
+
+test('insights-empty: no output tokens in the window is null, not an error', () => {
+  assert.equal(parseInsightsRun(runOf('insights-empty', 0)), null);
+});
+
+test('error-insights-drift: the FormatDriftError of the drift report, shape only', () => {
+  assert.throws(() => parseInsightsRun(runOf('error-insights-drift', 1)), (err: unknown) => {
+    assert.ok(err instanceof FormatDriftError);
+    assert.equal(err.endpointLabel, 'projects/*/*.jsonl');
+    assert.ok(err.shape !== null);
+    return true;
+  });
+});
+
+test('insights documents with a wrong field or for another provider are CoreOutputError', () => {
+  const good = JSON.parse(fixture('insights-claude')) as { insights: Record<string, unknown> };
+  for (const [field, value] of [['totalOutputTokens', '4000'], ['topTools', null], ['daily', [{ date: 1 }]], ['firstSessionStartByDay', []], ['highContextSharePercent', 'x']] as const) {
+    const doc = { ...good, insights: { ...good.insights, [field]: value } };
+    assert.throws(() => parseInsightsRun({ exitCode: 0, stdout: JSON.stringify(doc) }), CoreOutputError, field);
+  }
+  assert.throws(() => parseInsightsRun({ exitCode: 0, stdout: fixture('insights-claude').replace('"claude"', '"codex"') }), CoreOutputError);
+  assert.throws(() => parseInsightsRun(runOf('error-usage', 2)), CoreOutputError);
+});
+
+test('insights(): `insights claude --json --days N` with the core deadline', async () => {
+  const rec = recordingRunner({ exitCode: 0, stdout: fixture('insights-empty') });
+  assert.equal(await createCoreClient({ binary: () => 'core', run: rec.runner }).insights(8), null);
+  assert.deepEqual(rec.calls.map((c) => [c.args, c.stdin, c.timeoutMs]), [[['insights', 'claude', '--json', '--days', '8', '--timeout', '120s'], null, 135000]]);
 });
 
 test('error-usage: exit 2 is a bug in our arguments, reported with the core message', () => {

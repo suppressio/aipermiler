@@ -143,7 +143,7 @@ Output testuale: `claude probe: <percorso>`. Argomenti in più sono errori d'uso
 aipermiler insights claude [--json] [--days N] [--timeout <duration>]
 ```
 
-Insight comportamentali dalle sessioni locali di Claude Code (#298, parte di #150; approccio in #297): token di output per giorno locale, la quota spesa con un contesto grande o in sessioni lunghe, gli strumenti più usati e l'inizio della prima sessione di ogni giorno. L'output è il `ClaudeLocalInsights` dell'app, contato correttamente (il doppio conteggio di #301). Electron li legge ancora con l'Agent SDK fino a #299.
+Insight comportamentali dalle sessioni locali di Claude Code (#298, parte di #150; approccio in #297): token di output per giorno locale, la quota spesa con un contesto grande o in sessioni lunghe, gli strumenti più usati e l'inizio della prima sessione di ogni giorno. L'output è il `ClaudeLocalInsights` dell'app, contato correttamente (il doppio conteggio di #301). Electron li legge da questo comando da #299 (`main/coreClient.ts`, `insights()`).
 
 `--days` è la finestra, predefinita 30, da 1 a 366; fuori da questi limiti è un errore d'uso (exit 2). `--timeout` è come per `usage` (predefinito e massimo `2m`).
 

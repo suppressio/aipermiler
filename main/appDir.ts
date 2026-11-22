@@ -1,5 +1,5 @@
 // main/appDir.ts — the folder of the app's main-process entry (dist/main.js), where the
-// renderer files, the preload and the worker live. Modules must not build these paths
+// renderer files and the preload live. Modules must not build these paths
 // from their own __dirname: in the package the main process is one esbuild bundle at
 // dist/main.js (#36, scripts/bundle-main.js), so a module's __dirname is dist/ there and
 // dist/main/ in the plain tsc output.

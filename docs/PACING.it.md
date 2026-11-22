@@ -391,7 +391,7 @@ Cosa è persistito, chi lo scrive, quando, con quale precisione. Tutto il resto 
 | `history.lastGood` | ultima risposta grezza riuscita per account | il percorso di lettura | a una lettura riuscita | esatta | mostrata come non aggiornata se una lettura fallisce |
 | `meta.notifiedToday` | flag `<account>:threshold:<day>`, `<account>:pace:<day>` | il passo di notifica | quando una notifica parte | — | lo stesso passo; si tengono solo i flag di oggi |
 | Impostazioni account | orario, giorno di rinnovo manuale, host, … | Impostazioni (`settings:set`) | al salvataggio dell'utente | — | ogni calcolo |
-| Cache insight locali | token per giorno, prima sessione del giorno | il risultato del processo di utilità | al massimo ogni pochi minuti | — | resa, causa, intervallo di attività |
+| Cache insight locali | token per giorno, prima sessione del giorno | il core Go (`aipermiler insights claude`) | al massimo ogni pochi minuti | — | resa, causa, intervallo di attività |
 
 Conservazione: punti giornalieri `retentionDays`; campioni tutto il giorno corrente e almeno 4 ore.
 

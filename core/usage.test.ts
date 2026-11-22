@@ -140,7 +140,7 @@ test('a rise since the last sample is reported; no rise is not', async () => {
 });
 
 test('a Claude account is fetched through the provider and keeps its local insights (#180)', async () => {
-  const insights = { generatedAt: NOW.toISOString() } as unknown as ClaudeLocalInsights;
+  const insights = { generatedAt: NOW.toISOString(), firstSessionStartByDay: {} } as unknown as ClaudeLocalInsights;
   const h = harness([claudeAccount('a1', { localInsights: true })], usage(weeklyWindow(40)), {
     localInsights: async () => insights,
   });

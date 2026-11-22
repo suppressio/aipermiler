@@ -143,7 +143,7 @@ Text output: `claude probe: <path>`. Unexpected arguments are usage errors (exit
 aipermiler insights claude [--json] [--days N] [--timeout <duration>]
 ```
 
-Behavioural insights from the local Claude Code sessions (#298, part of #150; approach in #297): output tokens per local day, the share spent with a large context or in long sessions, the most used tools, and the first session start of each day. The output is the app's `ClaudeLocalInsights`, counted correctly (the double count of #301). Electron still reads them through the Agent SDK until #299.
+Behavioural insights from the local Claude Code sessions (#298, part of #150; approach in #297): output tokens per local day, the share spent with a large context or in long sessions, the most used tools, and the first session start of each day. The output is the app's `ClaudeLocalInsights`, counted correctly (the double count of #301). Electron reads them from this command since #299 (`main/coreClient.ts`, `insights()`).
 
 `--days` is the window, default 30, from 1 to 366; outside it is a usage error (exit 2). `--timeout` is as for `usage` (default and at most `2m`).
 

@@ -34,9 +34,6 @@
   "engines": {
     "node": ">=22"
   },
-  "dependencies": {
-    "@anthropic-ai/claude-agent-sdk": "^0.3.316"
-  },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.6",
@@ -70,11 +67,9 @@
     "files": [
       "dist/main.js",
       "dist/preload.js",
-      "dist/services/claudeLocalSessions.worker.js",
       "dist/renderer/**/*",
       "!dist/renderer/**/*.test.js",
-      "!dist/renderer/**/*.map",
-      "!node_modules/@anthropic-ai/claude-agent-sdk-*/**"
+      "!dist/renderer/**/*.map"
     ],
     "directories": {
       "output": "release"

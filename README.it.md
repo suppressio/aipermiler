@@ -146,7 +146,7 @@ Compaiono solo quando aggiungono qualcosa che i numeri sopra non dicono: finires
 
 ### Insight locali (Claude Code, facoltativi)
 
-Se li attivi su un account Claude, l'app legge le sessioni di Claude Code su questo computer (solo conteggi di token e nomi degli strumenti, mai il contenuto dei messaggi). Mostra quanta parte del tuo uso viene da contesti molto lunghi (oltre 150k) o da sessioni molto lunghe, e gli strumenti più usati. Mostra anche i token di output prodotti per ogni 1% di quota Claude usata. Le brevi sessioni che l'app apre per leggere le quote non vengono contate.
+Se li attivi su un account Claude, l'app legge le sessioni di Claude Code su questo computer (solo conteggi di token e nomi degli strumenti, mai il contenuto dei messaggi). Mostra quanta parte del tuo uso viene da contesti molto lunghi (oltre 150k) o da sessioni molto lunghe, e gli strumenti più usati. Mostra anche i token di output prodotti per ogni 1% di quota Claude usata. I token contano nel giorno di ogni risposta, subagent compresi. Le brevi sessioni che l'app apre per leggere le quote non vengono contate.
 
 ---
 

@@ -69,7 +69,7 @@ export const it: Record<MessageKey, string> = {
   'widget.tips.waiting': 'In attesa di dati per generare un consiglio.',
   'widget.insights.header': 'Insight locali · Claude Code',
   'widget.insights.yield': 'Resa (token per 1% di quota)',
-  'widget.insights.yieldHelp': "Token di output prodotti nelle sessioni Claude Code di questa macchina per ogni 1% di quota consumato, sui soli giorni presenti in entrambe le fonti. Più alta = ogni token è costato meno quota. Limite: una sessione è attribuita al giorno della sua ultima modifica (l'SDK non espone l'orario dei singoli messaggi), e l'uso di claude.ai dal browser non è contato nei token.",
+  'widget.insights.yieldHelp': "Token di output prodotti nelle sessioni Claude Code di questa macchina per ogni 1% di quota consumato, sui soli giorni presenti in entrambe le fonti. Più alta = ogni token è costato meno quota. I token contano nel giorno di ogni risposta, subagent compresi; l'uso di claude.ai dal browser non è contato.",
   'widget.insights.yieldNotApplicable': 'non applicabile su finestre di poche ore',
   'widget.insights.yieldInsufficient': 'servono almeno 3 giorni con sessioni locali e consumo di quota',
   'widget.insights.yieldOver': 'su {days}',

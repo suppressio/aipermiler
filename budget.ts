@@ -829,7 +829,7 @@ export function pickCriticalSnapshot<T extends { window: QuotaWindow; verdict: W
 
 // ---------------------------------------------------------------------------
 // Value per token (docs/EVOLUTION.md point 4): crossing the tokens produced in local Claude
-// Code sessions (services/claudeLocalSessions.ts, per day) with the same day's quota
+// Code sessions (counted by the Go core, `aipermiler insights claude`, per day) with the same day's quota
 // consumption (dailyDeltas). Only days present in both sources are compared: a day
 // with quota used but no local session (e.g. claude.ai in the browser) could not be
 // attributed.
