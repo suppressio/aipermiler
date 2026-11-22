@@ -148,9 +148,11 @@ test('convert: a point without baseline after a reset starts from 0, as history.
 test('folders: Electron userData is AIpermiler, the core folder is aipermiler, overrides must be absolute', async () => {
   const m = await load();
   const home = '/home/u';
-  assert.equal(m.electronDir({}, 'linux', home), '/home/u/.config/AIpermiler');
-  assert.equal(m.coreDir({ XDG_CONFIG_HOME: '/x' }, 'linux', home), '/x/aipermiler');
-  assert.equal(m.electronDir({}, 'darwin', home), '/home/u/Library/Application Support/AIpermiler');
+  // The script joins with the host's path module (it runs on the OS it migrates), so the expected
+  // values do too: on a Windows runner the Linux and macOS cases come out with backslashes.
+  assert.equal(m.electronDir({}, 'linux', home), path.join(home, '.config', 'AIpermiler'));
+  assert.equal(m.coreDir({ XDG_CONFIG_HOME: '/x' }, 'linux', home), path.join('/x', 'aipermiler'));
+  assert.equal(m.electronDir({}, 'darwin', home), path.join(home, 'Library', 'Application Support', 'AIpermiler'));
   assert.equal(m.coreDir({ APPDATA: 'C:\\Users\\u\\AppData\\Roaming' }, 'win32', home), path.join('C:\\Users\\u\\AppData\\Roaming', 'aipermiler'));
   assert.equal(m.electronDir({ AIPERMILER_ELECTRON_DIR: '/e' }, 'linux', home), '/e');
   assert.equal(m.coreDir({ AIPERMILER_CONFIG_DIR: '/c' }, 'linux', home), '/c');
