@@ -49,12 +49,13 @@ func runServe(env Env, args []string, logger *slog.Logger) int {
 		_, _ = fmt.Fprintln(env.Stderr, oneLine(err.Error()))
 		return ExitProviderError
 	}
+	fetcher := refresh.CLIFetcher{Binary: self}
 	err = service.Run(ctx, service.Options{
 		Dir: dir, Version: buildinfo.Version, ContractVersion: usage.SchemaVersion, Logger: logger,
-		Work: func(ctx context.Context, st *store.Store) {
-			loop := refresh.New(refresh.Config{Store: st, Fetcher: refresh.CLIFetcher{Binary: self}, Logger: logger})
-			_ = loop.Run(ctx)
+		Loop: func(st *store.Store) service.Loop {
+			return refresh.New(refresh.Config{Store: st, Fetcher: fetcher, Logger: logger})
 		},
+		Raw: fetcher.Raw,
 	})
 	switch {
 	case err == nil:

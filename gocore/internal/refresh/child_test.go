@@ -211,3 +211,81 @@ func TestCancelKillsTheChildTree(t *testing.T) {
 		}
 	}
 }
+
+// raw runs `raw <provider> --json` and hands its document back byte for byte,
+// with the error code of an error document (#248).
+func TestRawPassesTheDocumentThrough(t *testing.T) {
+	cases := []struct {
+		fixture string
+		code    usage.Code
+	}{
+		{"raw", ""},
+		{"error-signed-out", usage.CodeSignedOut},
+		{"error-usage", usage.CodeUsage},
+	}
+	for _, c := range cases {
+		t.Run(c.fixture, func(t *testing.T) {
+			argsFile := filepath.Join(t.TempDir(), "args")
+			path, _ := filepath.Abs(fixturePath(c.fixture))
+			t.Setenv("FAKE_CLI", "print:"+path)
+			t.Setenv("FAKE_ARGS", argsFile)
+			doc, code, err := fetcher().Raw(context.Background(), store.Account{ID: "g", Provider: "copilot", Host: "acme.ghe.com", Scope: "organization"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			want, _ := os.ReadFile(path)
+			if string(doc) != string(want) || code != c.code {
+				t.Errorf("doc = %s code = %q; want %s %q", doc, code, want, c.code)
+			}
+			args, _ := os.ReadFile(argsFile)
+			if got := strings.ReplaceAll(string(args), "\n", " "); got != "raw copilot --json --timeout 2s --account g --host acme.ghe.com --scope organization" {
+				t.Errorf("args = %s", got)
+			}
+		})
+	}
+}
+
+func TestRawArgs(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		acc  store.Account
+		want string
+	}{
+		{store.Account{ID: "c", Provider: "claude"}, "raw claude --json --timeout 25s"},
+		{store.Account{ID: "g", Provider: "copilot"}, "raw copilot --json --timeout 25s --account g"},
+	}
+	for _, c := range cases {
+		args, err := refresh.RawArgs(c.acc, 25*time.Second)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := strings.Join(args, " "); got != c.want {
+			t.Errorf("got %s; want %s", got, c.want)
+		}
+	}
+	if _, err := refresh.RawArgs(store.Account{Provider: "gemini"}, time.Second); err == nil {
+		t.Error("unknown provider accepted")
+	}
+}
+
+func TestRawErrors(t *testing.T) {
+	usageDoc, _ := filepath.Abs(fixturePath("usage-ok"))
+	cases := []struct {
+		name, mode string
+		want       error
+	}{
+		{"not a document", "garbage", usage.ErrBadDocument},
+		{"a document of another kind", "print:" + usageDoc, usage.ErrBadDocument},
+		{"hung child", "sleep", refresh.ErrChildTimeout},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("FAKE_CLI", c.mode)
+			f := fetcher()
+			f.Timeout, f.Margin = 500*time.Millisecond, 2*time.Second
+			if _, _, err := f.Raw(context.Background(), store.Account{ID: "g", Provider: "copilot"}); !errors.Is(err, c.want) {
+				t.Errorf("err = %v; want %v", err, c.want)
+			}
+		})
+	}
+}

@@ -25,10 +25,13 @@ type Options struct {
 	ContractVersion int
 	Logger          *slog.Logger
 	ShutdownTimeout time.Duration // zero means DefaultShutdownTimeout
-	// Work runs for the whole life of the service with the store, opened once
-	// the lock is held (the refresh loop, #283). Its context ends at the stop,
-	// and the lock is released only after it returns. Nil runs nothing.
-	Work func(ctx context.Context, st *store.Store)
+	// Loop makes the refresh loop (#283) on the store, opened once the lock is
+	// held. Its Run lasts the whole life of the service: its context ends at the
+	// stop, and the lock is released only after it returns. The endpoints read
+	// it (#248). Nil runs no loop: nothing is ever read.
+	Loop func(st *store.Store) Loop
+	// Raw reads an account's diagnostic raw document (GET .../raw).
+	Raw RawFunc
 }
 
 // Run holds the single-instance lock, serves the API on a random loopback port
@@ -90,10 +93,14 @@ func run(ctx context.Context, opts Options, listen func(context.Context) (net.Li
 	// ignores the cancellation may still be running when the lock is released.
 	workCtx, cancelWork := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancelWork()
+	var loop Loop = noLoop{}
+	if opts.Loop != nil {
+		loop = opts.Loop(st)
+	}
 	server := newHTTPServer(workCtx, NewHandler(HandlerConfig{
 		Token: token, Host: net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
 		Version: opts.Version, ContractVersion: opts.ContractVersion,
-		Shutdown: requestStop,
+		Shutdown: requestStop, Store: st, Loop: loop, Raw: opts.Raw,
 	}), opts.Logger)
 	serveErr, serveDone := make(chan error, 1), make(chan struct{})
 	go func() {
@@ -103,9 +110,7 @@ func run(ctx context.Context, opts Options, listen func(context.Context) (net.Li
 	workDone := make(chan struct{})
 	go func() {
 		defer close(workDone)
-		if opts.Work != nil {
-			opts.Work(workCtx, st)
-		}
+		_ = loop.Run(workCtx)
 	}()
 	// teardown is the one way out once Serve runs: cancel the work, close every
 	// connection, wait for Serve to let the listener go, delete api.json. Every
