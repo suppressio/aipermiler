@@ -94,6 +94,7 @@ aipermiler/
 │       ├── config/              ← OS config directory and development override
 │       ├── logging/             ← stderr text logger and level selection
 │       ├── pacing/              ← pure pacing model
+│       ├── pacingcheck/         ← `cmd/pacingcheck` logic (#276): every id of docs/PACING.md has a test or fixture in internal/pacing, §9 items fixed or intended; allowlist `gocore/pacing-allowlist.txt`
 │       ├── pathlist/            ← PATH splitting for a given OS (shared by the binary discoveries)
 │       ├── provider/            ← provider interface and per-run registry factories
 │       ├── refresh/             ← the service's refresh loop (#283): reads accounts through the CLI child, records history and lastGood; `policy/` = port of main/refreshPolicy.ts
