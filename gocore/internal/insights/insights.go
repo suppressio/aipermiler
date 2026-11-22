@@ -137,7 +137,6 @@ type fileData struct {
 	cwd       string
 	first     time.Time // first and last timestamp of the file (the whole file, not only the window)
 	last      time.Time
-	dayFirst  map[string]time.Time // earliest timestamp per local day, inside the window
 	responses []response
 	tools     []toolCall
 	// Assistant lines inside the window, and how many carried a numeric output_tokens.
@@ -248,7 +247,7 @@ func readFile(f sessionFile, win window) (*fileData, int, error) {
 		return nil, 0, fmt.Errorf("open session: %w", err)
 	}
 	defer func() { _ = file.Close() }()
-	d := &fileData{session: f.session, subagent: f.subagent, dayFirst: map[string]time.Time{}}
+	d := &fileData{session: f.session, subagent: f.subagent}
 	reader := bufio.NewReaderSize(file, 1<<20)
 	corrupt := 0
 	for {
@@ -312,11 +311,6 @@ func (d *fileData) add(raw []byte, win window) bool {
 	if !win.contains(at) {
 		return true
 	}
-	if day := win.day(at); !d.subagent {
-		if known, ok := d.dayFirst[day]; !ok || at.Before(known) {
-			d.dayFirst[day] = at
-		}
-	}
 	if l.Type != "assistant" {
 		return true
 	}
@@ -325,8 +319,12 @@ func (d *fileData) add(raw []byte, win window) bool {
 		d.sampleLine = slices.Clone(raw)
 	}
 	var m message
-	if json.Unmarshal(l.Message, &m) != nil {
-		return true
+	if err := json.Unmarshal(l.Message, &m); err != nil {
+		var typeErr *json.UnmarshalTypeError
+		if !errors.As(err, &typeErr) {
+			return true
+		}
+		// As above: a field of another type (e.g. `content` as a string) keeps the usage.
 	}
 	var u map[string]any
 	if json.Unmarshal(m.Usage, &u) == nil {
@@ -387,9 +385,13 @@ func aggregate(data []*fileData, opts Options, win window) (*Result, error) {
 		}
 		sessions++
 		duration[d.session] = d.last.Sub(d.first)
-		for day, at := range d.dayFirst {
-			if known, ok := firstStart[day]; !ok || at.Before(known) {
-				firstStart[day] = at
+		// A session counts on the day it started, as `createdAt` did in TypeScript: lines
+		// written after midnight do not start the next day (budget.todayActivitySpan).
+		// No window check on the start, also as in TypeScript.
+		if !d.first.IsZero() {
+			day := win.day(d.first)
+			if known, ok := firstStart[day]; !ok || d.first.Before(known) {
+				firstStart[day] = d.first
 			}
 		}
 	}

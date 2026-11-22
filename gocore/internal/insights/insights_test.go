@@ -278,6 +278,31 @@ func TestFirstSessionStartByDay(t *testing.T) {
 	}
 }
 
+// A session still writing after midnight did not start the next day: pacing would read
+// the working day as starting at 00:xx (budget.todayActivitySpan).
+func TestFirstSessionStartIgnoresLinesAfterMidnight(t *testing.T) {
+	t.Parallel()
+	tr := newTree(t)
+	tr.write("-p/night.jsonl", now, user(at(-2), "/w"), assistant(at(0)[:11]+"00:05:00Z", "r1", 5, 1, 0))
+	tr.write("-p/day.jsonl", now, user(at(9), "/w"), assistant(at(9), "r2", 5, 1, 0))
+	got := tr.must().FirstSessionStartByDay
+	if got["2026-11-20"] != "2026-11-20T09:00:00.000Z" || got["2026-11-19"] != "2026-11-19T22:00:00.000Z" || len(got) != 2 {
+		t.Errorf("first starts = %v", got)
+	}
+}
+
+// A field of another type inside `message` (here `content` as a string) must not drop
+// the usage that is there.
+func TestUsageKeptWhenContentHasAnotherType(t *testing.T) {
+	t.Parallel()
+	tr := newTree(t)
+	tr.write("-p/s1.jsonl", now,
+		`{"type":"assistant","timestamp":"`+at(9)+`","requestId":"r1","message":{"content":"plain text","usage":{"output_tokens":7}}}`)
+	if got := tr.must().TotalOutputTokens; got != 7 {
+		t.Errorf("total = %d; want 7", got)
+	}
+}
+
 func TestTolerantReading(t *testing.T) {
 	t.Parallel()
 	tr := newTree(t)

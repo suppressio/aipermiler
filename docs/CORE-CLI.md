@@ -152,7 +152,7 @@ Behavioural insights from the local Claude Code sessions (#298, part of #150; ap
 **Counting.**
 - One count per API response: its lines repeat the same `usage`, so it is taken once per `requestId` across every file (a subagent file can repeat a response of the main file); of several copies the largest output wins. A line without `requestId` counts on its own. Every line counts, including the part before a compaction.
 - Each `tool_use` block counts once (by its `id` when present, across files).
-- A response goes to the local day of its first timestamp, only when that falls in the window. `firstSessionStartByDay` is the earliest timestamp of a main session (not a subagent) per local day.
+- A response goes to the local day of its first timestamp, only when that falls in the window. `firstSessionStartByDay` is, per local day, the earliest start (first timestamp) of a main session (not a subagent) on the day it started, as `createdAt` in the TypeScript reader: a session still writing after midnight does not start the next day.
 - High context: `input + cache_read + cache_creation` above 150,000 tokens. Long session: 8 hours or more from the first to the last timestamp of the main session (its subagents' responses included). Top 5 tools, shares rounded to one decimal.
 - Unknown fields, corrupt lines and unreadable files are skipped; a file that changes while being read does not fail the run.
 
