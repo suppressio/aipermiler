@@ -178,11 +178,12 @@ func (l *Loop) Refresh(ctx context.Context, mode policy.Mode) error {
 	}
 }
 
-// ErrNotRead is LastError before this process has read the account (since the
-// start, or since it was enabled again): its lastGood may be old, from before
-// a restart. Not not_ready, which clients take for Claude Code not reaching its
-// prompt (main/accountNotice.ts): unavailable with its own reason.
-var ErrNotRead = &usage.Error{Code: usage.CodeUnavailable, Reason: "not_read_yet", Message: "Not read yet since the service started"}
+// ErrNotRead is LastError before this process has read the account: its
+// lastGood may be old, from before a restart. Not not_ready, which clients take
+// for Claude Code not reaching its prompt (main/accountNotice.ts): unavailable
+// with its own reason. An account disabled and enabled again is not
+// forgotten: whoever enables it asks a forced refresh, as Electron does.
+var ErrNotRead = &usage.Error{Code: usage.CodeUnavailable, Reason: "not_read_yet", Message: "Not read yet by the service"}
 
 // LastError is the account's last read error, nil once a read succeeds, and
 // ErrNotRead before this process has read the account. While it is set, the
@@ -215,13 +216,6 @@ func (l *Loop) setBusy(busy bool) {
 	l.mu.Unlock()
 }
 
-func (l *Loop) forget(accountID string) {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	delete(l.read, accountID)
-	delete(l.lastErrs, accountID)
-}
-
 func (l *Loop) setError(accountID string, err error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -243,8 +237,6 @@ func (l *Loop) run(ctx context.Context, mode policy.Mode) {
 	read, rose := false, false
 	for _, account := range snap.Accounts {
 		if !account.Enabled {
-			// Enabled again later, it is unconfirmed until read again.
-			l.forget(account.ID)
 			continue
 		}
 		state, known := l.states[account.ID]

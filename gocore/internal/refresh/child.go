@@ -77,7 +77,7 @@ func (f CLIFetcher) Fetch(ctx context.Context, account store.Account) (usage.Usa
 		return usage.Usage{}, doc.Err
 	}
 	if doc.Usage.Stale != nil {
-		return usage.Usage{}, &usage.Error{Code: doc.Usage.Stale.Code, Message: doc.Usage.Stale.Message}
+		return usage.Usage{}, &usage.Error{Code: doc.Usage.Stale.Code, Message: doc.Usage.Stale.Message, Reason: doc.Usage.Stale.Reason}
 	}
 	return doc.Usage, nil
 }
