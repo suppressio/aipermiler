@@ -131,14 +131,19 @@ function localDay(value) {
   const m = typeof value === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(value) : null;
   if (!m) return null;
   const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  let date = new Date(y, mo - 1, d);
-  if (date.getFullYear() !== y || date.getMonth() !== mo - 1 || date.getDate() !== d) return null;
-  // Where a DST jump skips midnight, JS moves forward to the first valid time (01:00 at
-  // the new offset) while Go's time.Date gives the same wall time at the old offset,
-  // an instant one gap earlier (23:00 of the day before). Mirror Go, or the core's
-  // history would not recognize the point as that day's.
-  const gap = (date.getHours() * 60 + date.getMinutes()) * 60000;
-  if (gap > 0) date = new Date(date.getTime() - gap);
+  const check = new Date(Date.UTC(y, mo - 1, d));
+  if (check.getUTCFullYear() !== y || check.getUTCMonth() !== mo - 1 || check.getUTCDate() !== d) return null;
+  // Midnight as Go's time.Date resolves it, or the core's history would not recognize
+  // the point as that day's where a DST change skips or repeats midnight: take the
+  // offset in effect at the wall time read as UTC, and if the instant it gives falls in
+  // another zone period, the offset there (zoneinfo lookup in time.Date). JS's own
+  // Date(y, m, d) disagrees on skipped and repeated midnights.
+  const wall = check.getTime();
+  const offsetAt = (ms) => -new Date(ms).getTimezoneOffset() * 60000;
+  let offsetMs = offsetAt(wall);
+  const other = offsetAt(wall - offsetMs);
+  if (other !== offsetMs) offsetMs = other;
+  const date = new Date(wall - offsetMs);
   const off = -date.getTimezoneOffset();
   const pad = (n) => String(n).padStart(2, '0');
   const zone = off === 0 ? 'Z' : `${off > 0 ? '+' : '-'}${pad(Math.floor(Math.abs(off) / 60))}:${pad(Math.abs(off) % 60)}`;
@@ -377,12 +382,18 @@ function writeAtomic(file, content) {
   }
   // The rename survives a power loss only once the folder is synced, as in the core's
   // store. Windows cannot open a folder for that.
+  // The file is in place either way: a failed folder sync (some network or FUSE file
+  // systems refuse it) is a warning, as ErrNotSynced is in the core.
   if (process.platform !== 'win32') {
-    const dir = fs.openSync(path.dirname(file), 'r');
     try {
-      fs.fsyncSync(dir);
-    } finally {
-      fs.closeSync(dir);
+      const dir = fs.openSync(path.dirname(file), 'r');
+      try {
+        fs.fsyncSync(dir);
+      } finally {
+        fs.closeSync(dir);
+      }
+    } catch (error) {
+      console.warn(`Warning: ${STORE_FILE} is written, but its folder could not be synced (${error.message}): a power loss right now could undo it.`);
     }
   }
 }
@@ -394,7 +405,7 @@ function stamp(date) {
 
 class Failure extends Error {}
 
-const STILL_RUNNING = 'the AIpermiler service is running. Quit the app, stop the service (`aipermiler service stop`) and run this script again.';
+const STILL_RUNNING = 'the AIpermiler service is running. Quit the app, stop the service (`aipermiler service stop`, the core binary in the app\'s resources/core folder) and run this script again. If no service runs, delete the leftover api.json in the core\'s folder.';
 
 async function main(argv) {
   const args = new Set(argv);

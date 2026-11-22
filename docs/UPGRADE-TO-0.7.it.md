@@ -56,6 +56,6 @@ ELECTRON_RUN_AS_NODE=1 /Applications/AIpermiler.app/Contents/MacOS/AIpermiler mi
 
 Con Node.js 22 o successivo installato, `node migrate-core-store.js` funziona su ogni sistema.
 
-Aggiungi `--yes` per sostituire uno `store.json` esistente senza la domanda. Poi riavvia AIpermiler: account e storico sono tornati.
+Aggiungi `--yes` per sostituire uno `store.json` esistente senza la domanda (quello vecchio viene comunque conservato come backup). Se lo script dice che il servizio è in esecuzione ma nessun servizio gira, cancella il file `api.json` rimasto nella cartella del core. Poi riavvia AIpermiler: account e storico sono tornati.
 
 Lo script è un solo file e si può leggere prima di lanciarlo: [`scripts/migrate-core-store/`](../scripts/migrate-core-store/).

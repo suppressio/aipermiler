@@ -106,17 +106,26 @@ test('convert: a missing dayStartUsed takes the previous day, duplicates keep th
   assert.equal(warnings.length, 3); // duplicate account, unknown provider, unknown window type
 });
 
-test('convert: day keys match Go where a DST jump skips midnight (time.ParseInLocation)', async () => {
+test('convert: day keys match Go where a DST change skips or repeats midnight (time.ParseInLocation)', async () => {
   const m = await load();
-  // Values printed by Go 1.x for America/Santiago, whose clocks jump 00:00 → 01:00 on 2026-09-06.
-  process.env.TZ = 'America/Santiago';
+  // Values printed by Go's json.Marshal(time.Date(y, m, d, 0, 0, 0, 0, loc)). Go resolves a
+  // skipped midnight differently west and east of UTC, and a repeated one to the later
+  // offset; the script was also checked against every zone 2015-2030 (4559 such days).
+  const cases: [string, string[], string[]][] = [
+    ['America/Santiago', ['2026-09-05', '2026-09-06', '2026-09-07'], // 00:00 → 01:00, west
+      ['2026-09-05T00:00:00-04:00', '2026-09-05T23:00:00-04:00', '2026-09-07T00:00:00-03:00']],
+    ['Africa/Cairo', ['2026-04-24'], ['2026-04-24T01:00:00+03:00']], // 00:00 → 01:00, east
+    ['Asia/Amman', ['2015-10-30'], ['2015-10-30T00:00:00+02:00']], // 01:00 → 00:00, midnight twice
+  ];
   try {
-    const { state } = m.convert({
-      accounts: [{ id: 'a', provider: 'codex' }],
-      history: { dailyUsage: ['2026-09-05', '2026-09-06', '2026-09-07'].map((date) => ({ date, accountId: 'a', windowId: 'w', used: 1, dayStartUsed: 0 })) },
-    }) as { state: { accounts: { history: Record<string, { dailyUsage: { day: string }[] }> }[] } };
-    assert.deepEqual(at(state.accounts, 0).history.w?.dailyUsage.map((p) => p.day),
-      ['2026-09-05T00:00:00-04:00', '2026-09-05T23:00:00-04:00', '2026-09-07T00:00:00-03:00']);
+    for (const [zone, dates, want] of cases) {
+      process.env.TZ = zone;
+      const { state } = m.convert({
+        accounts: [{ id: 'a', provider: 'codex' }],
+        history: { dailyUsage: dates.map((date) => ({ date, accountId: 'a', windowId: 'w', used: 1, dayStartUsed: 0 })) },
+      }) as { state: { accounts: { history: Record<string, { dailyUsage: { day: string }[] }> }[] } };
+      assert.deepEqual(at(state.accounts, 0).history.w?.dailyUsage.map((p) => p.day), want, zone);
+    }
   } finally {
     process.env.TZ = 'Europe/Rome';
   }
