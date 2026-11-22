@@ -26,7 +26,7 @@ Instructions for every coding agent (Claude Code, Codex, pi, Copilot). Read it i
 | Build | `tsc` (three configs: `tsconfig.json` main/preload/core/services/store/budget/agents/tests — CommonJS; `tsconfig.renderer.json` renderer — ES modules; `tsconfig.renderer.test.json` renderer tests only, adds Node types) + `scripts/copy-assets.js` |
 | Lint | ESLint 10 + typescript-eslint `strictTypeChecked` (`eslint.config.mjs`) |
 | Tests | `node:test` + `node:assert` (no external test library); coverage via Node's built-in `--experimental-test-coverage` |
-| Packaging | electron-builder; the main process, preload and worker are bundled with esbuild at pack time (`beforePack`, `scripts/bundle-main.js`, #36) |
+| Packaging | electron-builder; the main process and preload are bundled with esbuild at pack time (`beforePack`, `scripts/bundle-main.js`, #36) |
 | Runtime | Node.js 22 LTS |
 
 **Do not add dependencies without asking.** Every new library must be justified and agreed before installing it. (Agreed so far: TypeScript, `@types/node`, ESLint + `@eslint/js` + `typescript-eslint` and esbuild (#36) as dev dependencies; in the Go core, `github.com/zalando/go-keyring` for the OS keyring, approved on #179. `@anthropic-ai/claude-agent-sdk` was removed in #299.)
@@ -101,7 +101,7 @@ aipermiler/
 │   └── usage.ts                 ← fetch orchestration + snapshot computation (createUsageCore, computeAccountSnapshot…): store, provider fetch, local insights, clock and error reporting injected, no Electron (+ usage.test.ts)
 ├── main/
 │   ├── ipc.ts                   ← typed handle/listen/sendToRenderer wrappers keyed on types/ipc.ts
-│   ├── appDir.ts                ← folder of the main entry (dist/): base of the renderer, preload and worker paths in the bundle and in the tsc output
+│   ├── appDir.ts                ← folder of the main entry (dist/): base of the renderer and preload paths in the bundle and in the tsc output
 │   ├── core.ts                  ← the app's one core client (binary resolved per call)
 │   ├── coreRequests.ts          ← provider flags of the core commands from an account config (pure, + test)
 │   ├── localInsights.ts         ← which cached Claude local insights may still be shown: only those counted by the core (#299) (+ test)
