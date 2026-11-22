@@ -158,7 +158,11 @@ func TestFetchKeepsTheStaleReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data = []byte(strings.Replace(string(data), `"message":"Provider is temporarily unavailable"}`, `"message":"Provider is temporarily unavailable","reason":"maintenance"}`, 1))
+	withReason := strings.Replace(string(data), `"message":"Provider is temporarily unavailable"}`, `"message":"Provider is temporarily unavailable","reason":"maintenance"}`, 1)
+	if withReason == string(data) {
+		t.Fatal("usage-stale.json changed: the test could not add a reason to it")
+	}
+	data = []byte(withReason)
 	if err := os.WriteFile(doc, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
