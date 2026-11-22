@@ -106,6 +106,36 @@ test('convert: a missing dayStartUsed takes the previous day, duplicates keep th
   assert.equal(warnings.length, 3); // duplicate account, unknown provider, unknown window type
 });
 
+test('convert: day keys match Go where a DST jump skips midnight (time.ParseInLocation)', async () => {
+  const m = await load();
+  // Values printed by Go 1.x for America/Santiago, whose clocks jump 00:00 → 01:00 on 2026-09-06.
+  process.env.TZ = 'America/Santiago';
+  try {
+    const { state } = m.convert({
+      accounts: [{ id: 'a', provider: 'codex' }],
+      history: { dailyUsage: ['2026-09-05', '2026-09-06', '2026-09-07'].map((date) => ({ date, accountId: 'a', windowId: 'w', used: 1, dayStartUsed: 0 })) },
+    }) as { state: { accounts: { history: Record<string, { dailyUsage: { day: string }[] }> }[] } };
+    assert.deepEqual(at(state.accounts, 0).history.w?.dailyUsage.map((p) => p.day),
+      ['2026-09-05T00:00:00-04:00', '2026-09-05T23:00:00-04:00', '2026-09-07T00:00:00-03:00']);
+  } finally {
+    process.env.TZ = 'Europe/Rome';
+  }
+});
+
+test('convert: a point without baseline after a reset starts from 0, as history.baseline in Go', async () => {
+  const m = await load();
+  const { state } = m.convert({
+    accounts: [{ id: 'a', provider: 'codex' }],
+    history: { dailyUsage: [
+      { date: '2026-11-02', accountId: 'a', windowId: 'w', used: 80 },
+      { date: '2026-11-03', accountId: 'a', windowId: 'w', used: 4 },
+      { date: '2026-11-04', accountId: 'a', windowId: 'w', used: 3.5 },
+    ] },
+  }) as { state: { accounts: { history: Record<string, { dailyUsage: { dayStartUsed: number }[] }> }[] } };
+  // 80 → 4 is a reset (drop > 1 point): 0. 4 → 3.5 is noise: the previous value.
+  assert.deepEqual(at(state.accounts, 0).history.w?.dailyUsage.map((p) => p.dayStartUsed), [80, 0, 4]);
+});
+
 test('folders: Electron userData is AIpermiler, the core folder is aipermiler, overrides must be absolute', async () => {
   const m = await load();
   const home = '/home/u';
@@ -173,6 +203,23 @@ test('run: an existing store.json is kept unless --yes, then backed up', async (
   const backups = fs.readdirSync(core).filter((f) => f.startsWith('store.json.bak-'));
   assert.equal(backups.length, 1);
   assert.equal(fs.readFileSync(path.join(core, backups[0] ?? ''), 'utf8'), '{"schemaVersion":1}');
+});
+
+test('run: any HTTP answer on api.json\'s port means the service is there, even a refusal', async () => {
+  const { core, env } = setup();
+  fs.mkdirSync(core);
+  const server = http.createServer((_req, res) => res.writeHead(401).end());
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const { port } = server.address() as AddressInfo;
+  fs.writeFileSync(path.join(core, 'api.json'), JSON.stringify({ schemaVersion: 1, port, token: 'old-token' }));
+  try {
+    const refused = await run(env, '--yes');
+    assert.notEqual(refused.code, 0);
+    assert.match(refused.stderr, /aipermiler service stop/);
+    assert.ok(!fs.existsSync(path.join(core, 'store.json')));
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+  }
 });
 
 test('run: refuses while the service answers, goes on when api.json is stale', async () => {

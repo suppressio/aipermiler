@@ -20,7 +20,7 @@ Cosa viene copiato: gli account e le loro impostazioni (giorno di rinnovo, orari
 
 ## Cosa fa lo script
 
-1. Si ferma se il file dell'app manca o se il servizio del core è in esecuzione.
+1. Si ferma se il file dell'app manca o se il servizio del core è in esecuzione (si ferma con `aipermiler service stop`); ricontrolla subito prima di scrivere.
 2. Legge e decifra il file dell'app, senza modificarlo.
 3. Se il core ha già uno `store.json`, chiede prima di sostituirlo e lo conserva accanto come `store.json.bak-<data>`.
 4. Scrive il nuovo `store.json`, leggibile solo dal tuo utente, ed elenca quello che ha lasciato fuori (per id di account, mai con i valori).
@@ -39,10 +39,13 @@ ELECTRON_RUN_AS_NODE=1 /opt/AIpermiler/aipermiler migrate-core-store.js
 
 **Linux (AppImage)**: uguale, con il percorso della tua AppImage al posto di `/opt/AIpermiler/aipermiler`.
 
-**Windows** (PowerShell):
+**Windows** (PowerShell): imposta `$exe` su `AIpermiler.exe` nella cartella in cui è installata l'app (tasto destro sulla voce del menu Start, *Apri percorso file*; di solito `%LOCALAPPDATA%\Programs\aipermiler`, oppure la vecchia cartella di IA Hypermiler se hai aggiornato da lì). Qui l'app non risponde alle domande, quindi passa `--yes`:
 
 ```powershell
-$env:ELECTRON_RUN_AS_NODE=1; & "$env:LOCALAPPDATA\Programs\AIpermiler\AIpermiler.exe" .\migrate-core-store.js
+$exe = "$env:LOCALAPPDATA\Programs\aipermiler\AIpermiler.exe"
+$env:ELECTRON_RUN_AS_NODE = 1
+Start-Process -Wait -NoNewWindow $exe -ArgumentList '.\migrate-core-store.js', '--yes'
+Remove-Item Env:ELECTRON_RUN_AS_NODE
 ```
 
 **macOS**:

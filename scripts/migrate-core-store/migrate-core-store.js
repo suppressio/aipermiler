@@ -131,13 +131,25 @@ function localDay(value) {
   const m = typeof value === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(value) : null;
   if (!m) return null;
   const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  const date = new Date(y, mo - 1, d);
+  let date = new Date(y, mo - 1, d);
   if (date.getFullYear() !== y || date.getMonth() !== mo - 1 || date.getDate() !== d) return null;
+  // Where a DST jump skips midnight, JS moves forward to the first valid time (01:00 at
+  // the new offset) while Go's time.Date gives the same wall time at the old offset,
+  // an instant one gap earlier (23:00 of the day before). Mirror Go, or the core's
+  // history would not recognize the point as that day's.
+  const gap = (date.getHours() * 60 + date.getMinutes()) * 60000;
+  if (gap > 0) date = new Date(date.getTime() - gap);
   const off = -date.getTimezoneOffset();
   const pad = (n) => String(n).padStart(2, '0');
   const zone = off === 0 ? 'Z' : `${off > 0 ? '+' : '-'}${pad(Math.floor(Math.abs(off) / 60))}:${pad(Math.abs(off) % 60)}`;
-  // A day starting later than 00:00 (a DST jump at midnight) keeps its real start.
-  return `${m[1]}-${m[2]}-${m[3]}T${pad(date.getHours())}:${pad(date.getMinutes())}:00${zone}`;
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:00${zone}`;
+}
+
+const RESET_THRESHOLD = 1 + 1e-9; // history.resetThreshold + thresholdTolerance
+
+function baseline(previous, point) {
+  if (!previous) return point.used;
+  return previous.used - point.used > RESET_THRESHOLD ? 0 : previous.used;
 }
 
 function convertAccount(src, accounts, skip) {
@@ -206,8 +218,9 @@ function convertHistory(history, accounts, skip) {
   };
 
   // Daily points: one per local day (the last stored), sorted. A point without its own
-  // baseline starts from the previous day's value, as Electron's budget does, the first
-  // one from its own.
+  // baseline starts from the previous day's value, as Electron's budget does, or from 0
+  // after a reset (a drop of more than one point, history.baseline in Go); the first one
+  // starts from its own value.
   const daily = new Map();
   for (const p of Array.isArray(history.dailyUsage) ? history.dailyUsage : []) {
     if (!isObject(p)) { skip('a daily point is malformed'); continue; }
@@ -230,7 +243,7 @@ function convertHistory(history, accounts, skip) {
     series(account, windowId).dailyUsage = points.map((p, i) => ({
       day: p.day,
       used: p.used,
-      dayStartUsed: p.dayStartUsed ?? (i > 0 ? points[i - 1].used : p.used),
+      dayStartUsed: p.dayStartUsed ?? baseline(points[i - 1], p),
     }));
   }
 
@@ -269,7 +282,7 @@ function convertHistory(history, accounts, skip) {
     for (const w of Array.isArray(lg.quotaWindows) ? lg.quotaWindows : []) {
       const window = convertWindow(w);
       if (window) windows.push(window);
-      else skip(`window ${JSON.stringify(isObject(w) ? str(w.id) : '')} of account ${JSON.stringify(id)} has an unknown type`);
+      else skip(`window ${JSON.stringify(isObject(w) ? str(w.id) : '')} of account ${JSON.stringify(id)} is malformed or has an unknown type`);
     }
     account.lastGood = {
       updatedAt,
@@ -310,7 +323,13 @@ function convert(settings) {
 
 // --- running -----------------------------------------------------------------------------
 
-/** True when api.json names a service that answers its health check. */
+/**
+ * True when api.json names a port where something answers. Any HTTP answer counts,
+ * even a refusal: only a connection that fails means a leftover api.json. The core's
+ * own test is its lock (service/stop.go), which Node cannot probe; the window this
+ * leaves (a service starting, its lock taken, api.json not written yet) is closed by
+ * asking the user to stop the service first and by checking again just before writing.
+ */
 async function serviceRunning(dir) {
   let info;
   try {
@@ -324,7 +343,8 @@ async function serviceRunning(dir) {
       headers: { Authorization: `Bearer ${info.token}` },
       signal: AbortSignal.timeout(2000),
     });
-    return res.ok;
+    void res.body?.cancel();
+    return true;
   } catch {
     return false; // nobody listening: a leftover of a service that did not stop cleanly
   }
@@ -355,6 +375,16 @@ function writeAtomic(file, content) {
     fs.rmSync(tmp, { force: true });
     throw error;
   }
+  // The rename survives a power loss only once the folder is synced, as in the core's
+  // store. Windows cannot open a folder for that.
+  if (process.platform !== 'win32') {
+    const dir = fs.openSync(path.dirname(file), 'r');
+    try {
+      fs.fsyncSync(dir);
+    } finally {
+      fs.closeSync(dir);
+    }
+  }
 }
 
 function stamp(date) {
@@ -363,6 +393,8 @@ function stamp(date) {
 }
 
 class Failure extends Error {}
+
+const STILL_RUNNING = 'the AIpermiler service is running. Quit the app, stop the service (`aipermiler service stop`) and run this script again.';
 
 async function main(argv) {
   const args = new Set(argv);
@@ -378,7 +410,7 @@ async function main(argv) {
 
   if (!fs.existsSync(source)) throw new Failure(`no AIpermiler settings found in ${fromDir}: nothing to migrate.`);
   if (await serviceRunning(toDir)) {
-    throw new Failure('the AIpermiler service is running. Quit the app, stop the service and run this script again.');
+    throw new Failure(STILL_RUNNING);
   }
 
   const { state, warnings } = convert(decrypt(fs.readFileSync(source), APP_KEY));
@@ -391,9 +423,13 @@ async function main(argv) {
     }
   }
 
+  // Checked again: the question above can wait for minutes while the service starts.
+  if (await serviceRunning(toDir)) throw new Failure(STILL_RUNNING);
+
   fs.mkdirSync(toDir, { recursive: true, mode: 0o700 });
   if (fs.existsSync(target)) {
-    const backup = `${target}.bak-${stamp(new Date())}`;
+    let backup = `${target}.bak-${stamp(new Date())}`;
+    for (let n = 2; fs.existsSync(backup); n++) backup = `${target}.bak-${stamp(new Date())}-${n}`;
     fs.copyFileSync(target, backup, fs.constants.COPYFILE_EXCL);
     console.log(`Previous store kept as ${backup}`);
   }
@@ -408,7 +444,7 @@ module.exports = { decrypt, convert, electronDir, coreDir, UnsupportedFormatErro
 
 if (require.main === module) {
   main(process.argv.slice(2)).catch((error) => {
-    console.error(`Error: ${error instanceof Failure ? error.message : error.message || String(error)}`);
+    console.error(`Error: ${error instanceof Error ? error.message : String(error)}`);
     process.exitCode = 1;
   });
 }
