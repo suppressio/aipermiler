@@ -1,0 +1,108 @@
+{
+  "accounts": [
+    {
+      "id": "claude",
+      "provider": "claude",
+      "label": "Claude work",
+      "enabled": true,
+      "subscription": { "renewalRule": { "type": "dayOfMonth", "day": 5 } },
+      "workSchedule": {
+        "enabled": true,
+        "days": { "mon": "full", "tue": "full", "wed": "half", "thu": "full", "fri": "full", "sat": "off", "sun": "off" },
+        "hoursPerDay": 7.5
+      },
+      "authMethod": "password",
+      "session": { "sessionKey": null, "organizationId": null, "capturedAt": null, "expiresAt": null },
+      "partition": "persist:account-claude",
+      "localInsights": true,
+      "binaryPath": "/opt/claude/bin/claude"
+    },
+    {
+      "id": "copilot-1",
+      "provider": "copilot",
+      "label": "Copilot",
+      "enabled": false,
+      "subscription": { "renewalRule": { "type": "dayOfMonth", "day": 1 } },
+      "workSchedule": {
+        "enabled": false,
+        "days": { "mon": "full", "tue": "full", "wed": "full", "thu": "full", "fri": "full", "sat": "off", "sun": "off" },
+        "hoursPerDay": 8
+      },
+      "authMethod": "pat",
+      "accountScope": "organization",
+      "host": "acme.ghe.com",
+      "credentials": { "token": "SYNTHETIC-TOKEN-NOT-IMPORTED", "username": "octocat" },
+      "oauthApp": { "clientId": null },
+      "manualQuota": 300,
+      "experimentalWarningAcknowledged": false
+    },
+    {
+      "id": "codex",
+      "provider": "codex",
+      "label": "Codex",
+      "enabled": true,
+      "subscription": { "renewalRule": { "type": "rrule", "rrule": "FREQ=MONTHLY" } },
+      "workSchedule": {
+        "enabled": true,
+        "days": { "mon": "full", "tue": "full", "wed": "full", "thu": "full", "fri": "full", "sat": "off", "sun": "off" },
+        "hoursPerDay": 8
+      },
+      "partition": "persist:account-codex",
+      "binaryPath": null
+    }
+  ],
+  "ui": {
+    "language": "it",
+    "windowStyle": "filled",
+    "alwaysOnTop": false,
+    "compact": false,
+    "animations": true,
+    "accentColor": "#2563eb",
+    "bounds": { "width": 360, "height": 480 },
+    "chartRange": "week",
+    "refreshIntervalMinutes": 15,
+    "notificationThresholdPercent": 90,
+    "trayBadge": { "view": { "mode": "auto" }, "critical": true }
+  },
+  "history": {
+    "retentionDays": 60,
+    "dailyUsage": [
+      { "date": "2026-11-02", "accountId": "claude", "windowId": "five_hour", "used": 40, "dayStartUsed": 10 },
+      { "date": "2026-11-01", "accountId": "claude", "windowId": "five_hour", "used": 10.5, "dayStartUsed": 0 },
+      { "date": "2026-11-03", "accountId": "claude", "windowId": "five_hour", "used": 55 },
+      { "date": "2026-11-03", "accountId": "codex", "windowId": "codex-5h", "used": 12, "dayStartUsed": 2 },
+      { "date": "not-a-date", "accountId": "codex", "windowId": "codex-5h", "used": 1 },
+      { "date": "2026-11-03", "accountId": "gone", "windowId": "x", "used": 1 }
+    ],
+    "recentSamples": [
+      { "timestamp": "2026-11-03T09:00:00.000Z", "accountId": "claude", "windowId": "five_hour", "used": 50 },
+      { "timestamp": "2026-11-03T08:00:00.000Z", "accountId": "claude", "windowId": "five_hour", "used": 45 },
+      { "timestamp": "garbage", "accountId": "claude", "windowId": "five_hour", "used": 1 }
+    ],
+    "lastGood": {
+      "claude": {
+        "accountId": "claude",
+        "lastUpdatedAt": "2026-11-03T09:00:00.000Z",
+        "planTier": "max",
+        "subscriptionRenewsAt": "2026-12-05T00:00:00.000Z",
+        "quotaWindows": [
+          {
+            "id": "five_hour",
+            "label": "5-hour limit",
+            "periodType": "rolling-hours",
+            "periodLength": 5,
+            "unit": "percentage",
+            "used": 50,
+            "total": 100,
+            "resetsAt": "2026-11-03T12:00:00.000Z"
+          }
+        ]
+      }
+    }
+  },
+  "advisorCache": { "generatedAt": null, "adviceText": null },
+  "meta": { "notifiedToday": {}, "claudeSessionsPurged": true, "codexSessionsPurged": true },
+  "diagnostics": { "autoReportFormatDrift": true, "reportedSignatures": {} },
+  "localInsightsCache": { "claudeCode": null },
+  "updates": { "autoCheck": true, "lastCheckedAt": null, "lastError": null, "available": null, "notifiedVersion": null }
+}

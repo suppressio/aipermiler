@@ -39,6 +39,8 @@ I pacchetti non sono firmati: Windows SmartScreen e macOS Gatekeeper mostrano un
 
 **Arrivi da IA Hypermiler (v0.4.x)?** Dalla v0.5.0 l'app si chiama AIpermiler. Le versioni fino alla 0.4.18 annunciano l'aggiornamento ma non riescono ad aprirne il download: scaricalo a mano dall'[ultima release](https://github.com/suppressio/aipermiler/releases/latest). Installalo come al solito: su Windows e su Debian/Ubuntu sostituisce IA Hypermiler, mentre su macOS e con l'AppImage puoi cancellare la vecchia app dopo. Al primo avvio impostazioni, account e storico vengono spostati, e gli account Copilot collegati restano collegati. Dalla v0.6.0 l'aggiornamento diretto dalla v0.4.x non è più supportato: installa prima la v0.5.0, avviala una volta, poi aggiorna. Sei già sulla v0.6.0 o successiva e gli account sono spariti? Lancia lo [script di migrazione](docs/UPGRADE-FROM-0.4.it.md).
 
+**Aggiornamento alla v0.7.0** (non ancora rilasciata): il core in Go tiene impostazioni e storico nel proprio store. Lancia lo [script di migrazione](docs/UPGRADE-TO-0.7.it.md) una volta e tornano; il vecchio file dell'app non viene mai modificato.
+
 ## Primo avvio
 
 1. Apri **Impostazioni** (⚙ nel widget, o dall'icona nel tray) → **Aggiungi account**.

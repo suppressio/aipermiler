@@ -55,6 +55,7 @@ aipermiler/
 │   ├── CLAUDE-USAGE-SOURCE.md   ← Claude quota source: `/usage` panel read through a PTY, from spikes #141, #183
 │   ├── CODEX-USAGE-SOURCE.md    ← Codex quota source: rate limits through `codex app-server`, from spike #142
 │   ├── UPGRADE-FROM-0.4.md      ← user guide: settings from IA Hypermiler v0.4.x after skipping v0.5.0 (#260)
+│   ├── UPGRADE-TO-0.7.md        ← user guide: the migration script that moves settings and history into the core's store.json (#311)
 │   └── screenshots/             ← README screenshots, synthetic data only
 ├── package.json, package-lock.json ← scripts, dependencies, electron-builder config
 ├── tsconfig.json                ← main-process TS config (CommonJS)
@@ -72,6 +73,7 @@ aipermiler/
 │   ├── measure-resources.js     ← measures the app's memory/CPU footprint (tray-only, #27)
 │   ├── probe-copilot-shape.js   ← prints the structure (never values) of a Copilot usage response
 │   ├── migrate-legacy/          ← user scripts (sh, PowerShell) that move IA Hypermiler v0.4.x settings to AIpermiler after skipping v0.5.0 (#260, docs/UPGRADE-FROM-0.4.md)
+│   ├── migrate-core-store/      ← user script (plain JS, Node built-ins only, run by node or the app with ELECTRON_RUN_AS_NODE) that copies Electron's store into the core's store.json for v0.7.0 (#311, docs/UPGRADE-TO-0.7.md); testdata/ = files written by the real conf
 │   └── spikes/                  ← throwaway research code for the Claude/Codex reads: claude-usage-pty.py, claude-usage-pty-go/ (own Go module), codex-rate-limits.js
 ├── build/                       ← electron-builder resources (icons) — TRACKED, not an output (packages go to release/)
 ├── main.ts                      ← Electron main process: wiring only (lifecycle, windows, tray, IPC, timers, notifications, update checks)
@@ -149,6 +151,7 @@ aipermiler/
 ├── budget.ts                    ← pure budget/efficiency/projection/verdict/tip/yield logic (+ budget.test.ts)
 ├── tests/
 │   ├── ipcContract.test.ts      ← guards the IPC contract and channel wiring (#71)
+│   ├── migrateCoreStore.test.ts ← the migration script (#311) against conf's files and the Go store fixture
 │   ├── support/at.ts            ← at(array, i) helper for tests under noUncheckedIndexedAccess
 ├── dist/                        ← tsc output + copied assets (gitignored)
 └── package.json

@@ -1,0 +1,137 @@
+{
+  "schemaVersion": 1,
+  "settings": {
+    "refreshIntervalMinutes": 15,
+    "retentionDays": 60,
+    "notificationThresholdPercent": 90
+  },
+  "accounts": [
+    {
+      "id": "claude",
+      "provider": "claude",
+      "label": "Claude work",
+      "enabled": true,
+      "renewalDay": 5,
+      "schedule": {
+        "enabled": true,
+        "days": [
+          0,
+          1,
+          1,
+          0.5,
+          1,
+          1,
+          0
+        ],
+        "hoursPerDay": 7.5
+      },
+      "binaryPath": "/opt/claude/bin/claude",
+      "history": {
+        "five_hour": {
+          "dailyUsage": [
+            {
+              "day": "2026-11-01T00:00:00+01:00",
+              "used": 10.5,
+              "dayStartUsed": 0
+            },
+            {
+              "day": "2026-11-02T00:00:00+01:00",
+              "used": 40,
+              "dayStartUsed": 10
+            },
+            {
+              "day": "2026-11-03T00:00:00+01:00",
+              "used": 55,
+              "dayStartUsed": 40
+            }
+          ],
+          "recentSamples": [
+            {
+              "at": "2026-11-03T08:00:00Z",
+              "used": 45
+            },
+            {
+              "at": "2026-11-03T09:00:00Z",
+              "used": 50
+            }
+          ]
+        }
+      },
+      "lastGood": {
+        "updatedAt": "2026-11-03T09:00:00Z",
+        "planTier": "max",
+        "subscriptionRenewsAt": "2026-12-05T00:00:00Z",
+        "quotaWindows": [
+          {
+            "id": "five_hour",
+            "label": "5-hour limit",
+            "periodType": "rolling-hours",
+            "periodLength": 5,
+            "unit": "percentage",
+            "used": 50,
+            "total": 100,
+            "resetsAt": "2026-11-03T12:00:00Z"
+          }
+        ]
+      }
+    },
+    {
+      "id": "copilot-1",
+      "provider": "copilot",
+      "label": "Copilot",
+      "enabled": false,
+      "renewalDay": 1,
+      "schedule": {
+        "enabled": false,
+        "days": [
+          0,
+          1,
+          1,
+          1,
+          1,
+          1,
+          0
+        ],
+        "hoursPerDay": 8
+      },
+      "host": "acme.ghe.com",
+      "scope": "organization",
+      "manualQuota": 300,
+      "history": {},
+      "lastGood": null
+    },
+    {
+      "id": "codex",
+      "provider": "codex",
+      "label": "Codex",
+      "enabled": true,
+      "renewalDay": 0,
+      "schedule": {
+        "enabled": true,
+        "days": [
+          0,
+          1,
+          1,
+          1,
+          1,
+          1,
+          0
+        ],
+        "hoursPerDay": 8
+      },
+      "history": {
+        "codex-5h": {
+          "dailyUsage": [
+            {
+              "day": "2026-11-03T00:00:00+01:00",
+              "used": 12,
+              "dayStartUsed": 2
+            }
+          ],
+          "recentSamples": []
+        }
+      },
+      "lastGood": null
+    }
+  ]
+}

@@ -39,6 +39,8 @@ The packages are not signed: Windows SmartScreen and macOS Gatekeeper show a war
 
 **Coming from IA Hypermiler (v0.4.x)?** The app was renamed to AIpermiler in v0.5.0. Versions up to 0.4.18 announce the update but cannot open its download: get it from the [latest release](https://github.com/suppressio/aipermiler/releases/latest) by hand. Install it as usual: it replaces IA Hypermiler on Windows and on Debian/Ubuntu, while on macOS and with the AppImage you can delete the old app afterwards. On the first start your settings, accounts and history are moved over, and connected Copilot accounts stay connected. From v0.6.0 upgrading directly from v0.4.x is no longer supported: install v0.5.0 first, start it once, then update. Already on v0.6.0 or later and your accounts are gone? Run the [migration script](docs/UPGRADE-FROM-0.4.md).
 
+**Upgrading to v0.7.0** (not released yet): the Go core keeps your settings and history in its own store. Run the [migration script](docs/UPGRADE-TO-0.7.md) once and they come back; the app's old file is never changed.
+
 ## First start
 
 1. Open **Settings** (⚙ in the widget, or from the tray icon) → **Add account**.

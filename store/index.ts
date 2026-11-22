@@ -6,6 +6,8 @@
 // SECURITY NOTE: the encryptionKey below is a development placeholder. Before any
 // distribution it must be replaced with a securely generated key (e.g. from a secret
 // manager or a machine-bound value), NEVER committed.
+// The migration script to the core's store (scripts/migrate-core-store, #311) decrypts
+// this file with the same key: change it there too, or old files can no longer be read.
 //
 // electron-store/conf NOTE: DEFAULTS are applied with a SHALLOW merge
 // (Object.assign(defaults, fileStore) in conf/dist/source/index.js) — on an
