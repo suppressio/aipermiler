@@ -176,17 +176,23 @@ func (a accountsAPI) document(account store.Account) ([]byte, int) {
 		u := account.LastGood.Usage()
 		if lastErr != nil {
 			e := classify(lastErr)
-			u.Stale = &usage.StaleInfo{Code: e.Code, Message: e.Message}
+			u.Stale = &usage.StaleInfo{Code: e.Code, Message: e.Message, Reason: e.Reason}
 		}
 		var buf bytes.Buffer
 		_ = usage.WriteSuccess(&buf, account.Provider, u, account.LastGood.UpdatedAt) // a bytes.Buffer does not fail
 		return buf.Bytes(), http.StatusOK
 	}
-	status := errorStatus(classify(lastErr).Code)
-	if errors.Is(lastErr, refresh.ErrNotRead) {
-		status = http.StatusServiceUnavailable // retry later: the loop reads it at start
+	return errorDocument(account.Provider, lastErr), statusOf(lastErr)
+}
+
+// statusOf is the HTTP status of a read error's document: errorStatus of its
+// code, and 503 (retry later) for refresh.ErrNotRead, an unavailable the loop
+// is about to clear.
+func statusOf(err error) int {
+	if errors.Is(err, refresh.ErrNotRead) {
+		return http.StatusServiceUnavailable
 	}
-	return errorDocument(account.Provider, lastErr), status
+	return errorStatus(classify(err).Code)
 }
 
 // classify maps a read error to the CLI's error: a child that outlived its
@@ -206,7 +212,8 @@ func errorDocument(provider string, err error) []byte {
 
 // errorStatus is the HTTP status of a document with this error code: 200 for
 // none, 400 for a usage error (as exit 2), 503 for not_ready (retry later),
-// 502 for any other provider error (as exit 1).
+// 502 for any other provider error (as exit 1). A read error goes through
+// statusOf, which also knows not_read_yet.
 func errorStatus(code usage.Code) int {
 	switch code {
 	case "":

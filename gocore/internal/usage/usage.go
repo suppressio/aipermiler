@@ -53,6 +53,9 @@ func (q QuotaWindow) MarshalJSON() ([]byte, error) {
 type StaleInfo struct {
 	Code    Code   `json:"code"`
 	Message string `json:"message"`
+	// Reason names a known case inside the code, as Error.Reason. Additive in
+	// v1: absent when empty.
+	Reason string `json:"reason,omitempty"`
 }
 
 // Usage mirrors RawAccountUsage, with stale metadata kept outside its JSON body.

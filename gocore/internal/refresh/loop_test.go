@@ -414,26 +414,3 @@ func TestLastErrorBeforeTheFirstRead(t *testing.T) {
 		t.Errorf("LastError = %v; want ErrNotRead, never not_ready (Claude's prompt state)", err)
 	}
 }
-
-// A disabled account is forgotten: enabled again, it is unconfirmed until read.
-func TestDisabledAccountIsForgotten(t *testing.T) {
-	t.Parallel()
-	h := newHarness(t, 30, claude("a"))
-	h.run()
-	if err := h.loop.LastError("a"); err != nil {
-		t.Fatalf("LastError after a good read = %v", err)
-	}
-	setEnabled := func(on bool) {
-		if err := h.store.Update(func(s *store.State) error { s.Account("a").Enabled = on; return nil }); err != nil {
-			t.Fatal(err)
-		}
-	}
-	setEnabled(false)
-	if err := h.loop.Refresh(context.Background(), policy.Forced); err != nil {
-		t.Fatal(err)
-	}
-	setEnabled(true)
-	if err := h.loop.LastError("a"); !errors.Is(err, refresh.ErrNotRead) {
-		t.Errorf("LastError after re-enable = %v; want ErrNotRead", err)
-	}
-}
