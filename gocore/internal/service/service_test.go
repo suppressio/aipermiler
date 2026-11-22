@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/suppressio/aipermiler/gocore/internal/refresh"
+	"github.com/suppressio/aipermiler/gocore/internal/refresh/policy"
 	"github.com/suppressio/aipermiler/gocore/internal/service"
 	"github.com/suppressio/aipermiler/gocore/internal/store"
 )
@@ -505,11 +507,13 @@ func TestRunOpensTheStoreForItsWork(t *testing.T) {
 	}
 	got := make(chan *store.Store, 1)
 	var ended atomic.Bool
-	r := startWith(t, service.Options{Dir: dir, Work: func(ctx context.Context, st *store.Store) {
-		got <- st
-		<-ctx.Done()
-		time.Sleep(50 * time.Millisecond)
-		ended.Store(true)
+	r := startWith(t, service.Options{Dir: dir, Loop: func(st *store.Store) service.Loop {
+		return runLoop(func(ctx context.Context) {
+			got <- st
+			<-ctx.Done()
+			time.Sleep(50 * time.Millisecond)
+			ended.Store(true)
+		})
 	}}, nil)
 	if st := <-got; st == nil {
 		t.Fatal("work got no store")
@@ -540,7 +544,10 @@ func TestRunRefusesAnUnreadableStore(t *testing.T) {
 			t.Fatal(err)
 		}
 		worked := false
-		err := service.Run(t.Context(), service.Options{Dir: dir, Work: func(context.Context, *store.Store) { worked = true }})
+		err := service.Run(t.Context(), service.Options{Dir: dir, Loop: func(*store.Store) service.Loop {
+			worked = true
+			return runLoop(func(context.Context) {})
+		}})
 		if !errors.Is(err, c.want) {
 			t.Errorf("%s: err = %v; want %v", name, err, c.want)
 		}
@@ -555,3 +562,10 @@ func TestRunRefusesAnUnreadableStore(t *testing.T) {
 		}
 	}
 }
+
+// runLoop is a loop whose Run is the function; it never refreshes.
+type runLoop func(ctx context.Context)
+
+func (f runLoop) Run(ctx context.Context) error            { f(ctx); return nil }
+func (runLoop) Refresh(context.Context, policy.Mode) error { return refresh.ErrStopped }
+func (runLoop) LastError(string) error                     { return nil }

@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+
+	"github.com/suppressio/aipermiler/gocore/internal/store"
 )
 
 // HandlerConfig is what the HTTP handler needs to know about the running service.
@@ -16,6 +18,11 @@ type HandlerConfig struct {
 	ContractVersion int
 	// Shutdown starts the clean stop (POST /api/v1/shutdown); nil does nothing.
 	Shutdown func()
+	// Store, Loop and Raw serve the account endpoints (#248); without a Store
+	// they are not registered. A nil Loop never reads, a nil Raw answers an error.
+	Store *store.Store
+	Loop  Loop
+	Raw   RawFunc
 }
 
 // NewHandler builds the API. Every request passes three gates before routing:
@@ -49,6 +56,13 @@ func NewHandler(cfg HandlerConfig) http.Handler {
 			cfg.Shutdown()
 		}
 	})
+	if cfg.Store != nil {
+		loop := cfg.Loop
+		if loop == nil {
+			loop = noLoop{}
+		}
+		accountsAPI{store: cfg.Store, loop: loop, raw: cfg.Raw}.register(mux)
+	}
 	want := sha256.Sum256([]byte(cfg.Token))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if _, hasOrigin := r.Header["Origin"]; hasOrigin {

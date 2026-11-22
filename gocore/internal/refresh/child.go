@@ -6,6 +6,7 @@ package refresh
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os/exec"
@@ -20,6 +21,8 @@ const (
 	// DefaultCLITimeout is the deadline the CLI gets for one read, as Electron
 	// passes it today (main/coreClient.ts).
 	DefaultCLITimeout = 120 * time.Second
+	// DefaultRawTimeout is the CLI's own default for `raw`.
+	DefaultRawTimeout = 25 * time.Second
 	// DefaultMargin is how much longer the service waits for the child than
 	// the CLI's own deadline, so the CLI reports its own timeout (#266).
 	DefaultMargin = 15 * time.Second
@@ -49,44 +52,21 @@ type CLIFetcher struct {
 // usage.ErrBadDocument, ErrChildTimeout, the context's error, or the error of
 // starting the child.
 func (f CLIFetcher) Fetch(ctx context.Context, account store.Account) (usage.Usage, error) {
-	timeout, margin := f.Timeout, f.Margin
-	if timeout <= 0 {
-		timeout = DefaultCLITimeout
-	}
-	if margin <= 0 {
-		margin = DefaultMargin
-	}
+	timeout := f.timeout(DefaultCLITimeout)
 	args, err := UsageArgs(account, timeout)
 	if err != nil {
 		return usage.Usage{}, err
 	}
-	childCtx, cancel := context.WithTimeout(ctx, timeout+margin)
-	defer cancel()
-	cmd := exec.CommandContext(childCtx, f.Binary, args...) //nolint:gosec // the core's own binary, args built here
-	stdout := &limitedBuffer{max: maxOutput, over: cancel}
-	cmd.Stdout = stdout
-	cmd.WaitDelay = stopGrace
-	tree := newProcessTree(cmd)
-	if err := cmd.Start(); err != nil {
-		return usage.Usage{}, fmt.Errorf("start core CLI: %w", err)
-	}
-	tree.started()
-	runErr := cmd.Wait()
-	tree.sweep()
-	switch {
-	case ctx.Err() != nil:
-		return usage.Usage{}, ctx.Err()
-	case stdout.exceeded:
-		return usage.Usage{}, fmt.Errorf("%w: output over %d bytes", usage.ErrBadDocument, maxOutput)
-	case childCtx.Err() != nil:
-		return usage.Usage{}, fmt.Errorf("%w (%s)", ErrChildTimeout, timeout+margin)
+	out, err := f.run(ctx, args, timeout)
+	if err != nil {
+		return usage.Usage{}, err
 	}
 	// The exit code is not read: a provider failure exits non-zero with an
 	// error document, and anything else fails to parse.
-	doc, err := usage.ParseDocument(stdout.buf.Bytes())
+	doc, err := usage.ParseDocument(out.stdout)
 	if err != nil {
-		if runErr != nil {
-			return usage.Usage{}, fmt.Errorf("%w (core CLI: %w)", err, runErr)
+		if out.exitErr != nil {
+			return usage.Usage{}, fmt.Errorf("%w (core CLI: %w)", err, out.exitErr)
 		}
 		return usage.Usage{}, err
 	}
@@ -97,6 +77,91 @@ func (f CLIFetcher) Fetch(ctx context.Context, account store.Account) (usage.Usa
 		return usage.Usage{}, &usage.Error{Code: doc.Usage.Stale.Code, Message: doc.Usage.Stale.Message}
 	}
 	return doc.Usage, nil
+}
+
+// Raw runs `raw <provider> --json` for the diagnostic report (#248) and returns
+// the CLI's document as it printed it, a raw document or an error document,
+// with the error's code ("" for a raw document). Errors are those of Fetch
+// except *usage.Error: an error document is a document, returned as such.
+func (f CLIFetcher) Raw(ctx context.Context, account store.Account) ([]byte, usage.Code, error) {
+	timeout := f.timeout(DefaultRawTimeout)
+	args, err := RawArgs(account, timeout)
+	if err != nil {
+		return nil, "", err
+	}
+	out, err := f.run(ctx, args, timeout)
+	if err != nil {
+		return nil, "", err
+	}
+	var doc struct {
+		SchemaVersion int             `json:"schemaVersion"`
+		Response      json.RawMessage `json:"response"`
+		Error         *struct {
+			Code usage.Code `json:"code"`
+		} `json:"error"`
+	}
+	switch {
+	case json.Unmarshal(out.stdout, &doc) != nil:
+		err = fmt.Errorf("%w: raw output is not JSON", usage.ErrBadDocument)
+	case doc.SchemaVersion != usage.SchemaVersion:
+		err = fmt.Errorf("%w: schemaVersion %d", usage.ErrBadDocument, doc.SchemaVersion)
+	case doc.Error != nil && doc.Error.Code != "":
+		return out.stdout, doc.Error.Code, nil
+	case doc.Response == nil:
+		err = fmt.Errorf("%w: neither a raw nor an error document", usage.ErrBadDocument)
+	default:
+		return out.stdout, "", nil
+	}
+	if out.exitErr != nil {
+		err = fmt.Errorf("%w (core CLI: %w)", err, out.exitErr)
+	}
+	return nil, "", err
+}
+
+func (f CLIFetcher) timeout(fallback time.Duration) time.Duration {
+	if f.Timeout <= 0 {
+		return fallback
+	}
+	return f.Timeout
+}
+
+// childOutput is what a finished child printed, with the error of Wait (a
+// non-zero exit is normal: the output says what happened).
+type childOutput struct {
+	stdout  []byte
+	exitErr error
+}
+
+// run starts the core CLI with args. The error is set only when there is no
+// output to read: the context ended, the output went over the limit, the child
+// outlived timeout plus the margin, or it did not start.
+func (f CLIFetcher) run(ctx context.Context, args []string, timeout time.Duration) (childOutput, error) {
+	margin := f.Margin
+	if margin <= 0 {
+		margin = DefaultMargin
+	}
+	childCtx, cancel := context.WithTimeout(ctx, timeout+margin)
+	defer cancel()
+	cmd := exec.CommandContext(childCtx, f.Binary, args...) //nolint:gosec // the core's own binary, args built here
+	stdout := &limitedBuffer{max: maxOutput, over: cancel}
+	cmd.Stdout = stdout
+	cmd.WaitDelay = stopGrace
+	tree := newProcessTree(cmd)
+	if err := cmd.Start(); err != nil {
+		return childOutput{}, fmt.Errorf("start core CLI: %w", err)
+	}
+	tree.started()
+	runErr := cmd.Wait()
+	tree.sweep()
+	switch {
+	case ctx.Err() != nil:
+		return childOutput{}, ctx.Err()
+	case stdout.exceeded:
+		return childOutput{}, fmt.Errorf("%w: output over %d bytes", usage.ErrBadDocument, maxOutput)
+	case childCtx.Err() != nil:
+		return childOutput{}, fmt.Errorf("%w (%s)", ErrChildTimeout, timeout+margin)
+	}
+	return childOutput{stdout.buf.Bytes(), runErr}, nil
 }
 
 // UsageArgs are the CLI arguments that read account: the same flags Electron
@@ -118,6 +183,26 @@ func UsageArgs(account store.Account, timeout time.Duration) ([]string, error) {
 		}
 		if account.Scope == "" || account.Scope == "personal" {
 			args = append(args, "--manual-quota", strconv.FormatFloat(account.ManualQuota, 'f', -1, 64))
+		}
+	default:
+		return nil, fmt.Errorf("unknown provider %q", account.Provider)
+	}
+	return args, nil
+}
+
+// RawArgs are the CLI arguments of the diagnostic read: the provider and, for
+// Copilot, the account parameters the raw response depends on.
+func RawArgs(account store.Account, timeout time.Duration) ([]string, error) {
+	args := []string{"raw", account.Provider, "--json", "--timeout", timeout.String()}
+	switch account.Provider {
+	case "claude", "codex":
+	case "copilot":
+		args = append(args, "--account", account.ID)
+		if account.Host != "" {
+			args = append(args, "--host", account.Host)
+		}
+		if account.Scope != "" {
+			args = append(args, "--scope", account.Scope)
 		}
 	default:
 		return nil, fmt.Errorf("unknown provider %q", account.Provider)
