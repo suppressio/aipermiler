@@ -37,9 +37,9 @@ test('every shared fixture is read by this client (none left untested)', () => {
   const files = fs.readdirSync(FIXTURES).filter((f) => f.endsWith('.json')).sort();
   assert.deepEqual(files, [
     'account-connected.json', 'account-deleted.json',
-    'error-format-drift.json', 'error-not-ready.json', 'error-signed-out.json', 'error-timeout.json',
+    'error-format-drift.json', 'error-insights-drift.json', 'error-not-ready.json', 'error-signed-out.json', 'error-timeout.json',
     'error-unavailable-reason.json', 'error-unavailable.json', 'error-usage.json',
-    'login-authorize.json', 'raw.json',
+    'insights-claude.json', 'insights-empty.json', 'login-authorize.json', 'raw.json',
     'usage-claude.json', 'usage-count-window.json', 'usage-ok.json', 'usage-stale.json', 'version.json',
   ]);
 });

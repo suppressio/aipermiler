@@ -14,6 +14,7 @@ aipermiler login <provider> [--json] [--timeout 5m] [provider flags] [login flag
 aipermiler raw <provider> [provider flags]
 aipermiler version [--json]
 aipermiler paths [--json]
+aipermiler insights claude [--json] [--days N] [--timeout <duration>]
 aipermiler serve
 aipermiler service stop [--json] [--timeout 15s]
 aipermiler help
@@ -135,6 +136,35 @@ Windows are recognized by duration in either `primary` or `secondary`, with the 
 ```
 
 Text output: `claude probe: <path>`. Unexpected arguments are usage errors (exit 2); a user cache folder that cannot be located is `unavailable` (exit 1).
+
+## Local insights
+
+```text
+aipermiler insights claude [--json] [--days N] [--timeout <duration>]
+```
+
+Behavioural insights from the local Claude Code sessions (#298, part of #150; approach in #297): output tokens per local day, the share spent with a large context or in long sessions, the most used tools, and the first session start of each day. The output is the app's `ClaudeLocalInsights`, counted correctly (the double count of #301). Electron still reads them through the Agent SDK until #299.
+
+`--days` is the window, default 30, from 1 to 366; outside it is a usage error (exit 2). `--timeout` is as for `usage` (default and at most `2m`).
+
+**Source.** Claude Code's own session files, read directly: `CLAUDE_CONFIG_DIR`, else `~/.claude` (`%USERPROFILE%\.claude` on Windows), then `projects/*/<session>.jsonl` and `projects/*/<session>/subagents/*.jsonl`, modified within the window; no cap on the number of sessions. The format is Claude Code's, not a documented interface, hence the drift check below. Only `type`, `timestamp`, `requestId`, `cwd`, `message.usage` and the `name` and `id` of `tool_use` blocks are read: never message text, tool parameters or tool results, and nothing of a file is logged (the debug log carries counts only). Sessions whose `cwd` is the core's Claude probe folder (`paths`) are skipped, their subagents too.
+
+**Counting.**
+- One count per API response: its lines repeat the same `usage`, so it is taken once per `requestId` across every file (a subagent file can repeat a response of the main file); of several copies the largest output wins. A line without `requestId` counts on its own. Every line counts, including the part before a compaction.
+- Each `tool_use` block counts once (by its `id` when present, across files).
+- A response goes to the local day of its first timestamp, only when that falls in the window. `firstSessionStartByDay` is the earliest timestamp of a main session (not a subagent) per local day.
+- High context: `input + cache_read + cache_creation` above 150,000 tokens. Long session: 8 hours or more from the first to the last timestamp of the main session (its subagents' responses included). Top 5 tools, shares rounded to one decimal.
+- Unknown fields, corrupt lines and unreadable files are skipped; a file that changes while being read does not fail the run.
+
+**Result.** With output tokens in the window, `insights` is the object below; without them `insights` is `null` (nothing to show, not an error).
+
+```json
+{"schemaVersion":1,"provider":"claude","insights":{"computedAt":"2026-10-31T21:10:00Z","windowDays":7,"sessionsAnalyzed":1,"totalOutputTokens":4000,"highContextOutputTokens":1000,"longSessionOutputTokens":0,"highContextSharePercent":25,"longSessionSharePercent":0,"topTools":[{"name":"Bash","sharePercent":50},{"name":"Read","sharePercent":50}],"daily":[{"date":"2026-10-31","outputTokens":4000,"highContextOutputTokens":1000}],"firstSessionStartByDay":{"2026-10-31":"2026-10-31T08:00:00.000Z"}}}
+```
+
+**Format drift.** When the window has `assistant` lines but none carries a numeric `message.usage.output_tokens`, the answer is the `format_drift` error with endpoint `projects/*/*.jsonl` and the shape (keys and types, never values) of one `assistant` line, exit 1. Other failures (the folder cannot be read, deadline) are `unavailable` and `timeout`.
+
+Text output: a title line with the window, sessions and output tokens, the two shares, and the top tools. A missing sessions folder is not an error: `insights` is `null`.
 
 ## Account commands
 
@@ -320,4 +350,4 @@ With `--json`, usage errors have no provider key. Help is text-only; requesting 
 
 Additive fields keep `schemaVersion: 1`; clients must ignore unknown fields. Removing or renaming a field, or changing its meaning, bumps the schema version. A client seeing an unsupported schema version must reject the document explicitly. An unknown error code is treated as `unavailable`, preserving last values as stale.
 
-The language-neutral files in `gocore/contract/v1/` are normative examples. Go CLI black-box tests reproduce every provider-neutral fixture byte for byte through `RunWith`, a fake provider and a fixed clock. The TypeScript client tests (`main/coreClient.test.ts`, #177) read the same files. `version.json` uses `aipermiler`, `dev`, `linux`, `amd64`; its Go test substitutes `buildinfo.Name`, `buildinfo.Version`, `runtime.GOOS` and `runtime.GOARCH` before the byte comparison so build-time versions and cross-platform runs are supported. Every fixture is also checked as valid compact JSON with `schemaVersion: 1` and exactly one trailing newline. `usage-claude` is reproduced by the Claude adapter's own test (`internal/claude`), from its 2.1.316 status line fixture through the mapping. The account documents (`account-connected`, `account-deleted`, `login-authorize`, `raw`) and `error-unavailable-reason` came with #149; the TypeScript client reads them from #179. The documents are written without HTML escaping (a URL keeps a literal `&`).
+The language-neutral files in `gocore/contract/v1/` are normative examples. Go CLI black-box tests reproduce every provider-neutral fixture byte for byte through `RunWith`, a fake provider and a fixed clock. The TypeScript client tests (`main/coreClient.test.ts`, #177) read the same files. `version.json` uses `aipermiler`, `dev`, `linux`, `amd64`; its Go test substitutes `buildinfo.Name`, `buildinfo.Version`, `runtime.GOOS` and `runtime.GOARCH` before the byte comparison so build-time versions and cross-platform runs are supported. Every fixture is also checked as valid compact JSON with `schemaVersion: 1` and exactly one trailing newline. `usage-claude` is reproduced by the Claude adapter's own test (`internal/claude`), from its 2.1.316 status line fixture through the mapping. The account documents (`account-connected`, `account-deleted`, `login-authorize`, `raw`) and `error-unavailable-reason` came with #149; the TypeScript client reads them from #179. The documents are written without HTML escaping (a URL keeps a literal `&`). The insights documents (`insights-claude`, `insights-empty`, `error-insights-drift`, #298) are reproduced by the CLI tests from synthetic session files; the TypeScript client reads them from #299.
