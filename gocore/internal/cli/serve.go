@@ -11,7 +11,9 @@ import (
 
 	"github.com/suppressio/aipermiler/gocore/internal/buildinfo"
 	"github.com/suppressio/aipermiler/gocore/internal/config"
+	"github.com/suppressio/aipermiler/gocore/internal/refresh"
 	"github.com/suppressio/aipermiler/gocore/internal/service"
+	"github.com/suppressio/aipermiler/gocore/internal/store"
 	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
 
@@ -41,8 +43,18 @@ func runServe(env Env, args []string, logger *slog.Logger) int {
 		// is absorbed by NotifyContext's buffer: an instant, documented.
 		go func() { <-ctx.Done(); stop() }()
 	}
+	// The service reads the providers by running this same binary (#246).
+	self, err := os.Executable()
+	if err != nil {
+		_, _ = fmt.Fprintln(env.Stderr, oneLine(err.Error()))
+		return ExitProviderError
+	}
 	err = service.Run(ctx, service.Options{
 		Dir: dir, Version: buildinfo.Version, ContractVersion: usage.SchemaVersion, Logger: logger,
+		Work: func(ctx context.Context, st *store.Store) {
+			loop := refresh.New(refresh.Config{Store: st, Fetcher: refresh.CLIFetcher{Binary: self}, Logger: logger})
+			_ = loop.Run(ctx)
+		},
 	})
 	switch {
 	case err == nil:

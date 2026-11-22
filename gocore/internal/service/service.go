@@ -11,6 +11,8 @@ import (
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/suppressio/aipermiler/gocore/internal/store"
 )
 
 // DefaultShutdownTimeout bounds the clean stop.
@@ -23,6 +25,10 @@ type Options struct {
 	ContractVersion int
 	Logger          *slog.Logger
 	ShutdownTimeout time.Duration // zero means DefaultShutdownTimeout
+	// Work runs for the whole life of the service with the store, opened once
+	// the lock is held (the refresh loop, #283). Its context ends at the stop,
+	// and the lock is released only after it returns. Nil runs nothing.
+	Work func(ctx context.Context, st *store.Store)
 }
 
 // Run holds the single-instance lock, serves the API on a random loopback port
@@ -55,6 +61,15 @@ func run(ctx context.Context, opts Options, listen func(context.Context) (net.Li
 	if err := removeLeftovers(opts.Dir); err != nil {
 		opts.Logger.Warn("Cannot clean up the files of an earlier service", "error", err)
 	}
+	if err := store.RemoveLeftovers(opts.Dir); err != nil {
+		opts.Logger.Warn("Cannot clean up the store's temp files", "error", err)
+	}
+	// An unreadable or newer store stops the start: an empty store in its place
+	// would overwrite the user's history at the first write.
+	st, err := store.Open(opts.Dir)
+	if err != nil {
+		return fmt.Errorf("open store: %w", err)
+	}
 
 	tokenBytes := make([]byte, 32)
 	if _, err := rand.Read(tokenBytes); err != nil {
@@ -85,6 +100,13 @@ func run(ctx context.Context, opts Options, listen func(context.Context) (net.Li
 		serveErr <- server.Serve(listener)
 		close(serveDone)
 	}()
+	workDone := make(chan struct{})
+	go func() {
+		defer close(workDone)
+		if opts.Work != nil {
+			opts.Work(workCtx, st)
+		}
+	}()
 	// teardown is the one way out once Serve runs: cancel the work, close every
 	// connection, wait for Serve to let the listener go, delete api.json. Every
 	// step is idempotent, so a stop may do the first ones early (see below).
@@ -92,6 +114,7 @@ func run(ctx context.Context, opts Options, listen func(context.Context) (net.Li
 		cancelWork()
 		_ = server.Close()
 		<-serveDone
+		<-workDone
 		if err := RemoveInfo(opts.Dir); err != nil {
 			opts.Logger.Warn("Cannot delete api.json", "error", err)
 		}

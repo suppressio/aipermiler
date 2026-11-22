@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/suppressio/aipermiler/gocore/internal/service"
+	"github.com/suppressio/aipermiler/gocore/internal/store"
 )
 
 // logBuffer collects the service's log lines; slog writes from several goroutines.
@@ -490,5 +491,67 @@ func TestShutdownEndpointStopsRun(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, "api.json")); !os.IsNotExist(err) {
 		t.Errorf("api.json survived: %v", err)
+	}
+}
+
+// The service opens the store once it holds the lock and hands it to its work
+// (the refresh loop, #283); a stop waits for the work to end before the lock goes.
+func TestRunOpensTheStoreForItsWork(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	leftover := filepath.Join(dir, "store.json.12345.tmp")
+	if err := os.WriteFile(leftover, []byte("partial"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := make(chan *store.Store, 1)
+	var ended atomic.Bool
+	r := startWith(t, service.Options{Dir: dir, Work: func(ctx context.Context, st *store.Store) {
+		got <- st
+		<-ctx.Done()
+		time.Sleep(50 * time.Millisecond)
+		ended.Store(true)
+	}}, nil)
+	if st := <-got; st == nil {
+		t.Fatal("work got no store")
+	}
+	if _, err := os.Stat(leftover); !os.IsNotExist(err) {
+		t.Errorf("the store's temp file of a dead instance survived: %v", err)
+	}
+	if err := r.stop(); err != nil {
+		t.Fatal(err)
+	}
+	if !ended.Load() {
+		t.Error("Run returned before its work ended")
+	}
+}
+
+// A store that cannot be read stops the start: never an empty store in its place.
+func TestRunRefusesAnUnreadableStore(t *testing.T) {
+	t.Parallel()
+	for name, c := range map[string]struct {
+		content string
+		want    error
+	}{
+		"corrupt": {"{not json", store.ErrUnreadable},
+		"newer":   {`{"schemaVersion": 99}`, store.ErrNewerSchema},
+	} {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "store.json"), []byte(c.content), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		worked := false
+		err := service.Run(t.Context(), service.Options{Dir: dir, Work: func(context.Context, *store.Store) { worked = true }})
+		if !errors.Is(err, c.want) {
+			t.Errorf("%s: err = %v; want %v", name, err, c.want)
+		}
+		if worked {
+			t.Errorf("%s: work started on an unreadable store", name)
+		}
+		if _, statErr := os.Stat(filepath.Join(dir, "api.json")); !os.IsNotExist(statErr) {
+			t.Errorf("%s: api.json written", name)
+		}
+		if raw, _ := os.ReadFile(filepath.Join(dir, "store.json")); string(raw) != c.content {
+			t.Errorf("%s: store.json changed", name)
+		}
 	}
 }
