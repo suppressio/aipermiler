@@ -14,6 +14,7 @@ aipermiler login <provider> [--json] [--timeout 5m] [provider flags] [login flag
 aipermiler raw <provider> [provider flags]
 aipermiler version [--json]
 aipermiler paths [--json]
+aipermiler insights claude [--json] [--days N] [--timeout <duration>]
 aipermiler serve
 aipermiler service stop [--json] [--timeout 15s]
 aipermiler help
@@ -135,6 +136,35 @@ Le finestre sono riconosciute dalla durata in `primary` o `secondary`; in caso d
 ```
 
 Output testuale: `claude probe: <percorso>`. Argomenti in più sono errori d'uso (exit 2); una cartella di cache utente che non si trova è `unavailable` (exit 1).
+
+## Insight locali
+
+```text
+aipermiler insights claude [--json] [--days N] [--timeout <duration>]
+```
+
+Insight comportamentali dalle sessioni locali di Claude Code (#298, parte di #150; approccio in #297): token di output per giorno locale, la quota spesa con un contesto grande o in sessioni lunghe, gli strumenti più usati e l'inizio della prima sessione di ogni giorno. L'output è il `ClaudeLocalInsights` dell'app, contato correttamente (il doppio conteggio di #301). Electron li legge ancora con l'Agent SDK fino a #299.
+
+`--days` è la finestra, predefinita 30, da 1 a 366; fuori da questi limiti è un errore d'uso (exit 2). `--timeout` è come per `usage` (predefinito e massimo `2m`).
+
+**Fonte.** I file di sessione di Claude Code, letti direttamente: `CLAUDE_CONFIG_DIR`, altrimenti `~/.claude` (`%USERPROFILE%\.claude` su Windows), poi `projects/*/<sessione>.jsonl` e `projects/*/<sessione>/subagents/*.jsonl`, modificati nella finestra; nessun limite al numero di sessioni. Il formato è di Claude Code, non un'interfaccia documentata, da cui il controllo di drift qui sotto. Si leggono solo `type`, `timestamp`, `requestId`, `cwd`, `message.usage` e `name` e `id` dei blocchi `tool_use`: mai il testo dei messaggi, i parametri o i risultati degli strumenti, e del file non si registra nulla nel log (il log di debug riporta solo conteggi). Le sessioni il cui `cwd` è la cartella di probe Claude del core (`paths`) sono saltate, subagent compresi.
+
+**Conteggio.**
+- Un conteggio per risposta API: le sue righe ripetono lo stesso `usage`, quindi lo si prende una volta per `requestId` su tutti i file (un file di subagent può ripetere una risposta del file principale); tra più copie vince l'output più grande. Una riga senza `requestId` conta da sola. Contano tutte le righe, anche la parte prima di una compattazione.
+- Ogni blocco `tool_use` conta una volta (per `id` quando c'è, tra i file).
+- Una risposta va al giorno locale del suo primo timestamp, solo se cade nella finestra. `firstSessionStartByDay` è il timestamp più antico di una sessione principale (non di un subagent) per giorno locale.
+- Contesto alto: `input + cache_read + cache_creation` sopra 150.000 token. Sessione lunga: 8 ore o più dal primo all'ultimo timestamp della sessione principale (comprese le risposte dei suoi subagent). Primi 5 strumenti, quote arrotondate a un decimale.
+- Campi sconosciuti, righe corrotte e file illeggibili vengono saltati; un file che cambia mentre lo si legge non fa fallire l'esecuzione.
+
+**Risultato.** Con token di output nella finestra, `insights` è l'oggetto qui sotto; senza, `insights` è `null` (niente da mostrare, non un errore).
+
+```json
+{"schemaVersion":1,"provider":"claude","insights":{"computedAt":"2026-10-31T21:10:00Z","windowDays":7,"sessionsAnalyzed":1,"totalOutputTokens":4000,"highContextOutputTokens":1000,"longSessionOutputTokens":0,"highContextSharePercent":25,"longSessionSharePercent":0,"topTools":[{"name":"Bash","sharePercent":50},{"name":"Read","sharePercent":50}],"daily":[{"date":"2026-10-31","outputTokens":4000,"highContextOutputTokens":1000}],"firstSessionStartByDay":{"2026-10-31":"2026-10-31T08:00:00.000Z"}}}
+```
+
+**Format drift.** Quando la finestra ha righe `assistant` ma nessuna con un `message.usage.output_tokens` numerico, la risposta è l'errore `format_drift` con endpoint `projects/*/*.jsonl` e la forma (chiavi e tipi, mai valori) di una riga `assistant`, exit 1. Gli altri guasti (cartella illeggibile, scadenza) sono `unavailable` e `timeout`.
+
+Output di testo: una riga di titolo con finestra, sessioni e token di output, le due quote e gli strumenti principali. Una cartella delle sessioni assente non è un errore: `insights` è `null`.
 
 ## Comandi per l'account
 
@@ -320,4 +350,4 @@ Con `--json`, gli errori di utilizzo non hanno la chiave provider. L'help è sol
 
 I campi aggiuntivi mantengono `schemaVersion: 1`; i client devono ignorare i campi sconosciuti. Rimuovere o rinominare un campo, o cambiarne il significato, incrementa la versione dello schema. Un client che vede una versione dello schema non supportata deve rifiutare esplicitamente il documento. Un codice di errore sconosciuto viene trattato come `unavailable`, conservando gli ultimi valori come stale.
 
-I file indipendenti dalla lingua in `gocore/contract/v1/` sono esempi normativi. I test black-box Go della CLI riproducono ogni fixture indipendente dal provider byte per byte attraverso `RunWith`, un provider fake e un orologio fisso. I test del client TypeScript (`main/coreClient.test.ts`, #177) leggono gli stessi file. `version.json` usa `aipermiler`, `dev`, `linux`, `amd64`; il suo test Go sostituisce `buildinfo.Name`, `buildinfo.Version`, `runtime.GOOS` e `runtime.GOARCH` prima del confronto byte per byte per supportare versioni impostate in build ed esecuzioni multipiattaforma. Ogni fixture viene anche verificata come JSON compatto valido con `schemaVersion: 1` ed esattamente un newline finale. `usage-claude` è riprodotto dal test dell'adapter Claude (`internal/claude`), dalla sua fixture del status line 2.1.316 attraverso il mapping. I documenti per l'account (`account-connected`, `account-deleted`, `login-authorize`, `raw`) ed `error-unavailable-reason` sono arrivati con #149; il client TypeScript li legge da #179. I documenti sono scritti senza escape HTML (un URL mantiene una `&` letterale).
+I file indipendenti dalla lingua in `gocore/contract/v1/` sono esempi normativi. I test black-box Go della CLI riproducono ogni fixture indipendente dal provider byte per byte attraverso `RunWith`, un provider fake e un orologio fisso. I test del client TypeScript (`main/coreClient.test.ts`, #177) leggono gli stessi file. `version.json` usa `aipermiler`, `dev`, `linux`, `amd64`; il suo test Go sostituisce `buildinfo.Name`, `buildinfo.Version`, `runtime.GOOS` e `runtime.GOARCH` prima del confronto byte per byte per supportare versioni impostate in build ed esecuzioni multipiattaforma. Ogni fixture viene anche verificata come JSON compatto valido con `schemaVersion: 1` ed esattamente un newline finale. `usage-claude` è riprodotto dal test dell'adapter Claude (`internal/claude`), dalla sua fixture del status line 2.1.316 attraverso il mapping. I documenti per l'account (`account-connected`, `account-deleted`, `login-authorize`, `raw`) ed `error-unavailable-reason` sono arrivati con #149; il client TypeScript li legge da #179. I documenti sono scritti senza escape HTML (un URL mantiene una `&` letterale). I documenti degli insight (`insights-claude`, `insights-empty`, `error-insights-drift`, #298) sono riprodotti dai test della CLI da file di sessione sintetici; il client TypeScript li legge da #299.

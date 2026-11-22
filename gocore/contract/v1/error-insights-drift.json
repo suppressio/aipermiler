@@ -1,0 +1,1 @@
+{"schemaVersion":1,"provider":"claude","error":{"code":"format_drift","message":"Unrecognized Claude Code session format","endpoint":"projects/*/*.jsonl","shape":{"message":{"content":[{"text":"string","type":"string"}],"tokens":{"out":"number"}},"requestId":"string","timestamp":"string","type":"string"}}}

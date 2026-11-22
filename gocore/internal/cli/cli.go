@@ -45,6 +45,10 @@ type Env struct {
 	Location       *time.Location
 	// Context stops `serve`; nil means the process's SIGINT/SIGTERM.
 	Context context.Context
+	// ClaudeConfigDir and ClaudeProbeDir override where `insights claude` reads Claude Code's
+	// sessions and which folder it skips; empty means the real ones (CLAUDE_CONFIG_DIR or
+	// ~/.claude, and the core's probe folder). For tests.
+	ClaudeConfigDir, ClaudeProbeDir string
 }
 
 // Run executes a subcommand, keeping command output on stdout and logs on stderr.
@@ -64,6 +68,8 @@ func RunWith(env Env, args []string) int {
 	switch command {
 	case "usage":
 		return runUsage(env, args[1:], jsonMode)
+	case "insights":
+		return runInsights(env, args[1:], jsonMode)
 	case "token":
 		return runToken(env, args[1:], jsonMode)
 	case "login":
@@ -258,6 +264,7 @@ func printUsage(w io.Writer) {
 
 Commands:
   usage <provider> [flags]         Fetch account usage
+  insights claude [flags]          Local insights from the Claude Code session files (--days N, 1-366, default 30)
   token set <provider> [flags]     Check a token read from stdin and keep it in the OS keyring
   token delete <provider> [flags]  Remove the account's token from the OS keyring
   login <provider> [flags]         Sign in with an OAuth App (client secret on stdin)

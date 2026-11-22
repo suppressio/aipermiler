@@ -22,7 +22,7 @@ Instructions for every coding agent (Claude Code, Codex, pi, Copilot). Read it i
 | i18n | No library: typed flat dictionaries (`renderer/i18n/`, `main/i18n/`) + `Intl` |
 | Persistence | electron-store (with encryptionKey for secrets), normalized at startup (`store/normalize.ts`) |
 | Advice agent | `agents/advisor.ts` is a dormant stub, not wired. No Anthropic SDK: #29 will use plain HTTP calls through the accounts the user already connected |
-| Local insights (opt-in) | `@anthropic-ai/claude-agent-sdk` — reads local Claude Code sessions via `listSessions`/`getSessionMessages`, never by parsing the internal JSONL directly (see docs/RESEARCH.md §5) |
+| Local insights (opt-in) | `@anthropic-ai/claude-agent-sdk` — reads local Claude Code sessions via `listSessions`/`getSessionMessages`, never by parsing the internal JSONL directly (see docs/RESEARCH.md §5); the Go core already reads the JSONL directly (#298, decided on #297) and Electron switches to it in #299, dropping the SDK | 
 | Build | `tsc` (three configs: `tsconfig.json` main/preload/core/services/store/budget/agents/tests — CommonJS; `tsconfig.renderer.json` renderer — ES modules; `tsconfig.renderer.test.json` renderer tests only, adds Node types) + `scripts/copy-assets.js` |
 | Lint | ESLint 10 + typescript-eslint `strictTypeChecked` (`eslint.config.mjs`) |
 | Tests | `node:test` + `node:assert` (no external test library); coverage via Node's built-in `--experimental-test-coverage` |
@@ -87,6 +87,7 @@ aipermiler/
 │       ├── claude/              ← Claude adapter (#147): binary discovery (#219), PTY session to the /usage panel (#220), status line sink, mapping and transcript cleanup (#221), Windows ConPTY and job object (#223)
 │       ├── codex/               ← native binary discovery, one-shot app-server probe and quota mapping
 │       ├── copilot/             ← Copilot usage (port of services/copilot.ts), token set/delete, OAuth PKCE login, raw response
+│       ├── insights/            ← local insights from Claude Code's session JSONL (`aipermiler insights claude`, #298): one count per `requestId`, subagents included, drift detection
 │       ├── github/              ← allowed GitHub hosts (github.com, <tenant>.ghe.com) and JSON client with a 10 s timeout
 │       ├── store/               ← the core's state file `store.json`: settings, accounts, history, lastGood; one writer, crash-safe writes (#295)
 │       ├── secrets/             ← OS keyring (go-keyring): the Copilot token, never in argv or documents

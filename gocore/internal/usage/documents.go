@@ -83,3 +83,13 @@ func encode(w io.Writer, v any) error {
 	encoder.SetEscapeHTML(false)
 	return encoder.Encode(v)
 }
+
+// WriteInsights writes the local insights of a provider; insights is the provider's result
+// or a nil pointer, which is written as null (nothing to show in the window).
+func WriteInsights(w io.Writer, provider string, insights any) error {
+	return encode(w, struct {
+		SchemaVersion int    `json:"schemaVersion"`
+		Provider      string `json:"provider"`
+		Insights      any    `json:"insights"`
+	}{SchemaVersion, provider, insights})
+}
