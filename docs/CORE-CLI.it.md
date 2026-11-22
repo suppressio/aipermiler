@@ -152,7 +152,7 @@ Insight comportamentali dalle sessioni locali di Claude Code (#298, parte di #15
 **Conteggio.**
 - Un conteggio per risposta API: le sue righe ripetono lo stesso `usage`, quindi lo si prende una volta per `requestId` su tutti i file (un file di subagent può ripetere una risposta del file principale); tra più copie vince l'output più grande. Una riga senza `requestId` conta da sola. Contano tutte le righe, anche la parte prima di una compattazione.
 - Ogni blocco `tool_use` conta una volta (per `id` quando c'è, tra i file).
-- Una risposta va al giorno locale del suo primo timestamp, solo se cade nella finestra. `firstSessionStartByDay` è il timestamp più antico di una sessione principale (non di un subagent) per giorno locale.
+- Una risposta va al giorno locale del suo primo timestamp, solo se cade nella finestra. `firstSessionStartByDay` è, per giorno locale, l'inizio più antico (primo timestamp) di una sessione principale (non di un subagent) nel giorno in cui è iniziata, come `createdAt` nel lettore TypeScript: una sessione che scrive ancora dopo mezzanotte non fa iniziare il giorno dopo.
 - Contesto alto: `input + cache_read + cache_creation` sopra 150.000 token. Sessione lunga: 8 ore o più dal primo all'ultimo timestamp della sessione principale (comprese le risposte dei suoi subagent). Primi 5 strumenti, quote arrotondate a un decimale.
 - Campi sconosciuti, righe corrotte e file illeggibili vengono saltati; un file che cambia mentre lo si legge non fa fallire l'esecuzione.
 

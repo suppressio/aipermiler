@@ -35,6 +35,7 @@ const runOf = (name: string, exitCode: number): CoreRun => ({ exitCode, stdout: 
 
 test('every shared fixture is read by this client (none left untested)', () => {
   const files = fs.readdirSync(FIXTURES).filter((f) => f.endsWith('.json')).sort();
+  // The insights fixtures (#298) are read by the client only from #299 on.
   assert.deepEqual(files, [
     'account-connected.json', 'account-deleted.json',
     'error-format-drift.json', 'error-insights-drift.json', 'error-not-ready.json', 'error-signed-out.json', 'error-timeout.json',
