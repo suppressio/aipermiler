@@ -22,8 +22,9 @@ type processTree struct {
 }
 
 func newProcessTree(cmd *exec.Cmd) *processTree {
-	// No console window at every read, as Electron's windowsHide does. Not
-	// CREATE_NO_WINDOW: the child may host a ConPTY session (Claude).
+	// No console window at every read (Electron passes windowsHide). The
+	// window is only hidden (SW_HIDE): whether CREATE_NO_WINDOW is safe for a
+	// child that hosts a ConPTY session (Claude) is not verified here.
 	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	t := &processTree{cmd: cmd}
 	cmd.Cancel = func() error {
