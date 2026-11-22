@@ -76,6 +76,7 @@ type Loop struct {
 	waiters  []chan struct{}
 	busy     bool
 	lastErrs map[string]error
+	read     map[string]bool // accounts this process has read, well or not
 
 	// Owned by Run's goroutine.
 	states map[string]policy.AccountState
@@ -95,7 +96,7 @@ func New(cfg Config) *Loop {
 	}
 	return &Loop{
 		cfg: cfg, wake: make(chan struct{}, 1), done: make(chan struct{}),
-		lastErrs: map[string]error{}, states: map[string]policy.AccountState{},
+		lastErrs: map[string]error{}, read: map[string]bool{}, states: map[string]policy.AccountState{},
 	}
 }
 
@@ -177,11 +178,19 @@ func (l *Loop) Refresh(ctx context.Context, mode policy.Mode) error {
 	}
 }
 
-// LastError is the account's last read error, nil once a read succeeds. While
-// it is set, the account's lastGood is last known data: stale.
+// errNotRead: the store's lastGood may come from before a restart, and no read
+// of this process has confirmed it yet.
+var errNotRead = &usage.Error{Code: usage.CodeNotReady, Message: "Usage is not ready yet"}
+
+// LastError is the account's last read error, nil once a read succeeds, and
+// not_ready before this process has read the account. While it is set, the
+// account's lastGood is last known data: stale.
 func (l *Loop) LastError(accountID string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	if !l.read[accountID] {
+		return errNotRead
+	}
 	return l.lastErrs[accountID]
 }
 
@@ -207,6 +216,7 @@ func (l *Loop) setBusy(busy bool) {
 func (l *Loop) setError(accountID string, err error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	l.read[accountID] = true
 	if err == nil {
 		delete(l.lastErrs, accountID)
 	} else {

@@ -43,8 +43,11 @@ var ErrChildTimeout = errors.New("core CLI did not answer in time")
 // is in the keyring the child reads itself (#179).
 type CLIFetcher struct {
 	Binary  string        // the core's own executable (os.Executable)
-	Timeout time.Duration // the CLI's --timeout; zero means DefaultCLITimeout
-	Margin  time.Duration // zero means DefaultMargin
+	Timeout time.Duration // the CLI's --timeout of a usage read; zero means DefaultCLITimeout
+	// RawTimeout is the CLI's --timeout of a raw read (at most 2m, the CLI's
+	// cap); zero means DefaultRawTimeout.
+	RawTimeout time.Duration
+	Margin     time.Duration // zero means DefaultMargin
 }
 
 // Fetch returns fresh values, or an error: a *usage.Error for an error
@@ -52,7 +55,7 @@ type CLIFetcher struct {
 // usage.ErrBadDocument, ErrChildTimeout, the context's error, or the error of
 // starting the child.
 func (f CLIFetcher) Fetch(ctx context.Context, account store.Account) (usage.Usage, error) {
-	timeout := f.timeout(DefaultCLITimeout)
+	timeout := orDefault(f.Timeout, DefaultCLITimeout)
 	args, err := UsageArgs(account, timeout)
 	if err != nil {
 		return usage.Usage{}, err
@@ -84,7 +87,7 @@ func (f CLIFetcher) Fetch(ctx context.Context, account store.Account) (usage.Usa
 // with the error's code ("" for a raw document). Errors are those of Fetch
 // except *usage.Error: an error document is a document, returned as such.
 func (f CLIFetcher) Raw(ctx context.Context, account store.Account) ([]byte, usage.Code, error) {
-	timeout := f.timeout(DefaultRawTimeout)
+	timeout := orDefault(f.RawTimeout, DefaultRawTimeout)
 	args, err := RawArgs(account, timeout)
 	if err != nil {
 		return nil, "", err
@@ -118,11 +121,11 @@ func (f CLIFetcher) Raw(ctx context.Context, account store.Account) ([]byte, usa
 	return nil, "", err
 }
 
-func (f CLIFetcher) timeout(fallback time.Duration) time.Duration {
-	if f.Timeout <= 0 {
+func orDefault(d, fallback time.Duration) time.Duration {
+	if d <= 0 {
 		return fallback
 	}
-	return f.Timeout
+	return d
 }
 
 // childOutput is what a finished child printed, with the error of Wait (a

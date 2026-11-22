@@ -399,3 +399,17 @@ func TestRefreshCutByTheStopFails(t *testing.T) {
 		t.Fatal("Refresh did not return")
 	}
 }
+
+// Before this process has read an account, its lastGood (from the store, maybe
+// written before a restart) is not known to be current: not_ready (#248 review).
+func TestLastErrorIsNotReadyBeforeTheFirstRead(t *testing.T) {
+	t.Parallel()
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var e *usage.Error
+	if err := refresh.New(refresh.Config{Store: st}).LastError("a"); !errors.As(err, &e) || e.Code != usage.CodeNotReady {
+		t.Errorf("LastError = %v; want not_ready", err)
+	}
+}

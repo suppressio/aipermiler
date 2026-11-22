@@ -61,7 +61,9 @@ func NewHandler(cfg HandlerConfig) http.Handler {
 		if loop == nil {
 			loop = noLoop{}
 		}
-		accountsAPI{store: cfg.Store, loop: loop, raw: cfg.Raw}.register(mux)
+		rawSlot := make(chan struct{}, 1)
+		rawSlot <- struct{}{}
+		accountsAPI{store: cfg.Store, loop: loop, raw: cfg.Raw, rawSlot: rawSlot}.register(mux)
 	}
 	want := sha256.Sum256([]byte(cfg.Token))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

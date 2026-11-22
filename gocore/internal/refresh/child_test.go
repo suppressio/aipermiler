@@ -229,7 +229,9 @@ func TestRawPassesTheDocumentThrough(t *testing.T) {
 			path, _ := filepath.Abs(fixturePath(c.fixture))
 			t.Setenv("FAKE_CLI", "print:"+path)
 			t.Setenv("FAKE_ARGS", argsFile)
-			doc, code, err := fetcher().Raw(context.Background(), store.Account{ID: "g", Provider: "copilot", Host: "acme.ghe.com", Scope: "organization"})
+			f := fetcher()
+			f.RawTimeout = 2 * time.Second
+			doc, code, err := f.Raw(context.Background(), store.Account{ID: "g", Provider: "copilot", Host: "acme.ghe.com", Scope: "organization"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -282,7 +284,7 @@ func TestRawErrors(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Setenv("FAKE_CLI", c.mode)
 			f := fetcher()
-			f.Timeout, f.Margin = 500*time.Millisecond, 2*time.Second
+			f.RawTimeout, f.Margin = 500*time.Millisecond, 2*time.Second
 			if _, _, err := f.Raw(context.Background(), store.Account{ID: "g", Provider: "copilot"}); !errors.Is(err, c.want) {
 				t.Errorf("err = %v; want %v", err, c.want)
 			}

@@ -125,6 +125,7 @@ func TestAccountUsageServesTheCLIDocuments(t *testing.T) {
 		{"stale after a failed read", "usage-ok", &usage.Error{Code: usage.CodeUnavailable, Message: "Provider is temporarily unavailable"}, "usage-stale", http.StatusOK},
 		{"no good read, failed", "", &usage.Error{Code: usage.CodeSignedOut, Message: "Sign in required"}, "error-signed-out", http.StatusBadGateway},
 		{"no good read, wrapped error", "", errors.New("Provider is temporarily unavailable"), "error-unavailable", http.StatusBadGateway},
+		{"loop has not read it yet", "", &usage.Error{Code: usage.CodeNotReady, Message: "Usage is not ready yet"}, "error-not-ready", http.StatusServiceUnavailable},
 		{"not read yet", "", nil, "error-not-ready", http.StatusServiceUnavailable},
 	}
 	for _, c := range cases {
@@ -258,7 +259,7 @@ func TestRefreshRunsTheLoopAndAnswersWithTheDocuments(t *testing.T) {
 
 func TestRefreshRejectsABadRequest(t *testing.T) {
 	t.Parallel()
-	for _, body := range []string{`{"mode":"now"}`, `{"mode":1}`, `not json`, `{"mode":"manual"}{}`, `{"mode":"` + strings.Repeat("x", 8<<10) + `"}`} {
+	for _, body := range []string{`{"mode":"now"}`, `{"mode":1}`, `not json`, `{"mode":"manual"}{}`, `{"mode":"forced"}]`, `{}}`, `{"mode":"` + strings.Repeat("x", 8<<10) + `"}`} {
 		api := newAPI(t, fake("a1", nil))
 		w := api.do(t, http.MethodPost, "/api/v1/refresh", body)
 		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), `"code":"usage"`) {
@@ -414,5 +415,58 @@ func TestRunServesTheAccountsAndAStopEndsARefresh(t *testing.T) {
 	case <-refreshed:
 	case <-time.After(5 * time.Second):
 		t.Fatal("the stop left the refresh waiting")
+	}
+}
+
+// Without a loop a refresh is not available; that is not a stop.
+func TestRefreshWithoutALoop(t *testing.T) {
+	t.Parallel()
+	api := newAPI(t, fake("a1", nil))
+	r := httptest.NewRequest(http.MethodPost, "http://"+testHost+"/api/v1/refresh", nil)
+	r.Header.Set("Authorization", "Bearer "+testToken)
+	w := httptest.NewRecorder()
+	service.NewHandler(service.HandlerConfig{Token: testToken, Host: testHost, Store: api.st}).ServeHTTP(w, r)
+	if w.Code != http.StatusServiceUnavailable || strings.Contains(w.Body.String(), "stopping") {
+		t.Errorf("status %d body %s", w.Code, w.Body)
+	}
+}
+
+// One raw read at a time: a second one while the first runs answers 503 at once.
+func TestRawReadsOneAtATime(t *testing.T) {
+	t.Parallel()
+	api := newAPI(t, store.Account{ID: "g1", Provider: "copilot", Enabled: true})
+	started, release := make(chan struct{}), make(chan struct{})
+	api.raw = func(context.Context, store.Account) ([]byte, usage.Code, error) {
+		close(started)
+		<-release
+		return fixture(t, "raw"), "", nil
+	}
+	h := service.NewHandler(service.HandlerConfig{Token: testToken, Host: testHost, Store: api.st, Loop: api.loop, Raw: api.raw})
+	get := func() *httptest.ResponseRecorder {
+		r := httptest.NewRequest(http.MethodGet, "http://"+testHost+"/api/v1/accounts/g1/raw", nil)
+		r.Header.Set("Authorization", "Bearer "+testToken)
+		w := httptest.NewRecorder()
+		h.ServeHTTP(w, r)
+		return w
+	}
+	first := make(chan *httptest.ResponseRecorder)
+	go func() { first <- get() }()
+	<-started
+	if w := get(); w.Code != http.StatusServiceUnavailable || !strings.Contains(w.Body.String(), `"code":"unavailable"`) {
+		t.Errorf("second raw: status %d body %s", w.Code, w.Body)
+	}
+	close(release)
+	if w := <-first; w.Code != http.StatusOK {
+		t.Errorf("first raw: status %d", w.Code)
+	}
+}
+
+// The status of a read error follows its code, as the CLI's exit code does.
+func TestAccountUsageStatusFollowsTheErrorCode(t *testing.T) {
+	t.Parallel()
+	api := newAPI(t, fake("a1", nil))
+	api.loop.errs["a1"] = &usage.Error{Code: usage.CodeUsage, Message: "Invalid account"}
+	if w := api.do(t, http.MethodGet, "/api/v1/accounts/a1/usage", ""); w.Code != http.StatusBadRequest {
+		t.Errorf("status %d body %s; want 400", w.Code, w.Body)
 	}
 }
