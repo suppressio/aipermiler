@@ -181,8 +181,9 @@ func (l *Loop) Refresh(ctx context.Context, mode policy.Mode) error {
 // ErrNotRead is LastError before this process has read the account: its
 // lastGood may be old, from before a restart. Not not_ready, which clients take
 // for Claude Code not reaching its prompt (main/accountNotice.ts): unavailable
-// with its own reason. An account disabled and enabled again is not
-// forgotten: whoever enables it asks a forced refresh, as Electron does.
+// with its own reason. An account disabled and enabled again keeps what the
+// loop knew: only the service writes store.json, and enabling an account will
+// go through its settings endpoint (#284), which must ask a forced read.
 var ErrNotRead = &usage.Error{Code: usage.CodeUnavailable, Reason: "not_read_yet", Message: "Not read yet by the service"}
 
 // LastError is the account's last read error, nil once a read succeeds, and

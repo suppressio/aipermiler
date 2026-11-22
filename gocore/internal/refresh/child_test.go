@@ -151,6 +151,25 @@ func TestFetchErrors(t *testing.T) {
 	}
 }
 
+// A stale document's reason reaches the error, so the service can serve it.
+func TestFetchKeepsTheStaleReason(t *testing.T) {
+	doc := filepath.Join(t.TempDir(), "stale.json")
+	data, err := os.ReadFile(fixturePath("usage-stale"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	data = []byte(strings.Replace(string(data), `"message":"Provider is temporarily unavailable"}`, `"message":"Provider is temporarily unavailable","reason":"maintenance"}`, 1))
+	if err := os.WriteFile(doc, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FAKE_CLI", "print:"+doc)
+	_, err = fetcher().Fetch(context.Background(), store.Account{ID: "c", Provider: "claude"})
+	var e *usage.Error
+	if !errors.As(err, &e) || e.Reason != "maintenance" || e.Code != usage.CodeUnavailable {
+		t.Errorf("err = %#v", err)
+	}
+}
+
 func TestFetchMissingBinary(t *testing.T) {
 	t.Parallel()
 	f := refresh.CLIFetcher{Binary: filepath.Join(t.TempDir(), "nope"), Timeout: time.Second}
