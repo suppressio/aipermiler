@@ -372,24 +372,6 @@ export function parseVersionRun(run: CoreRun): CoreVersion {
   return { name, version, os, arch };
 }
 
-/** The folders of `paths --json` (#180). */
-export interface CorePaths {
-  // The folder every Claude probe runs in: the local insights skip its sessions.
-  claudeProbe: string;
-}
-
-export function parsePathsRun(run: CoreRun): CorePaths {
-  if (run.exitCode === 1) {
-    // No user cache folder: an error document, like the provider commands (no provider).
-    const doc = parseDocument(run.stdout);
-    throw providerError(doc, '');
-  }
-  if (run.exitCode !== 0) throw new CoreOutputError(`Core paths exited with code ${String(run.exitCode)}`);
-  const { claudeProbe } = parseDocument(run.stdout);
-  if (typeof claudeProbe !== 'string' || claudeProbe === '') throw new CoreOutputError('Core paths document: claudeProbe is required');
-  return { claudeProbe };
-}
-
 function requireNumber(value: unknown, field: string): number {
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   throw new CoreOutputError(`Core document: ${field} must be a number`);
@@ -526,7 +508,6 @@ export interface CoreAccountRequest {
 export interface CoreClient {
   usage(request: CoreUsageRequest): Promise<CoreUsageResult>;
   version(): Promise<CoreVersion>;
-  paths(): Promise<CorePaths>;
   /** Stores a token (on stdin) in the core's keyring; returns the user name ("" when verify is false). */
   tokenSet(request: CoreAccountRequest & { token: string; verify: boolean }): Promise<string>;
   tokenDelete(request: CoreAccountRequest): Promise<void>;
@@ -562,9 +543,6 @@ export function createCoreClient(options: CoreClientOptions): CoreClient {
     },
     async version() {
       return parseVersionRun(await run(options.binary(), ['version', '--json'], null, Math.min(timeoutMs, VERSION_TIMEOUT_MS)));
-    },
-    async paths() {
-      return parsePathsRun(await run(options.binary(), ['paths', '--json'], null, Math.min(timeoutMs, VERSION_TIMEOUT_MS)));
     },
     async tokenSet(request) {
       const args = ['token', 'set', request.provider, '--json', ...timeout, ...request.flags, ...(request.verify ? [] : ['--no-verify'])];
