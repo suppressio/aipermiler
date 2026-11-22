@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -125,8 +126,10 @@ func TestAccountUsageServesTheCLIDocuments(t *testing.T) {
 		{"stale after a failed read", "usage-ok", &usage.Error{Code: usage.CodeUnavailable, Message: "Provider is temporarily unavailable"}, "usage-stale", http.StatusOK},
 		{"no good read, failed", "", &usage.Error{Code: usage.CodeSignedOut, Message: "Sign in required"}, "error-signed-out", http.StatusBadGateway},
 		{"no good read, wrapped error", "", errors.New("Provider is temporarily unavailable"), "error-unavailable", http.StatusBadGateway},
-		{"loop has not read it yet", "", &usage.Error{Code: usage.CodeNotReady, Message: "Usage is not ready yet"}, "error-not-ready", http.StatusServiceUnavailable},
-		{"not read yet", "", nil, "error-not-ready", http.StatusServiceUnavailable},
+		{"provider not ready", "", &usage.Error{Code: usage.CodeNotReady, Message: "Usage is not ready yet"}, "error-not-ready", http.StatusServiceUnavailable},
+		{"kept from before a restart", "usage-ok", refresh.ErrNotRead, "service/usage-not-read", http.StatusOK},
+		{"not read yet", "", refresh.ErrNotRead, "service/error-not-read", http.StatusServiceUnavailable},
+		{"no error and no good read", "", nil, "service/error-not-read", http.StatusServiceUnavailable},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -436,7 +439,11 @@ func TestRawReadsOneAtATime(t *testing.T) {
 	t.Parallel()
 	api := newAPI(t, store.Account{ID: "g1", Provider: "copilot", Enabled: true})
 	started, release := make(chan struct{}), make(chan struct{})
+	var calls atomic.Int32
 	api.raw = func(context.Context, store.Account) ([]byte, usage.Code, error) {
+		if calls.Add(1) != 1 {
+			return fixture(t, "raw"), "", nil // the guard let a second read in: the status check fails
+		}
 		close(started)
 		<-release
 		return fixture(t, "raw"), "", nil
@@ -458,6 +465,9 @@ func TestRawReadsOneAtATime(t *testing.T) {
 	close(release)
 	if w := <-first; w.Code != http.StatusOK {
 		t.Errorf("first raw: status %d", w.Code)
+	}
+	if n := calls.Load(); n != 1 {
+		t.Errorf("raw reads = %d; want 1", n)
 	}
 }
 

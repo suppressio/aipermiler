@@ -178,18 +178,20 @@ func (l *Loop) Refresh(ctx context.Context, mode policy.Mode) error {
 	}
 }
 
-// errNotRead: the store's lastGood may come from before a restart, and no read
-// of this process has confirmed it yet.
-var errNotRead = &usage.Error{Code: usage.CodeNotReady, Message: "Usage is not ready yet"}
+// ErrNotRead is LastError before this process has read the account (since the
+// start, or since it was enabled again): its lastGood may be old, from before
+// a restart. Not not_ready, which clients take for Claude Code not reaching its
+// prompt (main/accountNotice.ts): unavailable with its own reason.
+var ErrNotRead = &usage.Error{Code: usage.CodeUnavailable, Reason: "not_read_yet", Message: "Not read yet since the service started"}
 
 // LastError is the account's last read error, nil once a read succeeds, and
-// not_ready before this process has read the account. While it is set, the
+// ErrNotRead before this process has read the account. While it is set, the
 // account's lastGood is last known data: stale.
 func (l *Loop) LastError(accountID string) error {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	if !l.read[accountID] {
-		return errNotRead
+		return ErrNotRead
 	}
 	return l.lastErrs[accountID]
 }
@@ -213,6 +215,13 @@ func (l *Loop) setBusy(busy bool) {
 	l.mu.Unlock()
 }
 
+func (l *Loop) forget(accountID string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.read, accountID)
+	delete(l.lastErrs, accountID)
+}
+
 func (l *Loop) setError(accountID string, err error) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
@@ -234,6 +243,8 @@ func (l *Loop) run(ctx context.Context, mode policy.Mode) {
 	read, rose := false, false
 	for _, account := range snap.Accounts {
 		if !account.Enabled {
+			// Enabled again later, it is unconfirmed until read again.
+			l.forget(account.ID)
 			continue
 		}
 		state, known := l.states[account.ID]

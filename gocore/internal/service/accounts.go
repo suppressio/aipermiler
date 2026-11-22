@@ -19,10 +19,13 @@ import (
 type Loop interface {
 	Run(ctx context.Context) error
 	// Refresh returns once a run that started after the call has ended
-	// (coalesced with the runs already asked for), ctx's error, or
-	// refresh.ErrStopped.
+	// (coalesced with the runs already asked for), ctx's error,
+	// refresh.ErrStopped once the loop has stopped, or another error when it
+	// cannot refresh at all.
 	Refresh(ctx context.Context, mode policy.Mode) error
-	// LastError is the account's last read error, nil after a good read.
+	// LastError is the account's last read error, nil after a good read, and
+	// refresh.ErrNotRead before the loop has read the account in this process
+	// (its lastGood is then not confirmed: stale).
 	LastError(accountID string) error
 }
 
@@ -40,7 +43,7 @@ func (noLoop) Run(ctx context.Context) error { <-ctx.Done(); return nil }
 func (noLoop) Refresh(context.Context, policy.Mode) error {
 	return errNoLoop
 }
-func (noLoop) LastError(string) error { return nil }
+func (noLoop) LastError(string) error { return refresh.ErrNotRead }
 
 // maxRefreshBody bounds the body of POST /api/v1/refresh: one small object.
 const maxRefreshBody = 4 << 10
@@ -160,12 +163,15 @@ func (a accountsAPI) documents() []listEntry {
 // document is the account's contract v1 document and its HTTP status: the
 // last good read (stale while the last read failed, as the CLI marks the
 // provider's last known values), the last error when there was never a good
-// read, not_ready before the first read. The loop commits lastGood and then
+// read, ErrNotRead before the loop's first read of the account. The loop commits lastGood and then
 // clears the error in two steps, so a request in between may see fresh values
 // still marked stale (or the reverse) for that instant; the next request is
 // right. Accepted: the document is a view, nothing is recorded from it.
 func (a accountsAPI) document(account store.Account) ([]byte, int) {
 	lastErr := a.loop.LastError(account.ID)
+	if lastErr == nil && account.LastGood == nil { // a loop that read nothing for it
+		lastErr = refresh.ErrNotRead
+	}
 	if account.LastGood != nil {
 		u := account.LastGood.Usage()
 		if lastErr != nil {
@@ -176,10 +182,11 @@ func (a accountsAPI) document(account store.Account) ([]byte, int) {
 		_ = usage.WriteSuccess(&buf, account.Provider, u, account.LastGood.UpdatedAt) // a bytes.Buffer does not fail
 		return buf.Bytes(), http.StatusOK
 	}
-	if lastErr != nil {
-		return errorDocument(account.Provider, lastErr), errorStatus(classify(lastErr).Code)
+	status := errorStatus(classify(lastErr).Code)
+	if errors.Is(lastErr, refresh.ErrNotRead) {
+		status = http.StatusServiceUnavailable // retry later: the loop reads it at start
 	}
-	return errorDocument(account.Provider, &usage.Error{Code: usage.CodeNotReady, Message: "Usage is not ready yet"}), http.StatusServiceUnavailable
+	return errorDocument(account.Provider, lastErr), status
 }
 
 // classify maps a read error to the CLI's error: a child that outlived its

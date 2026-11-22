@@ -230,7 +230,7 @@ func TestRawPassesTheDocumentThrough(t *testing.T) {
 			t.Setenv("FAKE_CLI", "print:"+path)
 			t.Setenv("FAKE_ARGS", argsFile)
 			f := fetcher()
-			f.RawTimeout = 2 * time.Second
+			f.Timeout, f.RawTimeout = 7*time.Second, 2*time.Second // raw must not take the usage timeout
 			doc, code, err := f.Raw(context.Background(), store.Account{ID: "g", Provider: "copilot", Host: "acme.ghe.com", Scope: "organization"})
 			if err != nil {
 				t.Fatal(err)
