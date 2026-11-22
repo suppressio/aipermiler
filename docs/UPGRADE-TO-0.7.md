@@ -20,7 +20,7 @@ What is copied: accounts and their settings (renewal day, work schedule, Copilot
 
 ## What the script does
 
-1. Stops if the app's file is missing, or if the core service is running.
+1. Stops if the app's file is missing, or if the core service is running (stop it with `aipermiler service stop`); it checks again just before writing.
 2. Reads and decrypts the app's file, without changing it.
 3. If the core already has a `store.json`, asks before replacing it and keeps it as `store.json.bak-<date>` next to it.
 4. Writes the new `store.json`, readable by your user only, and lists anything it left out (by account id, never with values).
@@ -39,10 +39,13 @@ ELECTRON_RUN_AS_NODE=1 /opt/AIpermiler/aipermiler migrate-core-store.js
 
 **Linux (AppImage)**: the same, with the path of your AppImage in place of `/opt/AIpermiler/aipermiler`.
 
-**Windows** (PowerShell):
+**Windows** (PowerShell): set `$exe` to `AIpermiler.exe` in the folder the app is installed in (right-click the Start menu entry, *Open file location*; usually `%LOCALAPPDATA%\Programs\aipermiler`, or the old IA Hypermiler folder if you upgraded from it). The app does not answer questions here, so pass `--yes`:
 
 ```powershell
-$env:ELECTRON_RUN_AS_NODE=1; & "$env:LOCALAPPDATA\Programs\AIpermiler\AIpermiler.exe" .\migrate-core-store.js
+$exe = "$env:LOCALAPPDATA\Programs\aipermiler\AIpermiler.exe"
+$env:ELECTRON_RUN_AS_NODE = 1
+Start-Process -Wait -NoNewWindow $exe -ArgumentList '.\migrate-core-store.js', '--yes'
+Remove-Item Env:ELECTRON_RUN_AS_NODE
 ```
 
 **macOS**:
