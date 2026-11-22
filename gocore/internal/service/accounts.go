@@ -34,9 +34,11 @@ type RawFunc func(ctx context.Context, account store.Account) ([]byte, usage.Cod
 // noLoop is the loop of a service run without one: nothing is ever read.
 type noLoop struct{}
 
+var errNoLoop = errors.New("this service has no refresh loop")
+
 func (noLoop) Run(ctx context.Context) error { <-ctx.Done(); return nil }
 func (noLoop) Refresh(context.Context, policy.Mode) error {
-	return refresh.ErrStopped
+	return errNoLoop
 }
 func (noLoop) LastError(string) error { return nil }
 
@@ -50,6 +52,9 @@ type accountsAPI struct {
 	store *store.Store
 	loop  Loop
 	raw   RawFunc
+	// rawSlot holds one token: one raw read at a time, as the loop reads one
+	// account at a time; a second request meanwhile answers 503 at once.
+	rawSlot chan struct{}
 }
 
 func (a accountsAPI) register(mux *http.ServeMux) {
@@ -83,8 +88,13 @@ func (a accountsAPI) refresh(w http.ResponseWriter, r *http.Request) {
 		writeUsageError(w, http.StatusBadRequest, message)
 		return
 	}
-	if err := a.loop.Refresh(r.Context(), mode); err != nil {
+	err := a.loop.Refresh(r.Context(), mode)
+	switch {
+	case errors.Is(err, refresh.ErrStopped) || (err != nil && r.Context().Err() != nil):
 		writeStopping(w)
+		return
+	case err != nil:
+		writeUnavailable(w, "Refresh is not available: "+err.Error())
 		return
 	}
 	writeList(w, a.documents())
@@ -98,6 +108,13 @@ func (a accountsAPI) rawDocument(w http.ResponseWriter, r *http.Request) {
 	}
 	if a.raw == nil {
 		writeDocument(w, http.StatusBadGateway, errorDocument(account.Provider, errors.New("raw responses are not available")))
+		return
+	}
+	select {
+	case <-a.rawSlot:
+		defer func() { a.rawSlot <- struct{}{} }()
+	default:
+		writeUnavailable(w, "A raw read is already running")
 		return
 	}
 	doc, code, err := a.raw(r.Context(), account)
@@ -143,7 +160,10 @@ func (a accountsAPI) documents() []listEntry {
 // document is the account's contract v1 document and its HTTP status: the
 // last good read (stale while the last read failed, as the CLI marks the
 // provider's last known values), the last error when there was never a good
-// read, not_ready before the first read.
+// read, not_ready before the first read. The loop commits lastGood and then
+// clears the error in two steps, so a request in between may see fresh values
+// still marked stale (or the reverse) for that instant; the next request is
+// right. Accepted: the document is a view, nothing is recorded from it.
 func (a accountsAPI) document(account store.Account) ([]byte, int) {
 	lastErr := a.loop.LastError(account.ID)
 	if account.LastGood != nil {
@@ -157,7 +177,7 @@ func (a accountsAPI) document(account store.Account) ([]byte, int) {
 		return buf.Bytes(), http.StatusOK
 	}
 	if lastErr != nil {
-		return errorDocument(account.Provider, lastErr), http.StatusBadGateway
+		return errorDocument(account.Provider, lastErr), errorStatus(classify(lastErr).Code)
 	}
 	return errorDocument(account.Provider, &usage.Error{Code: usage.CodeNotReady, Message: "Usage is not ready yet"}), http.StatusServiceUnavailable
 }
@@ -204,7 +224,7 @@ func refreshMode(body io.Reader) (policy.Mode, string) {
 	if err := dec.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 		return "", "The body must be one JSON object with an optional mode"
 	}
-	if dec.More() {
+	if _, err := dec.Token(); !errors.Is(err, io.EOF) {
 		return "", "The body must be one JSON object with an optional mode"
 	}
 	if req.Mode == nil {
@@ -232,9 +252,11 @@ func writeUsageError(w http.ResponseWriter, status int, message string) {
 }
 
 // writeStopping answers a request cut by the stop (or by its client leaving).
-func writeStopping(w http.ResponseWriter) {
+func writeStopping(w http.ResponseWriter) { writeUnavailable(w, "The service is stopping") }
+
+func writeUnavailable(w http.ResponseWriter, message string) {
 	var buf bytes.Buffer
-	_ = usage.WriteError(&buf, "", &usage.Error{Code: usage.CodeUnavailable, Message: "The service is stopping"})
+	_ = usage.WriteError(&buf, "", &usage.Error{Code: usage.CodeUnavailable, Message: message})
 	writeDocument(w, http.StatusServiceUnavailable, buf.Bytes())
 }
 
