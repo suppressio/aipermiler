@@ -457,3 +457,34 @@ func TestJSONFlagValue(t *testing.T) {
 		})
 	}
 }
+
+// A stop (SIGTERM from the service, here env.Context) cancels the read, so the
+// provider ends its own processes instead of being orphaned (#283).
+func TestUsageStopsOnContext(t *testing.T) {
+	t.Parallel()
+	ctx, cancel := context.WithCancel(context.Background())
+	started := make(chan struct{})
+	var stdout, stderr strings.Builder
+	env := cli.Env{
+		Providers: provider.Registry{"fake": func() provider.Provider {
+			return &fakeProvider{fetch: func(ctx context.Context, _, _ string) (usage.Usage, error) {
+				close(started)
+				<-ctx.Done()
+				return usage.Usage{}, ctx.Err()
+			}}
+		}},
+		Stdin: strings.NewReader(""), Stdout: &stdout, Stderr: &stderr, Now: fixedNow, Location: time.UTC, Context: ctx,
+	}
+	done := make(chan int, 1)
+	go func() { done <- cli.RunWith(env, []string{"usage", "fake", "--json"}) }()
+	<-started
+	cancel()
+	select {
+	case code := <-done:
+		if code == 0 {
+			t.Errorf("exit 0 after a stop; output %s", stdout.String())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("usage kept running after its context was cancelled")
+	}
+}

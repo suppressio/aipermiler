@@ -96,7 +96,8 @@ aipermiler/
 │       ├── pacing/              ← pure pacing model
 │       ├── pathlist/            ← PATH splitting for a given OS (shared by the binary discoveries)
 │       ├── provider/            ← provider interface and per-run registry factories
-│       └── usage/               ← usage model, JSON contract, errors and text rendering
+│       ├── refresh/             ← the service's refresh loop (#283): reads accounts through the CLI child, records history and lastGood; `policy/` = port of main/refreshPolicy.ts
+│       └── usage/               ← usage model, JSON contract (write and parse), errors and text rendering
 ├── core/
 │   └── usage.ts                 ← fetch orchestration + snapshot computation (createUsageCore, computeAccountSnapshot…): store, provider fetch, local insights, clock and error reporting injected, no Electron (+ usage.test.ts)
 ├── main/

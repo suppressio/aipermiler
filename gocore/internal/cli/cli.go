@@ -8,9 +8,12 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
+	"os/signal"
 	"runtime"
 	"strconv"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/suppressio/aipermiler/gocore/internal/buildinfo"
@@ -43,7 +46,8 @@ type Env struct {
 	Stdout, Stderr io.Writer
 	Now            func() time.Time
 	Location       *time.Location
-	// Context stops `serve`; nil means the process's SIGINT/SIGTERM.
+	// Context stops `serve` and cancels a `usage` read; nil means the process's
+	// SIGINT/SIGTERM.
 	Context context.Context
 	// ClaudeConfigDir and ClaudeProbeDir override where `insights claude` reads Claude Code's
 	// sessions and which folder it skips; empty means the real ones (CLAUDE_CONFIG_DIR or
@@ -165,7 +169,9 @@ func runUsage(env Env, args []string, jsonMode bool) int {
 			return usageError(env, cmd.json, message)
 		}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), cmd.timeout)
+	parent, stop := stopContext(env)
+	defer stop()
+	ctx, cancel := context.WithTimeout(parent, cmd.timeout)
 	defer cancel()
 	u, err := p.Fetch(ctx, secret)
 	// A provider that wraps or replaces the deadline error still reports a timeout;
@@ -280,4 +286,15 @@ Common flags:
   --timeout <duration>  Deadline (usage: default and at most 2m; token/raw: default 25s, at most 2m; login: default 5m, at most 15m)
   --secret-stdin        usage only: read a secret from stdin (at most 64 KiB, if supported)
 `, buildinfo.Name)
+}
+
+// stopContext ends on env.Context or, without one, on SIGINT/SIGTERM: the
+// service stops a read it no longer wants with SIGTERM (#283), and the
+// provider must end its own processes (the Claude PTY) instead of leaving them
+// behind.
+func stopContext(env Env) (context.Context, context.CancelFunc) {
+	if env.Context != nil {
+		return env.Context, func() {}
+	}
+	return signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 }
