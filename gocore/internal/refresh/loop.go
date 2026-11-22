@@ -120,11 +120,18 @@ func (l *Loop) Run(ctx context.Context) error {
 				continue
 			}
 			l.run(ctx, mode)
+			if ctx.Err() != nil {
+				return nil // the waiters get ErrStopped: their run was cut
+			}
 			for _, w := range waiters {
 				close(w)
 			}
 		case <-beat:
 			now := l.cfg.Clock.Now()
+			// A wall clock set back would hold the schedule back as much.
+			if wait := l.delay(); due.Sub(now) > wait {
+				due = now.Add(wait)
+			}
 			if now.Sub(last) <= resumeGap && now.Before(due) {
 				last, beat = now, l.cfg.Clock.After(heartbeat)
 				continue
@@ -178,9 +185,11 @@ func (l *Loop) LastError(accountID string) error {
 	return l.lastErrs[accountID]
 }
 
-func (l *Loop) nextDue() time.Time {
-	return l.cfg.Clock.Now().Add(policy.NextDelay(l.rose, interval(l.cfg.Store.Snapshot().Settings)))
+func (l *Loop) delay() time.Duration {
+	return policy.NextDelay(l.rose, interval(l.cfg.Store.Snapshot().Settings))
 }
+
+func (l *Loop) nextDue() time.Time { return l.cfg.Clock.Now().Add(l.delay()) }
 
 func interval(s store.Settings) time.Duration {
 	if s.RefreshIntervalMinutes <= 0 {
@@ -219,7 +228,9 @@ func (l *Loop) run(ctx context.Context, mode policy.Mode) {
 		}
 		state, known := l.states[account.ID]
 		var previous *policy.AccountState
-		if known {
+		// An attempt "in the future" means the wall clock was set back: its
+		// backoff and cache no longer measure anything.
+		if known && !state.LastAttempt.After(l.cfg.Clock.Now()) {
 			previous = &state
 		}
 		// Without a last good value there is nothing to reuse: always read.

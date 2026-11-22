@@ -37,6 +37,14 @@ func TestMain(m *testing.M) {
 	case mode == "garbage":
 		fmt.Println("claude: command not found")
 		os.Exit(4)
+	case mode == "flood":
+		// Writes without end: only the output limit stops it before the timeout.
+		chunk := strings.Repeat("x", 64<<10)
+		for {
+			if _, err := fmt.Print(chunk); err != nil {
+				os.Exit(1)
+			}
+		}
 	case mode == "sleep":
 		time.Sleep(time.Minute)
 		os.Exit(0)
@@ -127,6 +135,7 @@ func TestFetchErrors(t *testing.T) {
 			return errors.As(err, &e) && e.Code == usage.CodeUnavailable
 		}},
 		{"bad output", "garbage", func(err error) bool { return errors.Is(err, usage.ErrBadDocument) }},
+		{"output over the limit", "flood", func(err error) bool { return errors.Is(err, usage.ErrBadDocument) }},
 		{"hung child", "sleep", func(err error) bool { return errors.Is(err, refresh.ErrChildTimeout) }},
 	}
 	for _, c := range cases {
