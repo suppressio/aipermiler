@@ -1,0 +1,414 @@
+#!/usr/bin/env node
+// migrate-core-store.js - copies AIpermiler's settings and history from the Electron
+// app's store (aipermiler-config.json, encrypted by electron-store) into the Go core's
+// store.json, once, for the switch to v0.7.0 (#310, #311). docs/UPGRADE-TO-0.7.md.
+//
+// Run it with the app and the service stopped, with Node.js 22 or with the app itself:
+//   node migrate-core-store.js [--yes]
+//   ELECTRON_RUN_AS_NODE=1 <AIpermiler binary> migrate-core-store.js [--yes]
+//
+// What it does:
+//   1. reads <config>/AIpermiler/aipermiler-config.json and never changes it;
+//   2. refuses while the service runs (api.json present and /api/v1/health answers);
+//   3. maps settings, accounts, daily history, recent samples and the last good read
+//      onto store.json schema 1 (gocore/internal/store); what does not fit is skipped
+//      and named by id, never with its values. Copilot's token is not copied: the OS
+//      keyring holds it since #179;
+//   4. if store.json already exists, asks first (--yes skips the question) and keeps it
+//      as store.json.bak-<date>; writes atomically, owner-only.
+// <config> is ~/.config (or $XDG_CONFIG_HOME) on Linux, %APPDATA% on Windows and
+// ~/Library/Application Support on macOS. The core's folder is <config>/aipermiler.
+// Development overrides (absolute paths): AIPERMILER_ELECTRON_DIR, AIPERMILER_CONFIG_DIR.
+//
+// Plain JS with Node built-ins only, so it runs from a single downloaded file.
+'use strict';
+
+const crypto = require('node:crypto');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const readline = require('node:readline');
+
+// The key the app passes to electron-store (store/index.ts). A development
+// placeholder shipped in every package (#251), not a secret.
+const APP_KEY = 'dev-only-placeholder-change-before-release';
+const ELECTRON_FILE = 'aipermiler-config.json';
+const STORE_FILE = 'store.json';
+const SCHEMA_VERSION = 1; // gocore/internal/store SchemaVersion
+const DEFAULT_SETTINGS = { refreshIntervalMinutes: 30, retentionDays: 90, notificationThresholdPercent: 80 }; // store.Empty
+const PROVIDERS = ['claude', 'codex', 'copilot'];
+const PERIOD_TYPES = ['rolling-hours', 'rolling-days', 'billing-cycle'];
+const UNITS = ['percentage', 'count'];
+const WEEKDAYS = ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']; // the store's days are Sunday first
+
+class UnsupportedFormatError extends Error {}
+class DecryptError extends Error {}
+
+// --- folders ---------------------------------------------------------------------------
+
+function userConfigDir(env, platform, home) {
+  switch (platform) {
+    case 'win32':
+      if (!env.APPDATA) throw new Error('%APPDATA% is not set');
+      return env.APPDATA;
+    case 'darwin':
+      return path.join(home, 'Library', 'Application Support');
+    default:
+      return env.XDG_CONFIG_HOME || path.join(home, '.config');
+  }
+}
+
+function overridable(env, name, fallback) {
+  const override = env[name];
+  if (!override) return fallback();
+  if (!path.isAbsolute(override)) throw new Error(`${name} must be an absolute path`);
+  return override;
+}
+
+/** Electron's userData: <config>/AIpermiler (the app's productName). */
+function electronDir(env, platform, home) {
+  return overridable(env, 'AIPERMILER_ELECTRON_DIR', () => path.join(userConfigDir(env, platform, home), 'AIpermiler'));
+}
+
+/** The core's folder (gocore/internal/config.Dir): <config>/aipermiler. */
+function coreDir(env, platform, home) {
+  return overridable(env, 'AIPERMILER_CONFIG_DIR', () => path.join(userConfigDir(env, platform, home), 'aipermiler'));
+}
+
+// --- decryption --------------------------------------------------------------------------
+
+/**
+ * Reads a file written by conf (electron-store) with an encryptionKey: 16-byte IV, ':',
+ * AES-256-CBC. The key is PBKDF2-SHA512 with iv.toString() as salt, exactly as conf
+ * derives it. Like conf, a file that is plain JSON is read as it is.
+ */
+function decrypt(data, key) {
+  if (data.length > 16 && data[16] === 0x3a) {
+    const iv = data.subarray(0, 16);
+    let plain;
+    try {
+      const password = crypto.pbkdf2Sync(key, iv.toString(), 10000, 32, 'sha512');
+      const decipher = crypto.createDecipheriv('aes-256-cbc', password, iv);
+      plain = Buffer.concat([decipher.update(data.subarray(17)), decipher.final()]).toString('utf8');
+      return JSON.parse(plain);
+    } catch (error) {
+      throw new DecryptError(`cannot decrypt the app's settings (wrong key, truncated or damaged file): ${error.message}`);
+    }
+  }
+  try {
+    return JSON.parse(data.toString('utf8'));
+  } catch {
+    throw new UnsupportedFormatError('the settings file is in an older electron-store format this script does not read');
+  }
+}
+
+// --- mapping -----------------------------------------------------------------------------
+
+const isObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v);
+const isNumber = (v) => typeof v === 'number' && Number.isFinite(v);
+const str = (v) => (typeof v === 'string' ? v : '');
+
+function positiveInt(v, fallback) {
+  return Number.isInteger(v) && v >= 1 && v <= 2147483647 ? v : fallback;
+}
+
+/**
+ * An RFC 3339 time as Go's encoding/json writes it back (RFC3339Nano): the offset kept,
+ * "Z" for UTC, trailing zeros of the fraction dropped. null when invalid.
+ */
+function goTime(value) {
+  if (typeof value !== 'string') return null;
+  const m = /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d{1,9}))?(Z|[+-]\d{2}:\d{2})$/i.exec(value);
+  if (!m || Number.isNaN(Date.parse(value))) return null;
+  const [, base, fraction = '', zone] = m;
+  const digits = fraction.replace(/0+$/, '');
+  const offset = zone.toUpperCase() === 'Z' || zone === '+00:00' || zone === '-00:00' ? 'Z' : zone;
+  return `${base}${digits ? `.${digits}` : ''}${offset}`;
+}
+
+/** A local 'YYYY-MM-DD' day as Go writes time.ParseInLocation(DateOnly, …, Local). */
+function localDay(value) {
+  const m = typeof value === 'string' ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(value) : null;
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const date = new Date(y, mo - 1, d);
+  if (date.getFullYear() !== y || date.getMonth() !== mo - 1 || date.getDate() !== d) return null;
+  const off = -date.getTimezoneOffset();
+  const pad = (n) => String(n).padStart(2, '0');
+  const zone = off === 0 ? 'Z' : `${off > 0 ? '+' : '-'}${pad(Math.floor(Math.abs(off) / 60))}:${pad(Math.abs(off) % 60)}`;
+  // A day starting later than 00:00 (a DST jump at midnight) keeps its real start.
+  return `${m[1]}-${m[2]}-${m[3]}T${pad(date.getHours())}:${pad(date.getMinutes())}:00${zone}`;
+}
+
+function convertAccount(src, accounts, skip) {
+  if (!isObject(src) || typeof src.id !== 'string' || src.id === '') {
+    skip('an account is malformed or has no id');
+    return;
+  }
+  if (!PROVIDERS.includes(src.provider)) {
+    skip(`account ${JSON.stringify(src.id)} has an unknown provider`);
+    return;
+  }
+  if (accounts.some((a) => a.id === src.id)) {
+    skip(`account ${JSON.stringify(src.id)} appears twice`);
+    return;
+  }
+  const rule = isObject(src.subscription) && isObject(src.subscription.renewalRule) ? src.subscription.renewalRule : {};
+  const work = isObject(src.workSchedule) ? src.workSchedule : {};
+  const days = isObject(work.days) ? work.days : {};
+  const weight = (status) => (status === 'full' ? 1 : status === 'half' ? 0.5 : 0);
+  const account = {
+    id: src.id,
+    provider: src.provider,
+    label: str(src.label),
+    enabled: src.enabled === true,
+    renewalDay: rule.type === 'dayOfMonth' && Number.isInteger(rule.day) ? rule.day : 0,
+    schedule: {
+      enabled: work.enabled === true,
+      days: WEEKDAYS.map((name) => weight(days[name])),
+      hoursPerDay: isNumber(work.hoursPerDay) && work.hoursPerDay > 0 ? work.hoursPerDay : 8,
+    },
+  };
+  // Go omits empty host/scope/manualQuota/binaryPath (omitempty).
+  if (src.provider === 'copilot') {
+    if (str(src.host)) account.host = src.host;
+    if (str(src.accountScope)) account.scope = src.accountScope;
+    if (isNumber(src.manualQuota) && src.manualQuota !== 0) account.manualQuota = src.manualQuota;
+  } else if (str(src.binaryPath)) {
+    account.binaryPath = src.binaryPath;
+  }
+  account.history = {};
+  account.lastGood = null;
+  accounts.push(account);
+}
+
+function convertWindow(w) {
+  if (!isObject(w) || !str(w.id) || !PERIOD_TYPES.includes(w.periodType) || !UNITS.includes(w.unit)) return null;
+  const resetsAt = w.resetsAt === null || w.resetsAt === undefined ? null : goTime(w.resetsAt);
+  if (resetsAt === null && w.resetsAt !== null && w.resetsAt !== undefined) return null;
+  return {
+    id: w.id,
+    label: str(w.label),
+    periodType: w.periodType,
+    periodLength: isNumber(w.periodLength) ? w.periodLength : null,
+    unit: w.unit,
+    used: isNumber(w.used) ? w.used : 0,
+    total: isNumber(w.total) ? w.total : null,
+    resetsAt,
+  };
+}
+
+function convertHistory(history, accounts, skip) {
+  const byId = new Map(accounts.map((a) => [a.id, a]));
+  const series = (account, windowId) => {
+    account.history[windowId] ??= { dailyUsage: [], recentSamples: [] };
+    return account.history[windowId];
+  };
+
+  // Daily points: one per local day (the last stored), sorted. A point without its own
+  // baseline starts from the previous day's value, as Electron's budget does, the first
+  // one from its own.
+  const daily = new Map();
+  for (const p of Array.isArray(history.dailyUsage) ? history.dailyUsage : []) {
+    if (!isObject(p)) { skip('a daily point is malformed'); continue; }
+    const day = localDay(p.date);
+    if (day === null || !isNumber(p.used) || p.used < 0) {
+      skip(`a daily point of ${JSON.stringify(str(p.accountId))} has an invalid date or value`);
+      continue;
+    }
+    const account = byId.get(p.accountId);
+    if (!account || !str(p.windowId)) {
+      skip(`a daily point of unknown account ${JSON.stringify(str(p.accountId))}`);
+      continue;
+    }
+    const key = `${account.id}\u0000${p.windowId}`;
+    if (!daily.has(key)) daily.set(key, { account, windowId: p.windowId, days: new Map() });
+    daily.get(key).days.set(p.date, { day, used: p.used, dayStartUsed: isNumber(p.dayStartUsed) ? p.dayStartUsed : null });
+  }
+  for (const { account, windowId, days } of daily.values()) {
+    const points = [...days.entries()].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)).map(([, v]) => v);
+    series(account, windowId).dailyUsage = points.map((p, i) => ({
+      day: p.day,
+      used: p.used,
+      dayStartUsed: p.dayStartUsed ?? (i > 0 ? points[i - 1].used : p.used),
+    }));
+  }
+
+  // Recent samples: sorted by time, one per timestamp (the first).
+  const samples = new Map();
+  for (const s of Array.isArray(history.recentSamples) ? history.recentSamples : []) {
+    const at = isObject(s) ? goTime(s.timestamp) : null;
+    if (at === null || !isNumber(s.used) || s.used < 0) { skip('a recent sample is malformed'); continue; }
+    const account = byId.get(s.accountId);
+    if (!account || !str(s.windowId)) {
+      skip(`a recent sample of unknown account ${JSON.stringify(str(s.accountId))}`);
+      continue;
+    }
+    const key = `${account.id}\u0000${s.windowId}`;
+    if (!samples.has(key)) samples.set(key, { account, windowId: s.windowId, list: [] });
+    samples.get(key).list.push({ at, ms: Date.parse(at), used: s.used });
+  }
+  for (const { account, windowId, list } of samples.values()) {
+    list.sort((a, b) => a.ms - b.ms);
+    series(account, windowId).recentSamples = list
+      .filter((r, i) => i === 0 || r.ms !== list[i - 1].ms)
+      .map(({ at, used }) => ({ at, used }));
+  }
+
+  // Last good read per account.
+  for (const [id, lg] of Object.entries(isObject(history.lastGood) ? history.lastGood : {})) {
+    const account = byId.get(id);
+    if (!account) { skip(`last good read of unknown account ${JSON.stringify(id)}`); continue; }
+    const updatedAt = isObject(lg) ? goTime(lg.lastUpdatedAt) : null;
+    const renews = isObject(lg) && lg.subscriptionRenewsAt != null ? goTime(lg.subscriptionRenewsAt) : null;
+    if (updatedAt === null || (lg.subscriptionRenewsAt != null && renews === null)) {
+      skip(`last good read of account ${JSON.stringify(id)} is malformed`);
+      continue;
+    }
+    const windows = [];
+    for (const w of Array.isArray(lg.quotaWindows) ? lg.quotaWindows : []) {
+      const window = convertWindow(w);
+      if (window) windows.push(window);
+      else skip(`window ${JSON.stringify(isObject(w) ? str(w.id) : '')} of account ${JSON.stringify(id)} has an unknown type`);
+    }
+    account.lastGood = {
+      updatedAt,
+      planTier: typeof lg.planTier === 'string' ? lg.planTier : null,
+      subscriptionRenewsAt: renews,
+      quotaWindows: windows,
+    };
+  }
+}
+
+/**
+ * Maps Electron's AppSettings (types/index.ts) onto store.json schema 1. Daily points
+ * are local days of the time zone this runs in, the one the app ran in.
+ * Returns { state, warnings }: warnings name what was skipped by id, never by value.
+ */
+function convert(settings) {
+  if (!isObject(settings) || !Array.isArray(settings.accounts)) {
+    throw new Error("no accounts array: not the app's settings");
+  }
+  const warnings = [];
+  const skip = (what) => warnings.push(what);
+  const ui = isObject(settings.ui) ? settings.ui : {};
+  const history = isObject(settings.history) ? settings.history : {};
+  const accounts = [];
+  for (const src of settings.accounts) convertAccount(src, accounts, skip);
+  convertHistory(history, accounts, skip);
+  const state = {
+    schemaVersion: SCHEMA_VERSION,
+    settings: {
+      refreshIntervalMinutes: positiveInt(ui.refreshIntervalMinutes, DEFAULT_SETTINGS.refreshIntervalMinutes),
+      retentionDays: positiveInt(history.retentionDays, DEFAULT_SETTINGS.retentionDays),
+      notificationThresholdPercent: positiveInt(ui.notificationThresholdPercent, DEFAULT_SETTINGS.notificationThresholdPercent),
+    },
+    accounts,
+  };
+  return { state, warnings };
+}
+
+// --- running -----------------------------------------------------------------------------
+
+/** True when api.json names a service that answers its health check. */
+async function serviceRunning(dir) {
+  let info;
+  try {
+    info = JSON.parse(fs.readFileSync(path.join(dir, 'api.json'), 'utf8'));
+  } catch {
+    return false; // no api.json (or an unreadable leftover): no service
+  }
+  if (!Number.isInteger(info.port) || typeof info.token !== 'string') return false;
+  try {
+    const res = await fetch(`http://127.0.0.1:${info.port}/api/v1/health`, {
+      headers: { Authorization: `Bearer ${info.token}` },
+      signal: AbortSignal.timeout(2000),
+    });
+    return res.ok;
+  } catch {
+    return false; // nobody listening: a leftover of a service that did not stop cleanly
+  }
+}
+
+async function confirm(question) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  try {
+    const answer = await new Promise((resolve) => rl.question(question, resolve));
+    return /^(y|yes)$/i.test(answer.trim());
+  } finally {
+    rl.close();
+  }
+}
+
+function writeAtomic(file, content) {
+  const tmp = `${file}.${crypto.randomBytes(6).toString('hex')}.tmp`;
+  try {
+    const fd = fs.openSync(tmp, 'wx', 0o600);
+    try {
+      fs.writeFileSync(fd, content);
+      fs.fsyncSync(fd);
+    } finally {
+      fs.closeSync(fd);
+    }
+    fs.renameSync(tmp, file);
+  } catch (error) {
+    fs.rmSync(tmp, { force: true });
+    throw error;
+  }
+}
+
+function stamp(date) {
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+}
+
+class Failure extends Error {}
+
+async function main(argv) {
+  const args = new Set(argv);
+  if (args.has('--help') || args.has('-h')) {
+    console.log('Usage: migrate-core-store.js [--yes]\nCopies the settings and history of AIpermiler\'s Electron app into the core\'s store.json. See docs/UPGRADE-TO-0.7.md.');
+    return;
+  }
+  const home = os.homedir();
+  const fromDir = electronDir(process.env, process.platform, home);
+  const toDir = coreDir(process.env, process.platform, home);
+  const source = path.join(fromDir, ELECTRON_FILE);
+  const target = path.join(toDir, STORE_FILE);
+
+  if (!fs.existsSync(source)) throw new Failure(`no AIpermiler settings found in ${fromDir}: nothing to migrate.`);
+  if (await serviceRunning(toDir)) {
+    throw new Failure('the AIpermiler service is running. Quit the app, stop the service and run this script again.');
+  }
+
+  const { state, warnings } = convert(decrypt(fs.readFileSync(source), APP_KEY));
+
+  if (fs.existsSync(target)) {
+    const replace = args.has('--yes') || (process.stdin.isTTY && await confirm(
+      `The core already has a store in ${toDir}.\nIt will be replaced and kept as a backup. Continue? [y/N] `));
+    if (!replace) {
+      throw new Failure(`${target} already exists and was left as it is. Run again with --yes to replace it (the old one is kept as a backup).`);
+    }
+  }
+
+  fs.mkdirSync(toDir, { recursive: true, mode: 0o700 });
+  if (fs.existsSync(target)) {
+    const backup = `${target}.bak-${stamp(new Date())}`;
+    fs.copyFileSync(target, backup, fs.constants.COPYFILE_EXCL);
+    console.log(`Previous store kept as ${backup}`);
+  }
+  writeAtomic(target, `${JSON.stringify(state, null, 2)}\n`);
+
+  for (const w of warnings) console.log(`Left out: ${w}`);
+  console.log(`Migrated ${state.accounts.length} accounts into ${target} (${warnings.length} entries left out).`);
+  console.log(`The app's own file was not changed: ${source}`);
+}
+
+module.exports = { decrypt, convert, electronDir, coreDir, UnsupportedFormatError, DecryptError };
+
+if (require.main === module) {
+  main(process.argv.slice(2)).catch((error) => {
+    console.error(`Error: ${error instanceof Failure ? error.message : error.message || String(error)}`);
+    process.exitCode = 1;
+  });
+}
