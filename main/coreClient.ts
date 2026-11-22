@@ -11,7 +11,7 @@
 import { execFile, spawn } from 'node:child_process';
 import path from 'node:path';
 import { FormatDriftError } from '../services/_shape';
-import type { QuotaWindow, RawAccountUsage } from '../types/index';
+import type { ClaudeLocalInsights, LocalDailyTokens, QuotaWindow, RawAccountUsage, ToolUsageShare } from '../types/index';
 
 /** Contract version this client understands (docs/CORE-CLI.md, "Versioning"). */
 export const CORE_SCHEMA_VERSION = 1;
@@ -390,6 +390,64 @@ export function parsePathsRun(run: CoreRun): CorePaths {
   return { claudeProbe };
 }
 
+function requireNumber(value: unknown, field: string): number {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  throw new CoreOutputError(`Core document: ${field} must be a number`);
+}
+
+function requireArray(value: unknown, field: string): unknown[] {
+  if (Array.isArray(value)) return value;
+  throw new CoreOutputError(`Core document: ${field} must be an array`);
+}
+
+function parseToolShare(value: unknown, index: number): ToolUsageShare {
+  const field = `insights.topTools[${String(index)}]`;
+  if (!isRecord(value) || typeof value.name !== 'string') throw new CoreOutputError(`Core document: ${field} needs a string name`);
+  return { name: value.name, sharePercent: requireNumber(value.sharePercent, `${field}.sharePercent`) };
+}
+
+function parseDailyTokens(value: unknown, index: number): LocalDailyTokens {
+  const field = `insights.daily[${String(index)}]`;
+  if (!isRecord(value) || typeof value.date !== 'string') throw new CoreOutputError(`Core document: ${field} needs a string date`);
+  return {
+    date: value.date,
+    outputTokens: requireNumber(value.outputTokens, `${field}.outputTokens`),
+    highContextOutputTokens: requireNumber(value.highContextOutputTokens, `${field}.highContextOutputTokens`),
+  };
+}
+
+function parseInsights(value: unknown): ClaudeLocalInsights {
+  if (!isRecord(value)) throw new CoreOutputError('Core document: insights must be an object or null');
+  if (typeof value.computedAt !== 'string') throw new CoreOutputError('Core document: insights.computedAt must be a string');
+  const starts = value.firstSessionStartByDay;
+  if (!isRecord(starts) || !Object.values(starts).every((at) => typeof at === 'string')) {
+    throw new CoreOutputError('Core document: insights.firstSessionStartByDay must map days to strings');
+  }
+  return {
+    computedAt: value.computedAt,
+    windowDays: requireNumber(value.windowDays, 'insights.windowDays'),
+    sessionsAnalyzed: requireNumber(value.sessionsAnalyzed, 'insights.sessionsAnalyzed'),
+    totalOutputTokens: requireNumber(value.totalOutputTokens, 'insights.totalOutputTokens'),
+    highContextOutputTokens: requireNumber(value.highContextOutputTokens, 'insights.highContextOutputTokens'),
+    longSessionOutputTokens: requireNumber(value.longSessionOutputTokens, 'insights.longSessionOutputTokens'),
+    highContextSharePercent: nullableNumber(value.highContextSharePercent, 'insights.highContextSharePercent'),
+    longSessionSharePercent: nullableNumber(value.longSessionSharePercent, 'insights.longSessionSharePercent'),
+    topTools: requireArray(value.topTools, 'insights.topTools').map((t, i) => parseToolShare(t, i)),
+    daily: requireArray(value.daily, 'insights.daily').map((d, i) => parseDailyTokens(d, i)),
+    firstSessionStartByDay: starts as Record<string, string>,
+  };
+}
+
+/**
+ * Reads the result of `aipermiler insights claude --json` (#298): the insights on exit 0
+ * (null when the window has no output tokens), the error on exit 1 (`format_drift`
+ * becomes the FormatDriftError of the drift report), like usage.
+ */
+export function parseInsightsRun(run: CoreRun): ClaudeLocalInsights | null {
+  const doc = accountDocument(run, 'claude');
+  return doc.insights === null ? null : parseInsights(doc.insights);
+}
+
 // Account commands (token set/delete, login, raw): exit 0 → their document, exit 1 →
 // the provider error, exit 2 → our bug, like usage.
 function accountDocument(run: CoreRun, provider: string): Record<string, unknown> {
@@ -478,6 +536,8 @@ export interface CoreClient {
    */
   login(request: CoreAccountRequest & { clientSecret: string; onAuthorize: (url: string) => void }): Promise<string>;
   raw(request: CoreAccountRequest): Promise<CoreRawResponse>;
+  /** Claude Code local insights over the last `windowDays` days (#298), null when there are none. */
+  insights(windowDays: number): Promise<ClaudeLocalInsights | null>;
 }
 
 export interface CoreClientOptions {
@@ -525,6 +585,10 @@ export function createCoreClient(options: CoreClientOptions): CoreClient {
     async raw(request) {
       const args = ['raw', request.provider, '--json', ...timeout, ...request.flags];
       return parseRawRun(await run(options.binary(), args, null, timeoutMs), request.provider);
+    },
+    async insights(windowDays) {
+      const args = ['insights', 'claude', '--json', '--days', String(windowDays), ...timeout];
+      return parseInsightsRun(await run(options.binary(), args, null, timeoutMs));
     },
   };
 }

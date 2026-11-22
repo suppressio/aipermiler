@@ -66,7 +66,7 @@ export const DEFAULTS: AppSettings = {
     reportedSignatures: {},
   },
 
-  localInsightsCache: { claudeCode: null },
+  localInsightsCache: { claudeCode: null, countedByCore: false },
 
   updates: {
     // New-version check at startup and every 24h (issue #5, services/updates.ts): only

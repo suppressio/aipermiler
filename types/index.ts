@@ -228,7 +228,7 @@ export interface QuotaWindowSnapshot {
   tokenYield: TokenYield | null;
 }
 
-/** Usage share (by token volume) of a single tool/MCP server — see services/claudeLocalSessions.ts. */
+/** Usage share (by token volume) of a single tool/MCP server — counted by the Go core (gocore/internal/insights). */
 export interface ToolUsageShare {
   name: string;
   sharePercent: number;
@@ -241,8 +241,8 @@ export interface ToolUsageShare {
  * specific QuotaWindow): lives on AccountSnapshot, not on QuotaWindowSnapshot. Shares
  * are weighted by token volume (output_tokens), not by turn count — consistent with
  * the "% of your usage" of the VS Code panel that inspired it. Never computed from real
- * message content, only from structural fields (usage, tool names) — see
- * services/claudeLocalSessions.ts.
+ * message content, only from structural fields (usage, tool names) — counted by the Go
+ * core (`aipermiler insights claude`, gocore/internal/insights, #298).
  */
 export interface ClaudeLocalInsights {
   computedAt: string;
@@ -254,11 +254,10 @@ export interface ClaudeLocalInsights {
   highContextSharePercent: number | null;
   longSessionSharePercent: number | null;
   topTools: ToolUsageShare[];
-  // Output tokens per day (a session is attributed to the day it was last modified).
+  // Output tokens per local day of each response (subagents included, #298).
   daily: LocalDailyTokens[];
-  // Earliest session start (ISO) per local day — start of the working day. Optional:
-  // a cache written before it existed lacks it and is recomputed (main.ts).
-  firstSessionStartByDay?: Record<string, string>;
+  // Earliest main-session start (ISO) per local day — start of the working day.
+  firstSessionStartByDay: Record<string, string>;
 }
 
 export interface LocalDailyTokens {
@@ -347,7 +346,7 @@ export interface ClaudeAccountSettings extends AccountConfigBase {
   // cookies before #140; still cleared on disconnect/removal.
   partition: string;
   // Claude Code sessions of THIS machine attributed to this account (opt-in, at most
-  // one Claude account at a time) — see services/claudeLocalSessions.ts.
+  // one Claude account at a time) — counted by the Go core (`aipermiler insights claude`).
   localInsights: boolean;
   // Absolute path of the claude binary, or null to let the core find it (PATH,
   // ~/.local/bin, npm, VS Code extension; docs/CORE-CLI.md). Quotas are read by the core
@@ -496,5 +495,6 @@ export interface AppSettings {
   // App-managed cache (not a user setting), same pattern as advisorCache: avoids
   // rescanning all local Claude Code sessions on every 30-minute refresh — see main.ts
   // LOCAL_INSIGHTS_RECOMPUTE_INTERVAL_MS.
-  localInsightsCache: { claudeCode: ClaudeLocalInsights | null };
+  // countedByCore: written from the Go core (#299); false for a cache of the Agent SDK reader, never shown (#301).
+  localInsightsCache: { claudeCode: ClaudeLocalInsights | null; countedByCore: boolean };
 }

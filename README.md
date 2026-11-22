@@ -146,7 +146,7 @@ Shown only when it adds something the numbers above do not say: you would run ou
 
 ### Local insights (Claude Code, optional)
 
-When enabled on one Claude account, the app reads the Claude Code sessions on this computer (token counts and tool names only, never the content of your messages). It shows how much of your usage comes from very long contexts (over 150k) or very long sessions, and your most used tools. It also shows the output tokens produced for every 1% of Claude quota used. The short sessions the app opens to read the quotas are not counted.
+When enabled on one Claude account, the app reads the Claude Code sessions on this computer (token counts and tool names only, never the content of your messages). It shows how much of your usage comes from very long contexts (over 150k) or very long sessions, and your most used tools. It also shows the output tokens produced for every 1% of Claude quota used. Tokens count on the day of each response, including subagents. The short sessions the app opens to read the quotas are not counted.
 
 ---
 

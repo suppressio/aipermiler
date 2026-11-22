@@ -75,7 +75,7 @@ export const en = {
   'widget.tips.waiting': 'Waiting for data to generate a tip.',
   'widget.insights.header': 'Local insights · Claude Code',
   'widget.insights.yield': 'Yield (tokens per 1% of quota)',
-  'widget.insights.yieldHelp': 'Output tokens produced in this machine’s Claude Code sessions for every 1% of quota used, only on days present in both sources. Higher = each token cost less quota. Limit: a session is attributed to the day it was last modified (the SDK does not expose per-message times), and claude.ai browser usage is not counted in tokens.',
+  'widget.insights.yieldHelp': 'Output tokens produced in this machine’s Claude Code sessions for every 1% of quota used, only on days present in both sources. Higher = each token cost less quota. Tokens count on the day of each response, subagents included; claude.ai browser usage is not counted.',
   'widget.insights.yieldNotApplicable': 'not applicable to windows of a few hours',
   'widget.insights.yieldInsufficient': 'needs at least 3 days with local sessions and quota usage',
   'widget.insights.yieldOver': 'over {days}',

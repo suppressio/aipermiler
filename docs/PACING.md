@@ -391,7 +391,7 @@ What is persisted, who writes it, when, at what precision. Everything else in th
 | `history.lastGood` | last successful raw response per account | the fetch path | on a successful fetch | exact | shown as stale when a fetch fails |
 | `meta.notifiedToday` | `<account>:threshold:<day>`, `<account>:pace:<day>` flags | the notification step | when a notification fires | — | the same step; only today's flags are kept |
 | Account settings | schedule, manual renewal day, host, … | Settings (`settings:set`) | on user save | — | every computation |
-| Local insights cache | tokens per day, first session of the day | the utility process result | at most every few minutes | — | yield, cause, activity span |
+| Local insights cache | tokens per day, first session of the day | the Go core (`aipermiler insights claude`) | at most every few minutes | — | yield, cause, activity span |
 
 Retention: daily points `retentionDays`; samples the whole current day and at least 4 hours.
 

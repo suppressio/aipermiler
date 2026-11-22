@@ -22,14 +22,14 @@ Instructions for every coding agent (Claude Code, Codex, pi, Copilot). Read it i
 | i18n | No library: typed flat dictionaries (`renderer/i18n/`, `main/i18n/`) + `Intl` |
 | Persistence | electron-store (with encryptionKey for secrets), normalized at startup (`store/normalize.ts`) |
 | Advice agent | `agents/advisor.ts` is a dormant stub, not wired. No Anthropic SDK: #29 will use plain HTTP calls through the accounts the user already connected |
-| Local insights (opt-in) | `@anthropic-ai/claude-agent-sdk` — Electron still reads local Claude Code sessions via `listSessions`/`getSessionMessages` (docs/RESEARCH.md §5) until #299 switches it to the Go core and drops the SDK. The Go core reads the session JSONL directly (`aipermiler insights claude`, #298, decided on #297): that is the intended path, not a violation | 
+| Local insights (opt-in) | The Go core reads Claude Code's session JSONL directly (`aipermiler insights claude`, #298, decided on #297); Electron gets them through `main/coreClient.ts` (#299). The Agent SDK route (docs/RESEARCH.md §5) was dropped: it counted output tokens 2–2.5 times (#301) | 
 | Build | `tsc` (three configs: `tsconfig.json` main/preload/core/services/store/budget/agents/tests — CommonJS; `tsconfig.renderer.json` renderer — ES modules; `tsconfig.renderer.test.json` renderer tests only, adds Node types) + `scripts/copy-assets.js` |
 | Lint | ESLint 10 + typescript-eslint `strictTypeChecked` (`eslint.config.mjs`) |
 | Tests | `node:test` + `node:assert` (no external test library); coverage via Node's built-in `--experimental-test-coverage` |
 | Packaging | electron-builder; the main process, preload and worker are bundled with esbuild at pack time (`beforePack`, `scripts/bundle-main.js`, #36) |
 | Runtime | Node.js 22 LTS |
 
-**Do not add dependencies without asking.** Every new library must be justified and agreed before installing it. (Agreed so far: TypeScript, `@types/node`, `@anthropic-ai/claude-agent-sdk`, ESLint + `@eslint/js` + `typescript-eslint` and esbuild (#36) as dev dependencies; in the Go core, `github.com/zalando/go-keyring` for the OS keyring, approved on #179.)
+**Do not add dependencies without asking.** Every new library must be justified and agreed before installing it. (Agreed so far: TypeScript, `@types/node`, ESLint + `@eslint/js` + `typescript-eslint` and esbuild (#36) as dev dependencies; in the Go core, `github.com/zalando/go-keyring` for the OS keyring, approved on #179. `@anthropic-ai/claude-agent-sdk` was removed in #299.)
 
 ---
 
@@ -66,7 +66,7 @@ aipermiler/
 ├── types/ipc.ts                 ← IPC contract: every channel with its argument/result types + AipermilerBridge (runtime-free)
 ├── scripts/
 │   ├── copy-assets.js           ← copies renderer html/css into dist/renderer/ + writes dist/renderer/package.json {type: module}
-│   ├── bundle-main.js           ← electron-builder beforePack hook: esbuild bundles of dist/main.js, preload.js and the insights worker, written in place (#36)
+│   ├── bundle-main.js           ← electron-builder beforePack hook: esbuild bundles of dist/main.js and preload.js, written in place (#36)
 │   ├── build-core.js            ← builds the Go core CLI into core-bin/ (gitignored; electron-builder extraResources → <resources>/core/), --target to cross-compile, --dev honours AIPERMILER_CORE_BIN
 │   ├── generate-icons.js        ← one-off "gauge" icon generator (build/icon.png, build/icons/*, renderer/assets/*.png)
 │   ├── test-build.js            ← `npm run package:test`: local lint + tests + dev-version packages in release/test/
@@ -104,6 +104,7 @@ aipermiler/
 │   ├── appDir.ts                ← folder of the main entry (dist/): base of the renderer, preload and worker paths in the bundle and in the tsc output
 │   ├── core.ts                  ← the app's one core client (binary resolved per call)
 │   ├── coreRequests.ts          ← provider flags of the core commands from an account config (pure, + test)
+│   ├── localInsights.ts         ← which cached Claude local insights may still be shown: only those counted by the core (#299) (+ test)
 │   ├── coreClient.ts            ← runs the bundled core CLI (execFile, no shell, timeout, --json, secrets on stdin) and parses contract v1 against gocore/contract/v1 (+ test)
 │   ├── windows.ts               ← main window (skins filled/filled-dark/transparent-digital) and Settings window
 │   ├── tray.ts                  ← cross-platform tray; createTray returns { tray, refreshMenu }
@@ -136,8 +137,6 @@ aipermiler/
 ├── services/
 │   ├── _http.ts                 ← shared fetch helper (10s timeout, explicit errors)
 │   ├── _shape.ts                ← response → structure only (never values), FormatDriftError (+ test)
-│   ├── claudeLocalSessions.ts   ← insights from LOCAL Claude Code sessions, opt-in (+ test)
-│   ├── claudeLocalSessions.worker.ts ← utility-process entry: the scan runs off the main process
 │   ├── updates.ts               ← new-version check via the GitHub Releases list (+ test)
 │   └── githubHost.ts            ← github.com or <tenant>.ghe.com: validation + API/OAuth base URLs (+ test)
 ├── diagnostics/githubIssue.ts   ← pre-filled GitHub issue URLs (format drift, report draft) + response redaction (+ test)
@@ -212,7 +211,7 @@ When a service receives a response whose format no longer matches the expected o
 - Documents: update both `X.md` and `X.it.md` when changing content. The README is for users only (what each indicator is, how it is computed, how to read it): update it whenever an indicator changes; developer content goes in docs/DEVELOPMENT.md, every other document in `docs/`. Screenshots use synthetic data only.
 
 ### Code quality
-- `npm run lint` must stay at **zero findings** (it gates CI). Do not turn off a rule to hide a real problem; the only documented exception is the `new Function` dynamic import in `services/claudeLocalSessions.ts`.
+- `npm run lint` must stay at **zero findings** (it gates CI). Do not turn off a rule to hide a real problem.
 - No `!` non-null assertions in production code: `byId()` in the renderer, explicit checks elsewhere.
 - Values from outside (IPC, network JSON) are typed `unknown` / `T | null` and narrowed.
 
@@ -378,7 +377,7 @@ Condensed history; the full session-by-session log is in the git history (CLAUDE
 - **Codex login User-Agent** (historical: the chatgpt.com login route was removed in #178): Google refuses embedded login when a rewritten User-Agent contradicts the client hints. Never change the UA of the Codex login window or its partition.
 - **ChatGPT usage authentication** (historical, #178): cookies alone get 401 on `wham/usage`; the Bearer from `/api/auth/session` is required. Node `fetch` works with the partition cookies + UA (probe #86, docs/RESEARCH.md §6); `session.fetch` is the fallback.
 - **electron-store shallow merge**: new nested fields were `undefined` on existing stores → solved by `store/normalize.ts`.
-- **ESM-only SDK in a CommonJS main process**: `require()` and even a TS-compiled `import()` fail with ERR_REQUIRE_ESM inside Electron → `new Function('s', 'return import(s)')` in `services/claudeLocalSessions.ts`.
+- **ESM-only SDK in a CommonJS main process**: `require()` and even a TS-compiled `import()` fail with ERR_REQUIRE_ESM inside Electron → `new Function('s', 'return import(s)')` in `services/claudeLocalSessions.ts` (historical: the SDK and that file left in #299).
 - **claude.ai behind Cloudflare**: `sessionKey` alone gets a 403 challenge; the full cookie header (incl. `cf_clearance`) + a browser User-Agent are needed. Usage field names are obfuscated and rotate → windows are recognized by value shape.
 - **Check the provider's terms, not only whether it works**: the claude.ai session capture worked for months, but Anthropic forbids third-party apps from collecting or storing claude.ai session tokens. Removed in #140 (stored sessions deleted at startup); before adding a source, read the provider's policy on third-party access.
 - **Copilot company seats**: the seat may live on a GitHub Enterprise Cloud tenant with data residency (`<tenant>.ghe.com`, API on `api.<tenant>.ghe.com`), not on github.com — there `copilot_internal/user` has token-based-billing `quota_snapshots` (`credits_used`, `entitlement`), read with VS Code's rules. A github.com account linked to an enterprise (`access_type_sku: enterprise_managed`) has no data at all → `CopilotUsageUnavailableError`, not a drift. Each Copilot account has a validated `host` (`services/githubHost.ts`): the token is only ever sent to github.com or a `.ghe.com` tenant.
@@ -388,7 +387,7 @@ Condensed history; the full session-by-session log is in the git history (CLAUDE
 - **Optional parameters with a "safe" default hide wiring bugs**: the Copilot host was optional (default github.com) and `main/providers.ts` never passed it, so v0.4.4/0.4.5 sent tenant tokens to api.github.com (401). `CopilotCredentials.host` and `resolveUsername(token, host)` are now required, so the compiler catches a missing host.
 - **Release tags** must start with `v` for CI to run.
 - **`periodLength: null` silently disabled pacing**: the Claude company `spend` window and every Copilot window had it, so efficiency/projection/autonomy/verdict/tips were always empty there (noticed only after heavy use on day one went without warning). Billing-cycle windows known to be monthly declare `periodLength: 1` (months). Also: the current day only counted once over, so day one of a period had 0 elapsed units.
-- **Synchronous work on the main process froze the app** (Settings blank for seconds at the first open): the encrypted store re-reads and decrypts the whole file on every `get` and rewrites it on every `set`, and the local Claude Code scan parsed up to 300 session files in-process. A refresh now reads the history once and writes it once (`HistoryDraft` in `main.ts`), refreshes do not overlap (one queued at most), and the scan runs in an Electron utility process (`services/claudeLocalSessions.worker.ts`), the stale cache shown meanwhile.
+- **Synchronous work on the main process froze the app** (Settings blank for seconds at the first open): the encrypted store re-reads and decrypts the whole file on every `get` and rewrites it on every `set`, and the local Claude Code scan parsed up to 300 session files in-process. A refresh now reads the history once and writes it once (`HistoryDraft` in `main.ts`), refreshes do not overlap (one queued at most), and the scan runs outside the main process, the stale cache shown meanwhile (an Electron utility process until #299, the Go core since).
 - **UTC day keys**: `toISOString().slice(0, 10)` is the UTC day, `new Date('YYYY-MM-DD')` is UTC midnight — both wrong for local working days → `localDateKey`/`parseDateKey`.
 
 ### Open items

@@ -1,15 +1,11 @@
-// scripts/bundle-main.js — electron-builder `beforePack` hook (#36): replaces the three
-// main-process entry points tsc wrote in dist/ (the app, the preload, the local
-// insights worker) with esbuild bundles, so the package carries a few files instead of
+// scripts/bundle-main.js — electron-builder `beforePack` hook (#36): replaces the two
+// main-process entry points tsc wrote in dist/ (the app and the preload) with esbuild
+// bundles, so the package carries a few files instead of
 // node_modules (date-fns, electron-store and their dependencies were ~30 MB in the
 // asar). Runs before every package, from `npm run package`, `npm run package:test` and
 // CI alike; `npm test` and `npm start` keep using the plain tsc output.
 //
-// Kept external:
-// - electron: provided by the runtime.
-// - @anthropic-ai/claude-agent-sdk: ESM only, loaded through a native dynamic import()
-//   hidden from bundlers (services/claudeLocalSessions.ts); it stays a real package in
-//   node_modules (dependencies in package.json).
+// Kept external: electron, provided by the runtime.
 // Each bundle is written where tsc put its entry, so the paths the app builds from
 // `__dirname` of the entry (dist/) stay the same (main/appDir.ts).
 
@@ -18,7 +14,7 @@ const esbuild = require('esbuild');
 
 const ROOT = path.join(__dirname, '..');
 const DIST = path.join(ROOT, 'dist');
-const ENTRIES = ['main.js', 'preload.js', path.join('services', 'claudeLocalSessions.worker.js')];
+const ENTRIES = ['main.js', 'preload.js'];
 // Electron 45 ships Node 24.
 const TARGET = 'node24';
 
@@ -33,7 +29,7 @@ async function bundle() {
       platform: 'node',
       format: 'cjs',
       target: TARGET,
-      external: ['electron', '@anthropic-ai/claude-agent-sdk'],
+      external: ['electron'],
       sourcemap: false,
       legalComments: 'none',
       logLevel: 'warning',

@@ -3,14 +3,13 @@
 // When a fetch fails, the last known data is shown with its timestamp (never a blank
 // screen, see AGENTS.md).
 
-import { app, dialog, BrowserWindow, Notification, shell, Menu, screen, session, utilityProcess } from 'electron';
+import { app, dialog, BrowserWindow, Notification, shell, Menu, screen, session } from 'electron';
 import store, { DEFAULTS } from './store/index';
 import { normalizeSettings } from './store/normalize';
 import { isPlainRecord } from './store/merge';
 import { applyCompact, createMainWindow, createSettingsWindow } from './main/windows';
 import { createTray } from './main/tray';
 import { accountNoticeKey } from './main/accountNotice';
-import { APP_DIR } from './main/appDir';
 import { badgeEntries, pickBadge, resolveLegacyView, sameChoice, trackAutoAccount } from './main/trayBadge';
 import { clearClaudePartition, clearDefaultSessionClaudeCookies } from './main/claude-auth';
 import * as providers from './main/providers';
@@ -26,6 +25,7 @@ import type { TrayHandle } from './main/tray';
 import { FormatDriftError, liveSignatures, shapeSignature } from './services/_shape';
 import { CoreBinaryError, CoreOutputError, CoreProviderError, CoreTimeoutError } from './main/coreClient';
 import { core } from './main/core';
+import { usableInsightsCache } from './main/localInsights';
 import { binaryPathChanged, copilotAccountFlags } from './main/coreRequests';
 import { buildFormatDriftIssueUrl, buildReportIssueUrl, shortError } from './diagnostics/githubIssue';
 import { buildDiagnosticReport, neutralize } from './diagnostics/report';
@@ -54,7 +54,7 @@ import type {
 // the first usage refresh) and then every 24 hours.
 const UPDATE_CHECK_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const UPDATE_FIRST_CHECK_DELAY_MS = 10 * 1000;
-// Local insights recomputation (services/claudeLocalSessions.ts): more expensive
+// Local insights recomputation (the Go core, `aipermiler insights claude`): more expensive
 // than a regular refresh (scanning files on disk, not a network poll), no need to do
 // it on every 30-minute refresh — cached with this minimum interval, same pattern as
 // advisorCache.
@@ -140,100 +140,49 @@ function scheduleRefreshLoop(): void {
 }
 
 // ---------------------------------------------------------------------------
-// Local insights from Claude Code sessions (services/claudeLocalSessions.ts, see
-// docs/RESEARCH.md §5): opt-in per account (ClaudeAccountSettings.localInsights, at most
-// one Claude account — the caller decides which), cached because more expensive than
-// a regular refresh (scanning files on disk, not a network poll) — recomputed at most
-// every LOCAL_INSIGHTS_RECOMPUTE_INTERVAL_MS.
-// ---------------------------------------------------------------------------
-// The scan runs in an Electron utility process (services/claudeLocalSessions.worker.ts):
-// parsing the session files on the main process could freeze the app for seconds at
-// startup with many or long sessions. A stale cache is shown meanwhile and the widget refreshed
-// once the new result arrives; with no usable cache the refresh waits for it.
+// Local insights from Claude Code sessions, counted by the Go core (`aipermiler
+// insights claude`, #298, #299): opt-in per account (ClaudeAccountSettings.localInsights,
+// at most one Claude account — the caller decides which), cached because more expensive
+// than a regular refresh (scanning files on disk, not a network poll) — recomputed at
+// most every LOCAL_INSIGHTS_RECOMPUTE_INTERVAL_MS. The core runs as its own process, so
+// the main process never parses the session files. A stale cache is shown meanwhile and
+// the widget refreshed once the new result arrives; with no usable cache the refresh
+// waits for it. The core skips its own Claude probe sessions (#180).
 // Analysis window = the view chosen for the chart (7/30 days, +1 day as for the
 // daily deltas): insights, yield and chart look at the same period.
-const LOCAL_INSIGHTS_TIMEOUT_MS = 2 * 60 * 1000;
+// ---------------------------------------------------------------------------
 let localInsightsRunning: Promise<ClaudeLocalInsights | null> | null = null;
 
 async function computeLocalInsightsIfNeeded(): Promise<ClaudeLocalInsights | null> {
   const windowDays = (store.get('ui').chartRange === 'month' ? 30 : 7) + 1;
-  const cached = store.get('localInsightsCache').claudeCode;
+  const cached = usableInsightsCache(store.get('localInsightsCache'), windowDays);
   const cacheAgeMs = cached ? Date.now() - new Date(cached.computedAt).getTime() : Infinity;
-  // Previous cache without `daily` (before point 4) or `firstSessionStartByDay`, or for
-  // another window: recompute.
-  const usable = cached !== null && Array.isArray(cached.daily) && cached.firstSessionStartByDay !== undefined
-    && typeof cached.totalOutputTokens === 'number'
-    && typeof cached.highContextOutputTokens === 'number'
-    && typeof cached.longSessionOutputTokens === 'number'
-    && cached.windowDays === windowDays;
-  if (usable && cacheAgeMs < LOCAL_INSIGHTS_RECOMPUTE_INTERVAL_MS) return cached;
+  if (cached && cacheAgeMs < LOCAL_INSIGHTS_RECOMPUTE_INTERVAL_MS) return cached;
 
-  const running = localInsightsRunning ?? startLocalInsights(windowDays, usable);
-  return usable ? cached : running;
+  const running = localInsightsRunning ?? startLocalInsights(windowDays, cached);
+  return cached ?? running;
 }
 
-function startLocalInsights(windowDays: number, refreshWhenDone: boolean): Promise<ClaudeLocalInsights | null> {
-  const cached = store.get('localInsightsCache').claudeCode;
+function startLocalInsights(windowDays: number, cached: ClaudeLocalInsights | null): Promise<ClaudeLocalInsights | null> {
   const startedAt = Date.now();
-  localInsightsRunning = claudeProbeFolder()
-    .then((probe) => computeLocalInsightsInProcess(windowDays, probe))
+  localInsightsRunning = core.insights(windowDays)
     .then((result) => {
       timings.lastLocalInsights = { at: new Date().toISOString(), ms: Date.now() - startedAt };
-      store.set('localInsightsCache.claudeCode', result);
+      store.set('localInsightsCache', { claudeCode: result, countedByCore: true });
       // The refresh that started this used the stale cache: show the new insights.
-      if (refreshWhenDone) runDetached('refresh usage', refreshAndBroadcast('manual'));
+      if (cached) runDetached('refresh usage', refreshAndBroadcast('manual'));
       return result;
     })
     .catch((err: unknown) => {
       // Never block the account refresh because of a problem with the optional local
-      // source: log it and fall back to the last valid cache (even if expired), if any.
-      console.error('[main] Claude Code local insights computation failed:', err instanceof Error ? err.message : String(err));
+      // source: report a format drift, log the rest and fall back to the last valid
+      // cache (even if expired), if any.
+      maybeReportFormatDrift('claude', err);
+      console.error('[main] Claude Code local insights computation failed:', friendlyErrorMessage(err));
       return cached;
     })
     .finally(() => { localInsightsRunning = null; });
   return localInsightsRunning;
-}
-
-// The core's Claude probe folder (#180): its sessions are the core's /usage reads, not
-// the user's work, so the local insights skip them. Asked once per run of the app; a
-// core that cannot answer only means nothing is skipped (the core deletes the probe
-// transcripts anyway, #147).
-let claudeProbePath: Promise<string | null> | null = null;
-function claudeProbeFolder(): Promise<string | null> {
-  claudeProbePath ??= core.paths().then(
-    (paths) => paths.claudeProbe,
-    (err: unknown) => {
-      console.warn('[main] core paths unavailable, Claude probe sessions not skipped:', friendlyErrorMessage(err));
-      claudeProbePath = null; // asked again next time
-      return null;
-    },
-  );
-  return claudeProbePath;
-}
-
-function computeLocalInsightsInProcess(windowDays: number, skipCwd: string | null): Promise<ClaudeLocalInsights | null> {
-  return new Promise((resolve, reject) => {
-    const child = utilityProcess.fork(path.join(APP_DIR, 'services', 'claudeLocalSessions.worker.js'), [], {
-      serviceName: 'AIpermiler local insights',
-    });
-    let settled = false;
-    const settle = (action: () => void): void => {
-      if (settled) return;
-      settled = true;
-      clearTimeout(timer);
-      child.kill();
-      action();
-    };
-    const timer = setTimeout(() => { settle(() => { reject(new Error('local insights: timed out')); }); }, LOCAL_INSIGHTS_TIMEOUT_MS);
-    child.once('message', (message: unknown) => {
-      settle(() => {
-        if (isPlainRecord(message) && message.ok === true) resolve((message.result ?? null) as ClaudeLocalInsights | null);
-        else reject(new Error(`local insights: ${isPlainRecord(message) && typeof message.message === 'string' ? message.message : 'invalid reply'}`));
-      });
-    });
-    child.once('exit', (code) => { settle(() => { reject(new Error(`local insights: process exited (${String(code)})`)); }); });
-    child.postMessage({ windowDays, skipCwd });
-  });
 }
 
 // Always a valid array: the store is normalized at startup and on every write from
