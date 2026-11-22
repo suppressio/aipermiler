@@ -5,6 +5,7 @@ package refresh
 import (
 	"os/exec"
 	"sync/atomic"
+	"syscall"
 	"unsafe"
 
 	"golang.org/x/sys/windows"
@@ -21,6 +22,9 @@ type processTree struct {
 }
 
 func newProcessTree(cmd *exec.Cmd) *processTree {
+	// No console window at every read, as Electron's windowsHide does. Not
+	// CREATE_NO_WINDOW: the child may host a ConPTY session (Claude).
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true}
 	t := &processTree{cmd: cmd}
 	cmd.Cancel = func() error {
 		if job := windows.Handle(t.job.Load()); job != 0 {

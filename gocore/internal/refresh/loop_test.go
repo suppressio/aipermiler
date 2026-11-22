@@ -42,6 +42,16 @@ func (c *fakeClock) After(d time.Duration) <-chan time.Time {
 	return ch
 }
 
+// Rewind sets the wall clock back (NTP, a manual change); timers keep running.
+func (c *fakeClock) Rewind(d time.Duration) {
+	c.mu.Lock()
+	c.now = c.now.Add(-d)
+	for i := range c.waiters {
+		c.waiters[i].at = c.waiters[i].at.Add(-d)
+	}
+	c.mu.Unlock()
+}
+
 // Advance moves the wall clock by d and fires what is due, as a resume from
 // sleep does: one jump, the pending timer fires once.
 func (c *fakeClock) Advance(d time.Duration) {
@@ -348,5 +358,44 @@ func TestDayBaselineFromThePreviousDay(t *testing.T) {
 		if len(points) != 2 || points[1].DayStartUsed != c.want {
 			t.Errorf("%s: points = %+v; want today's baseline %v", name, points, c.want)
 		}
+	}
+}
+
+// A wall clock set back does not hold the schedule back by the same amount.
+func TestClockSetBackKeepsTheSchedule(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, 30, claude("a"))
+	h.run()
+	h.clock.Rewind(2 * time.Hour)
+	// The first heartbeat after the change restarts the wait: one interval
+	// from then, not two hours more.
+	h.advance(31 * time.Minute)
+	if n := h.fetch.count("a"); n != 2 {
+		t.Errorf("reads 31 min after the clock went back 2 h = %d; want 2", n)
+	}
+}
+
+// A request whose run is cut by the stop fails: nothing was read for it.
+func TestRefreshCutByTheStopFails(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, 30, claude("a"))
+	h.run()
+	reading := make(chan struct{})
+	h.fetch.answer = func(ctx context.Context, _ store.Account) (usage.Usage, error) {
+		close(reading)
+		<-ctx.Done()
+		return usage.Usage{}, ctx.Err()
+	}
+	got := make(chan error, 1)
+	go func() { got <- h.loop.Refresh(context.Background(), policy.Forced) }()
+	<-reading
+	h.cancel()
+	select {
+	case err := <-got:
+		if !errors.Is(err, refresh.ErrStopped) {
+			t.Errorf("Refresh = %v; want ErrStopped", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("Refresh did not return")
 	}
 }

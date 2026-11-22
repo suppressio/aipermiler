@@ -25,6 +25,9 @@ const (
 	DefaultMargin = 15 * time.Second
 	// stopGrace is how long a cancelled child gets to end its own tree.
 	stopGrace = 5 * time.Second
+	// maxOutput bounds what is kept of the child's stdout, as Electron's
+	// maxBuffer does (main/coreClient.ts): a document is a few KiB.
+	maxOutput = 1 << 20
 )
 
 // ErrChildTimeout means the CLI did not answer even after its own deadline
@@ -60,8 +63,8 @@ func (f CLIFetcher) Fetch(ctx context.Context, account store.Account) (usage.Usa
 	childCtx, cancel := context.WithTimeout(ctx, timeout+margin)
 	defer cancel()
 	cmd := exec.CommandContext(childCtx, f.Binary, args...) //nolint:gosec // the core's own binary, args built here
-	var stdout bytes.Buffer
-	cmd.Stdout = &stdout
+	stdout := &limitedBuffer{max: maxOutput, over: cancel}
+	cmd.Stdout = stdout
 	cmd.WaitDelay = stopGrace
 	tree := newProcessTree(cmd)
 	if err := cmd.Start(); err != nil {
@@ -73,12 +76,14 @@ func (f CLIFetcher) Fetch(ctx context.Context, account store.Account) (usage.Usa
 	switch {
 	case ctx.Err() != nil:
 		return usage.Usage{}, ctx.Err()
+	case stdout.exceeded:
+		return usage.Usage{}, fmt.Errorf("%w: output over %d bytes", usage.ErrBadDocument, maxOutput)
 	case childCtx.Err() != nil:
 		return usage.Usage{}, fmt.Errorf("%w (%s)", ErrChildTimeout, timeout+margin)
 	}
 	// The exit code is not read: a provider failure exits non-zero with an
 	// error document, and anything else fails to parse.
-	doc, err := usage.ParseDocument(stdout.Bytes())
+	doc, err := usage.ParseDocument(stdout.buf.Bytes())
 	if err != nil {
 		if runErr != nil {
 			return usage.Usage{}, fmt.Errorf("%w (core CLI: %w)", err, runErr)
@@ -118,4 +123,25 @@ func UsageArgs(account store.Account, timeout time.Duration) ([]string, error) {
 		return nil, fmt.Errorf("unknown provider %q", account.Provider)
 	}
 	return args, nil
+}
+
+// limitedBuffer keeps up to max bytes; past that it drops the rest and calls
+// over, which stops the child. Written only by exec's copying goroutine and
+// read after Wait.
+type limitedBuffer struct {
+	buf      bytes.Buffer
+	max      int
+	over     func()
+	exceeded bool
+}
+
+func (b *limitedBuffer) Write(p []byte) (int, error) {
+	if !b.exceeded && b.buf.Len()+len(p) > b.max {
+		b.exceeded = true
+		b.over()
+	}
+	if !b.exceeded {
+		b.buf.Write(p)
+	}
+	return len(p), nil
 }
