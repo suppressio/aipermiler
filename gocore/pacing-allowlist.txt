@@ -1,0 +1,2 @@
+# Ids of docs/PACING.md deliberately without a test in internal/pacing: "ID one-line reason".
+# An entry for an id that has a test fails the check.
