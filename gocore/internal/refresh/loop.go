@@ -74,13 +74,24 @@ type Loop struct {
 	mu       sync.Mutex
 	pending  policy.Mode // "" when no run is requested
 	waiters  []chan struct{}
+	unread   bool // Changed asked to read the accounts the loop knows nothing of
 	busy     bool
 	lastErrs map[string]error
 	read     map[string]bool // accounts this process has read, well or not
+	// gens counts the Changed calls per account: a read that started under an
+	// older generation read old settings, and nothing of it is kept.
+	gens map[string]uint64
 
 	// Owned by Run's goroutine.
-	states map[string]policy.AccountState
+	states map[string]trackedState
 	rose   bool
+}
+
+// trackedState is an account's policy state and the generation it was read
+// under: one of an older generation is forgotten.
+type trackedState struct {
+	policy.AccountState
+	gen uint64
 }
 
 // New returns a loop that starts with Run.
@@ -96,7 +107,7 @@ func New(cfg Config) *Loop {
 	}
 	return &Loop{
 		cfg: cfg, wake: make(chan struct{}, 1), done: make(chan struct{}),
-		lastErrs: map[string]error{}, read: map[string]bool{}, states: map[string]policy.AccountState{},
+		lastErrs: map[string]error{}, read: map[string]bool{}, gens: map[string]uint64{}, states: map[string]trackedState{},
 	}
 }
 
@@ -105,7 +116,7 @@ func New(cfg Config) *Loop {
 // nothing of it.
 func (l *Loop) Run(ctx context.Context) error {
 	defer close(l.done)
-	l.run(ctx, policy.Scheduled)
+	l.run(ctx, policy.Scheduled, false)
 	due, last := l.nextDue(), l.cfg.Clock.Now()
 	beat := l.cfg.Clock.After(heartbeat)
 	for {
@@ -114,13 +125,24 @@ func (l *Loop) Run(ctx context.Context) error {
 			return nil
 		case <-l.wake:
 			l.mu.Lock()
-			mode, waiters := l.pending, l.waiters
-			l.pending, l.waiters = "", nil
+			mode, waiters, unread := l.pending, l.waiters, l.unread
+			l.pending, l.waiters, l.unread = "", nil, false
 			l.mu.Unlock()
 			if mode == "" {
+				if !unread {
+					continue
+				}
+				// Only the accounts Changed named: the others keep their
+				// schedule, so due stays as it was.
+				l.run(ctx, policy.Scheduled, true)
+				if ctx.Err() != nil {
+					return nil
+				}
+				last, beat = l.cfg.Clock.Now(), l.cfg.Clock.After(heartbeat)
 				continue
 			}
-			l.run(ctx, mode)
+			// A full run also reads the accounts Changed named: they have no state.
+			l.run(ctx, mode, false)
 			if ctx.Err() != nil {
 				return nil // the waiters get ErrStopped: their run was cut
 			}
@@ -140,7 +162,7 @@ func (l *Loop) Run(ctx context.Context) error {
 			if now.Sub(last) > resumeGap {
 				l.cfg.Logger.Info("Resumed from sleep, refreshing", "gap", now.Sub(last).Round(time.Second))
 			}
-			l.run(ctx, policy.Scheduled)
+			l.run(ctx, policy.Scheduled, false)
 		}
 		if ctx.Err() != nil {
 			return nil
@@ -178,13 +200,33 @@ func (l *Loop) Refresh(ctx context.Context, mode policy.Mode) error {
 	}
 }
 
-// ErrNotRead is LastError before this process has read the account: its
-// lastGood may be old, from before a restart. Not not_ready, which clients
-// take for Claude Code not reaching its prompt (main/accountNotice.ts):
-// unavailable with its own reason. An account disabled and enabled again keeps
-// what the loop knew until its next read: no client changes store.json while
-// the service runs, and enabling an account will go through the settings
-// endpoint (#284), which must ask a forced read.
+// Changed tells the loop that the store's settings of these accounts changed
+// in a way that changes their reads (store.Account.ReadsLike), or that they
+// were added, removed, enabled or disabled (#284). The loop forgets what it
+// knew of them (last error, last attempt, backoff), so LastError is
+// ErrNotRead at once, as after a restart, and it reads them at once, alone,
+// whatever their backoff: the other accounts keep their schedule. A read of
+// them already in progress read the old settings: nothing of it is kept.
+// Call it after the store change is committed. It does not wait.
+func (l *Loop) Changed(accountIDs ...string) {
+	l.mu.Lock()
+	for _, id := range accountIDs {
+		l.gens[id]++
+		delete(l.read, id)
+		delete(l.lastErrs, id)
+	}
+	l.unread = true
+	l.mu.Unlock()
+	select {
+	case l.wake <- struct{}{}:
+	default: // a wake-up is already queued
+	}
+}
+
+// ErrNotRead is LastError before this process has read the account, or since
+// Changed named it: its lastGood may be old, from before a restart or a
+// settings change. Not not_ready, which clients take for Claude Code not
+// reaching its prompt (main/accountNotice.ts): unavailable with its own reason.
 var ErrNotRead = &usage.Error{Code: usage.CodeUnavailable, Reason: "not_read_yet", Message: "Not read yet by the service"}
 
 // LastError is the account's last read error, nil once a read succeeds, and
@@ -218,37 +260,71 @@ func (l *Loop) setBusy(busy bool) {
 	l.mu.Unlock()
 }
 
-func (l *Loop) setError(accountID string, err error) {
+// generations returns the current generation of every account.
+func (l *Loop) generations() map[string]uint64 {
 	l.mu.Lock()
 	defer l.mu.Unlock()
+	out := make(map[string]uint64, len(l.gens))
+	for id, g := range l.gens {
+		out[id] = g
+	}
+	return out
+}
+
+// setError records the outcome of a read made under generation gen; false,
+// recording nothing, when Changed named the account since.
+func (l *Loop) setError(accountID string, gen uint64, err error) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.gens[accountID] != gen {
+		return false
+	}
 	l.read[accountID] = true
 	if err == nil {
 		delete(l.lastErrs, accountID)
 	} else {
 		l.lastErrs[accountID] = err
 	}
+	return true
 }
 
 // run reads the accounts the policy picks, one at a time (two Claude reads
-// would share the probe folder), and commits each fresh value at once.
-func (l *Loop) run(ctx context.Context, mode policy.Mode) {
+// would share the probe folder), and commits each fresh value at once. With
+// unreadOnly it reads only the accounts it has no state of (new, or named by
+// Changed).
+func (l *Loop) run(ctx context.Context, mode policy.Mode, unreadOnly bool) {
 	l.setBusy(true)
 	defer l.setBusy(false)
+	// The generations before the snapshot: Changed comes after its store
+	// change, so a snapshot older than a change always meets a newer
+	// generation at commit time.
+	gens := l.generations()
 	snap := l.cfg.Store.Snapshot()
 	every := interval(snap.Settings)
+	for id := range l.states {
+		if snap.Account(id) == nil {
+			delete(l.states, id)
+		}
+	}
 	read, rose := false, false
 	for _, account := range snap.Accounts {
 		if !account.Enabled {
 			continue
 		}
+		gen := gens[account.ID]
 		state, known := l.states[account.ID]
+		known = known && state.gen == gen
+		if unreadOnly && known {
+			continue
+		}
 		var previous *policy.AccountState
 		// An attempt "in the future" means the wall clock was set back: its
 		// backoff and cache no longer measure anything.
 		if known && !state.LastAttempt.After(l.cfg.Clock.Now()) {
-			previous = &state
+			previous = &state.AccountState
 		}
-		// Without a last good value there is nothing to reuse: always read.
+		// Without a last good value or a state there is nothing to reuse:
+		// always read.
 		if account.LastGood != nil && !policy.ShouldFetch(previous, mode, l.cfg.Clock.Now(), every) {
 			continue
 		}
@@ -257,38 +333,51 @@ func (l *Loop) run(ctx context.Context, mode policy.Mode) {
 			return
 		}
 		at := l.cfg.Clock.Now()
-		l.states[account.ID] = policy.Attempted(previous, at, err == nil)
-		read = true
+		attempted := trackedState{policy.Attempted(previous, at, err == nil), gen}
 		if err != nil {
-			l.cfg.Logger.Warn("Account read failed", "account", account.ID, "error", err)
-			l.setError(account.ID, err)
+			if l.setError(account.ID, gen, err) {
+				l.cfg.Logger.Warn("Account read failed", "account", account.ID, "error", err)
+				l.states[account.ID] = attempted
+				read = true
+			}
 			continue
 		}
-		up, err := l.record(account.ID, values, at)
+		up, err := l.record(account, values, at)
 		switch {
 		case errors.Is(err, errAccountGone):
 			continue
 		case err != nil:
-			l.cfg.Logger.Warn("Cannot save the account's values", "account", account.ID, "error", err)
-			l.setError(account.ID, err)
+			if l.setError(account.ID, gen, err) {
+				l.cfg.Logger.Warn("Cannot save the account's values", "account", account.ID, "error", err)
+				l.states[account.ID] = attempted
+				read = true
+			}
 			continue
 		}
-		l.setError(account.ID, nil)
-		rose = rose || up
+		if l.setError(account.ID, gen, nil) {
+			l.states[account.ID] = attempted
+			read = true
+			rose = rose || up
+		}
 	}
-	// Nothing read: nothing new is known, the pace stays as it was.
-	if read {
+	switch {
+	case !read: // nothing new is known, the pace stays as it was
+	case unreadOnly:
+		l.rose = l.rose || rose // the other accounts were not read
+	default:
 		l.rose = rose
 	}
 }
 
-// record saves a fresh read: lastGood, and one sample per window through
-// history.Record. It reports whether any window rose since its last sample.
-func (l *Loop) record(accountID string, values usage.Usage, at time.Time) (bool, error) {
+// record saves a fresh read of account: lastGood, and one sample per window
+// through history.Record. It reports whether any window rose since its last
+// sample. An account removed, disabled or read differently since the read
+// started (Changed) gets nothing: errAccountGone.
+func (l *Loop) record(read store.Account, values usage.Usage, at time.Time) (bool, error) {
 	rose := false
 	err := l.cfg.Store.Update(func(s *store.State) error {
-		account := s.Account(accountID)
-		if account == nil {
+		account := s.Account(read.ID)
+		if account == nil || !account.Enabled || !account.ReadsLike(read) {
 			return errAccountGone
 		}
 		lastGood := store.NewLastGood(values, at)

@@ -27,6 +27,40 @@ func sample(minutes int, used float64) history.Sample {
 	return history.Sample{At: day.Add(time.Duration(minutes) * time.Minute), Used: used, Fresh: true}
 }
 
+// ReadsLike compares what a read depends on: id, provider and provider flags,
+// not the label, schedule, renewal day, history or enabled state (#284).
+func TestReadsLike(t *testing.T) {
+	t.Parallel()
+	path := "/opt/claude"
+	base := store.Account{ID: "a", Provider: "copilot", Label: "A", Enabled: true, Host: "github.com", Scope: "personal", ManualQuota: 300}
+	same := base
+	same.Label, same.RenewalDay, same.Enabled = "B", 5, false
+	same.Schedule.Enabled = true
+	if !base.ReadsLike(same) {
+		t.Error("label, renewal day, schedule or enabled changed the read")
+	}
+	empty, unset := base, base
+	empty.BinaryPath = new(string)
+	unset.BinaryPath = nil
+	if !empty.ReadsLike(unset) {
+		t.Error("an empty binary path differs from none")
+	}
+	for name, change := range map[string]func(*store.Account){
+		"provider":    func(a *store.Account) { a.Provider = "claude" },
+		"host":        func(a *store.Account) { a.Host = "x.ghe.com" },
+		"scope":       func(a *store.Account) { a.Scope = "organization" },
+		"manualQuota": func(a *store.Account) { a.ManualQuota = 1500 },
+		"binaryPath":  func(a *store.Account) { a.BinaryPath = &path },
+		"id":          func(a *store.Account) { a.ID = "b" },
+	} {
+		other := base
+		change(&other)
+		if base.ReadsLike(other) {
+			t.Errorf("a change of %s does not change the read", name)
+		}
+	}
+}
+
 func mustOpen(t *testing.T, dir string) *store.Store {
 	t.Helper()
 	s, err := store.Open(dir)
