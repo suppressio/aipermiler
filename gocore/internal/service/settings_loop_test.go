@@ -106,7 +106,16 @@ func TestEnablingAnAccountIsNotServedFreshUntilItsRead(t *testing.T) {
 		t.Errorf("during the new read: %+v; want stale, not_read_yet", v)
 	}
 	fetch.release <- nil
-	waitFor(t, func() bool { return loop.LastError("a") == nil })
+	// The first PUT's wake may have started a read that the second Changed
+	// discards: the loop then reads again. Release every read until one counts.
+	waitFor(t, func() bool {
+		select {
+		case <-fetch.reading:
+			fetch.release <- nil
+		default:
+		}
+		return loop.LastError("a") == nil
+	})
 	if v := view(); v.Stale {
 		t.Errorf("after the new read: %+v; want fresh", v)
 	}

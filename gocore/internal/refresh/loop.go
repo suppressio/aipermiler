@@ -206,7 +206,11 @@ func (l *Loop) Refresh(ctx context.Context, mode policy.Mode) error {
 // knew of them (last error, last attempt, backoff), so LastError is
 // ErrNotRead at once, as after a restart, and it reads them at once, alone,
 // whatever their backoff: the other accounts keep their schedule. A read of
-// them already in progress read the old settings: nothing of it is kept.
+// them already in progress does not count as their read: its error and its
+// backoff state are dropped, and its values are committed only if the
+// account is still enabled and read the same way (store.Account.ReadsLike),
+// otherwise dropped too. A read that starts between the store commit and
+// Changed is discarded the same way and repeated: one extra read, harmless.
 // Call it after the store change is committed. It does not wait.
 func (l *Loop) Changed(accountIDs ...string) {
 	l.mu.Lock()
