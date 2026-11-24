@@ -30,5 +30,6 @@
   {"id":"E7","description":"schedule disabled in billing cycle","schedule":"disabled","expected":{"total":31,"elapsed":19.416666666666668,"remaining":11.583333333333334,"fromToday":12,"todayElapsed":0.4166666666666667,"remainingHours":92.66666666666667}},
   {"id":"E8","description":"billing day off has zero elapsed part","now":"2026-10-24T10:00:00+02:00","expected":{"total":22,"elapsed":17,"remaining":5,"fromToday":5,"todayElapsed":0,"remainingHours":40}},
   {"id":"I-11","description":"working units use the supplied location rather than the timestamp offset","now":"2026-10-23T22:30:00Z","expected":{"total":22,"elapsed":17,"remaining":5,"fromToday":5,"todayElapsed":0,"remainingHours":40}},
-  {"id":"E10","description":"half Friday caps four worked hours","schedule":"half-friday","now":"2026-10-23T10:00:00+02:00","workedHours":4,"expected":{"total":19.5,"elapsed":15,"remaining":4.5,"fromToday":5,"todayElapsed":0.5,"remainingHours":36}}
+  {"id":"E10","description":"half Friday caps four worked hours","schedule":"half-friday","now":"2026-10-23T10:00:00+02:00","workedHours":4,"expected":{"total":19.5,"elapsed":15,"remaining":4.5,"fromToday":5,"todayElapsed":0.5,"remainingHours":36}},
+  {"id":"I-8","description":"disabled schedule on the 25-hour day of the DST change: the fraction of that day, never above 1","schedule":"disabled","now":"2026-10-25T23:30:00+01:00","expected":{"total":31,"elapsed":24.98,"remaining":6.02,"fromToday":7,"todayElapsed":0.98,"remainingHours":48.16}}
 ]

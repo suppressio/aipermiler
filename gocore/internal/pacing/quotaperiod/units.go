@@ -86,7 +86,10 @@ func (p Period) Units(now time.Time, loc *time.Location, schedule Schedule, work
 
 func todayElapsed(now time.Time, loc *time.Location, schedule Schedule, workedHours *float64) float64 {
 	if !schedule.Enabled {
-		return now.Sub(localDay(now, loc)).Hours() / 24
+		// The fraction of the local day, whose length is 23 or 25 hours when
+		// daylight saving time changes (I-8: e never exceeds the day unit).
+		day := localDay(now, loc)
+		return now.Sub(day).Hours() / day.AddDate(0, 0, 1).Sub(day).Hours()
 	}
 	unit := schedule.DayUnit(now, loc)
 	if workedHours == nil || unit == 0 {
