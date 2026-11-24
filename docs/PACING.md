@@ -418,7 +418,7 @@ Found while writing the model; each becomes a failing case and an item of the re
 
 1. **Target = ceiling** (`sustainableHourlyRate` returns `C`): G-7 gives 0.87 instead of 0.57, G-12 gives 331 instead of 0.57. Only the calendar fallback prevents the zero-hours case.
 2. **Target for an unknown period start** is the calendar ceiling (one-off credits); the model has none (I-6).
-3. **`autonomy` tip** has no bounds on the reduction: TP-2 shows 100 %, TP-4 0 %. It is computed from the *rounded* autonomy and working days (TP-1: 8.4 / 8.6), not the exact ones (I-4).
+3. **`autonomy` tip** has no bounds on the reduction: TP-2 shows 100 %, TP-4 0 %. It is computed from the *rounded* autonomy and working days (TP-1: 8.4 / 8.6), not the exact ones (I-4). Fixed in the Go `advice` package (HYP#165): the bounds are checked on the displayed reduction, the parameters stay exact.
 4. **Verdict ratio** is computed from `perUnit` and `idealPerUnit` already rounded to 0.01 (I-4): `ρ` at the 0.95/1.05/0.5 edges can flip. The verdict compares `proj > 100` on the value rounded to 0.1.
 5. **Daily point written on every refresh, also stale** (the lone `fresh` flag is applied to samples only): the model has one rule, fresh only (I-12).
 6. **Reset passed**: `sustainableHourlyRate` answers `0` instead of "undefined"; the gauge then reads as "always over".
