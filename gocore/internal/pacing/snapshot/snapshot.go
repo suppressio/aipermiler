@@ -178,8 +178,7 @@ func buildWindow(in Input, w Window) (WindowSnapshot, history.State, bool) {
 	}
 	snap.Period = period
 
-	state := history.Record(in.History[w.ID], history.Sample{At: in.Response.FetchedAt, Used: x, Fresh: in.Response.Fresh},
-		now, recordSettings(in.History[w.ID], period, set, now))
+	state := record(in, w, x)
 
 	today := startOfDay(now, loc)
 	for _, point := range state.DailyUsage {
@@ -191,9 +190,12 @@ func buildWindow(in Input, w Window) (WindowSnapshot, history.State, bool) {
 		snap.UsedToday, snap.HasUsedToday = outlook.UsedToday(x, snap.Baseline), true
 	}
 	snap.InstantPace, snap.HasInstantPace = pace.InstantPace(state.RecentSamples, now)
-	snap.DaysToReset, snap.HasDaysToReset = period.DaysUntilReset(now, loc)
-	// Forward-looking values need a reset still ahead (I-6, D5, E5).
+	// Forward-looking values, days to reset included, need a reset still
+	// ahead (I-6, D5, E5): a passed reset is not "today".
 	resetAhead := !period.End.IsZero() && period.End.After(now)
+	if resetAhead {
+		snap.DaysToReset, snap.HasDaysToReset = period.DaysUntilReset(now, loc)
+	}
 
 	if w.Kind == quotaperiod.RollingHours {
 		rollingHours(&snap, period, w.Length, now)
@@ -305,16 +307,36 @@ func perUnit(r *outlook.Redistribution) float64 {
 	return r.PerUnit
 }
 
+// record applies the read to the window's history through history.Record,
+// as the refresh loop does (internal/refresh): the read's own moment decides
+// its day, its period and the previous day, not the moment the snapshot is
+// built (a read just before midnight belongs to the day and the period it was
+// taken in). A stale read is ignored by history.Record (D4).
+func record(in Input, w Window, x float64) history.State {
+	stored, at := in.History[w.ID], in.Response.FetchedAt
+	if !in.Response.Fresh {
+		return stored
+	}
+	period, err := quotaperiod.ResolvePeriod(
+		quotaperiod.Window{Kind: w.Kind, Length: w.Length, ResetsAt: w.ResetsAt},
+		in.Response.SubscriptionRenewsAt, in.Settings.Renewal, at, in.Settings.Location)
+	if err != nil {
+		period = quotaperiod.Period{Kind: w.Kind}
+	}
+	return history.Record(stored, history.Sample{At: at, Used: x, Fresh: true}, at, recordSettings(stored, period, in.Settings, at))
+}
+
 // recordSettings gives history.Record the calendar, the retention and the
-// window's period: the period start and the last point of an earlier local
-// day, whose time is not stored (the end of its day stands for it).
-func recordSettings(state history.State, period quotaperiod.Period, set Settings, now time.Time) history.Settings {
+// window's period at the read's moment: the period start and the last point of
+// an earlier local day, whose time is not stored (the end of its day stands
+// for it).
+func recordSettings(state history.State, period quotaperiod.Period, set Settings, at time.Time) history.Settings {
 	retention := set.RetentionDays
 	if retention <= 0 {
 		retention = defaultRetentionDays
 	}
 	out := history.Settings{Location: set.Location, RetentionDays: retention, Period: history.PeriodInput{Start: period.Start}}
-	today := startOfDay(now, set.Location)
+	today := startOfDay(at, set.Location)
 	var previous *history.DailyPoint
 	for i, point := range state.DailyUsage {
 		if point.Day.Before(today) && (previous == nil || point.Day.After(previous.Day)) {

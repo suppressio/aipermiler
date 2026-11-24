@@ -28,21 +28,28 @@ func sweep(t *testing.T, check func(t *testing.T, in snapshot.Input, w snapshot.
 	half.Days[time.Friday] = 0.5
 	schedules["half-friday"] = half
 	for name, schedule := range schedules {
-		for day := 1; day <= 31; day++ {
-			for _, hour := range []int{0, 9, 13, 17, 23} {
-				for _, x := range []float64{0, 0.05, 10, 40, 60, 80, 95, 99.9, 100, 103} {
-					now := at(t, time.October, day, hour, 30)
-					in := scenario(t, now, x)
-					in.Settings.Schedule = schedule
-					in.Settings.TipDraw = 0.99
-					if hour > 7 {
-						today(t, &in, math.Max(0, x-3), at(t, time.October, day, 7, 0))
+		for _, kind := range []quotaperiod.Kind{quotaperiod.BillingCycle, quotaperiod.RollingDays} {
+			for day := 1; day <= 31; day++ {
+				for _, hour := range []int{0, 9, 13, 17, 23} {
+					for _, x := range []float64{0, 0.05, 10, 40, 60, 80, 95, 99.9, 100, 103} {
+						now := at(t, time.October, day, hour, 30)
+						in := scenario(t, now, x)
+						if kind == quotaperiod.RollingDays {
+							// A weekly window around now, crossing the DST change late in the month.
+							in.Response.Windows[0] = snapshot.Window{ID: "weekly", Kind: kind, Length: 7, Unit: pace.Percentage, Used: x,
+								ResetsAt: now.Add(74 * time.Hour)}
+						}
+						in.Settings.Schedule = schedule
+						in.Settings.TipDraw = 0.99
+						if hour > 7 {
+							today(t, &in, math.Max(0, x-3), at(t, time.October, day, 7, 0))
+						}
+						w := build(t, in)
+						t.Run(fmt.Sprintf("%s %s %s x=%v", name, kind, now.Format("01-02 15:04"), x), func(t *testing.T) {
+							t.Parallel()
+							check(t, in, w)
+						})
 					}
-					w := build(t, in)
-					t.Run(fmt.Sprintf("%s %s x=%v", name, now.Format("01-02 15:04"), x), func(t *testing.T) {
-						t.Parallel()
-						check(t, in, w)
-					})
 				}
 			}
 		}
@@ -108,21 +115,28 @@ func TestInvariants(t *testing.T) {
 	t.Run("I-6 nothing forward-looking without a period start or a reset ahead", func(t *testing.T) {
 		t.Parallel()
 		now := at(t, time.October, 20, 10, 0)
+		// x = 80 would ask for nearReset if a passed reset still counted (D5).
 		for name, window := range map[string]snapshot.Window{
-			"unknown start": {ID: "w", Kind: quotaperiod.BillingCycle, Unit: pace.Percentage, Used: 60, ResetsAt: at(t, time.October, 27, 0, 0)},
-			"missing reset": {ID: "w", Kind: quotaperiod.RollingDays, Length: 7, Unit: pace.Percentage, Used: 60},
-			"reset passed":  {ID: "w", Kind: quotaperiod.RollingDays, Length: 7, Unit: pace.Percentage, Used: 60, ResetsAt: now.Add(-time.Hour)},
-			"cycle over":    {ID: "w", Kind: quotaperiod.BillingCycle, Length: 1, Unit: pace.Percentage, Used: 60, ResetsAt: at(t, time.October, 20, 0, 0)},
+			"unknown start": {ID: "w", Kind: quotaperiod.BillingCycle, Unit: pace.Percentage, Used: 80, ResetsAt: at(t, time.October, 27, 0, 0)},
+			"missing reset": {ID: "w", Kind: quotaperiod.RollingDays, Length: 7, Unit: pace.Percentage, Used: 80},
+			"reset passed":  {ID: "w", Kind: quotaperiod.RollingDays, Length: 7, Unit: pace.Percentage, Used: 80, ResetsAt: now.Add(-time.Hour)},
+			"cycle over":    {ID: "w", Kind: quotaperiod.BillingCycle, Length: 1, Unit: pace.Percentage, Used: 80, ResetsAt: at(t, time.October, 20, 0, 0)},
 		} {
-			in := scenario(t, now, 60)
-			in.Response.Windows[0] = window
-			in.History["w"] = history.State{RecentSamples: []history.Reading{{At: now.Add(-time.Hour), Used: 59}}}
-			w := build(t, in)
-			noForwardLooking(t, w)
-			if w.Hourly != nil || w.Tip != nil && w.Tip.Key == advice.TipAutonomy {
-				t.Errorf("%s: hourly %+v, tip %+v", name, w.Hourly, w.Tip)
+			for _, fresh := range []bool{true, false} {
+				in := scenario(t, now, 80)
+				in.Response.Windows[0] = window
+				in.Response.Fresh = fresh
+				in.History["w"] = history.State{RecentSamples: []history.Reading{{At: now.Add(-time.Hour), Used: 79}}}
+				w := build(t, in)
+				noForwardLooking(t, w)
+				if w.Hourly != nil || w.Tip != nil {
+					t.Errorf("%s (fresh %v): hourly %+v, tip %+v", name, fresh, w.Hourly, w.Tip)
+				}
+				if name == "reset passed" || name == "cycle over" {
+					absent(t, name+": days to reset", w.HasDaysToReset)
+				}
+				verdict(t, w, outlook.NoPacing)
 			}
-			verdict(t, w, outlook.NoPacing)
 		}
 	})
 	t.Run("I-7 today is never judged as a completed day", func(t *testing.T) {
@@ -156,6 +170,27 @@ func TestInvariants(t *testing.T) {
 				t.Errorf("units %+v", *u)
 			}
 		})
+	})
+	t.Run("I-8 rolling days on the 25-hour DST day", func(t *testing.T) {
+		t.Parallel()
+		for _, hour := range []int{0, 9, 13, 17, 23} {
+			for _, enabled := range []bool{true, false} {
+				now := at(t, time.October, 25, hour, 30)
+				in := scenario(t, now, 40)
+				in.Settings.Schedule.Enabled = enabled
+				in.Response.Windows[0] = snapshot.Window{ID: "weekly", Kind: quotaperiod.RollingDays, Length: 7, Unit: pace.Percentage, Used: 40,
+					ResetsAt: at(t, time.October, 28, 12, 0)}
+				w := build(t, in)
+				u := w.Units
+				if u == nil {
+					t.Fatal("no units")
+				}
+				dayUnit := in.Settings.Schedule.DayUnit(now, in.Settings.Location)
+				if math.Abs(u.Elapsed+u.Remaining-u.Total) > tolerance || u.TodayElapsed < 0 || u.TodayElapsed > dayUnit+tolerance || u.FromToday+tolerance < u.Remaining {
+					t.Errorf("%s schedule %v: units %+v", now.Format("01-02 15:04"), enabled, *u)
+				}
+			}
+		}
 	})
 	t.Run("I-9 the bar colour and the streak are the same flag", func(t *testing.T) {
 		t.Parallel()
@@ -236,6 +271,29 @@ func TestInvariants(t *testing.T) {
 		}
 		if !reflect.DeepEqual(res.History["gone"], other) {
 			t.Error("a window missing from the response lost its history")
+		}
+
+		// A read just before midnight, built after it, on the manual renewal
+		// day: the point belongs to the read's day and its period, as the
+		// refresh loop records it (period and previous day at the fetch time).
+		read := at(t, time.October, 20, 23, 50)
+		late := snapshot.Input{
+			History: map[string]history.State{"spend": {DailyUsage: []history.DailyPoint{
+				{Day: startOfDay(at(t, time.October, 19, 0, 0), loc), Used: 25, DayStartUsed: 20},
+			}}},
+			Response: snapshot.Response{Windows: []snapshot.Window{{ID: "spend", Kind: quotaperiod.BillingCycle, Length: 1, Unit: pace.Percentage, Used: 30}},
+				FetchedAt: read, Fresh: true},
+			Settings: snapshot.Settings{Location: loc, Schedule: weekdays(), ChartDays: 7, Renewal: quotaperiod.RenewalRule{Type: "dayOfMonth", Day: 21}},
+			Now:      at(t, time.October, 21, 0, 10),
+		}
+		wantLate := history.Record(late.History["spend"], history.Sample{At: read, Used: 30, Fresh: true}, read, history.Settings{
+			Location: loc, RetentionDays: 90, Period: history.PeriodInput{
+				Start:      at(t, time.September, 21, 0, 0),
+				PreviousAt: startOfDay(read, loc).Add(-time.Nanosecond), PreviousUsed: 25,
+			},
+		})
+		if got := snapshot.Build(late).History["spend"]; !reflect.DeepEqual(got, wantLate) {
+			t.Errorf("late read history = %+v, want %+v", got, wantLate)
 		}
 
 		// Stale values are never recorded (D4); the same refresh twice records once.
