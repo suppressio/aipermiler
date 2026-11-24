@@ -44,7 +44,7 @@ Una finestra senza data di reset e senza modo di ricavarla non ha alcuna quantit
 
 **D-2.3 Unità trascorse oggi** `e` **per i cicli di fatturazione** (la parte di oggi già lavorata), dominio `[0, u(oggi)]`:
 - orario attivo: `0` finché oggi non si è vista attività; poi `min(u(oggi), max(2 h, lavorate) / hoursPerDay)` dove *lavorate* = ultimo aumento − prima attività del giorno (§3.1); `0` in un giorno libero;
-- orario disattivato: frazione del giorno di calendario trascorsa (`10:00` → 0,4167).
+- orario disattivato: frazione del giorno di calendario trascorsa (`10:00` → 0,4167), sulla durata reale di quel giorno (23 o 25 ore nei giorni del cambio dell’ora legale, così `e` non supera mai 1).
 
 Per i cicli di fatturazione D-2.4-D-2.6 valgono con `oggi` dentro il periodo, `start ≤ oggi < end` (giorni locali). Per i giorni mobili valgono con `start ≤ now < end` (istanti esatti). Fuori: **prima dell'inizio** `E = 0`, `R = U = N`; **dalla fine in poi** `E = N`, `R = U = 0`.
 
@@ -345,7 +345,7 @@ Ogni riga dice quanto valgono le quantità. «—» = indefinito, l'indicatore �
 |---|---|---|---|
 | E1 | **Inizio finestra** | S giovedì 10-01 09:00, x = 0, x₀ = 0 | E = 0, R = 22, idx —, proj 0, a nascosta, B = 4,55 (usato 0), q = s = 4,55, verdetto in linea, preliminare, T = 0,57, v — |
 | E2 | **Ultimi minuti prima del reset** | S, ven 10-30 17:00, 7,9 h lavorate, x = 60, x₀ = 58 | R = 0,0125, proj 60,0, a = 14,7 > R (nessun consiglio), q = 40 (ρ 8,8, avanti), B = 42, **T = 0,57** (tetto 400 ignorato) |
-| E3 | **Quota esaurita** | S, x = 100, x₀ = 90 | verdetto esaurita, a = 0, rem 0, q = 0, T = 0, B = 1,11 usato 13 (allarme di ritmo), nessun consiglio `autonomy`, nessuna spinta a consumare |
+| E3 | **Quota esaurita** | S, x = 100, x₀ = 90 | verdetto esaurita, a = 0, rem 0, q = 0, T = 0, B = 1,11 usato 10 (allarme di ritmo), nessun consiglio `autonomy`, nessuna spinta a consumare |
 | E3b | **Oltre il limite** | S, x = 103 | come E3; valore mostrato 103, mai limitato; rimanente 0 |
 | E4 | **Ancora nessun uso oggi** | S, x = x₀ = 60, nessuna attività | e = 0, E = 13, R = 9, used_today 0, B = 4,44, v = 0 o —, posizione misuratore 0, oggi non valutato |
 | E5 | **Reset passato** (risposta vecchia, `resetsAt` < `now`) | finestra 5 ore, resetsAt 09:00, ora 10:00, x = 80 vecchio | nessuna quantità prospettica: hoursLeft 0, proiettato = 80, autonomia —, T —, verdetto solo da x (esaurita se ≥ 100, altrimenti nessun pacing); mostrato come non aggiornato fino alla prossima lettura fresca |
@@ -416,16 +416,17 @@ Regole: un calcolo **legge** lo stato e non lo scrive mai; lo snapshot inviato a
 
 Emersi scrivendo il modello; ognuno diventa un caso che fallisce e una voce del refactoring. **Nessuna correzione prima di #75** (vedi la regola della issue).
 
-1. **Target = tetto** (`sustainableHourlyRate` restituisce `C`): G-7 dà 0,87 invece di 0,57, G-12 dà 331 invece di 0,57. Solo il ripiego sul calendario evita il caso a zero ore.
-2. **Target con inizio periodo ignoto** è il tetto di calendario (crediti una tantum); il modello non ne ha (I-6).
-3. **Il consiglio `autonomy`** non ha limiti sulla riduzione: TP-2 mostra 100 %, TP-4 0 %. È calcolato su autonomia e giorni lavorativi *arrotondati* (TP-1: 8,4 / 8,6), non su quelli esatti (I-4). Corretto nel package Go `advice` (HYP#165): i limiti si controllano sulla riduzione mostrata, i parametri restano esatti. L’integrazione TypeScript rimane parte di HYP#75.
-4. **Il rapporto del verdetto** è calcolato da `perUnit` e `idealPerUnit` già arrotondati a 0,01 (I-4): `ρ` ai limiti 0,95/1,05/0,5 può ribaltarsi. Il verdetto confronta `proj > 100` sul valore arrotondato a 0,1.
-5. **Punto giornaliero scritto a ogni aggiornamento, anche non fresco** (il flag `fresh` vale solo per i campioni): il modello ha una sola regola, solo fresco (I-12).
-6. **Reset passato**: `sustainableHourlyRate` risponde `0` invece di «indefinito»; il misuratore allora si legge come «sempre oltre».
-7. **Finestra mobile senza `resetsAt`** ripiega sulla regola di rinnovo manuale come fine periodo; privo di senso per una finestra mobile (E6).
-8. **Limiti dei giorni mobili troncati al giorno locale** (`startOfDay`): HYP#78 conta 3,78 trascorsi / 3,22 rimanenti invece di 2,82 / 4,18. Modello confermato (§1-2): conservare i timestamp mobili esatti e pesare la sovrapposizione di ogni giorno locale per la sua unità lavorativa, divisa per 24 ore; i cicli di fatturazione mantengono giorni locali interi. Implementato nel package Go `quotaperiod` (HYP#161); l’integrazione TypeScript rimane parte di HYP#75.
+1. **Target = tetto** (`sustainableHourlyRate` restituisce `C`): G-7 dà 0,87 invece di 0,57, G-12 dà 331 invece di 0,57. Solo il ripiego sul calendario evita il caso a zero ore. — risolto (#275): in Go `pace.Target` è `min(C, s_h)`, composto dallo snapshot (#322; G-12 ed E2 da capo a fondo).
+2. **Target con inizio periodo ignoto** è il tetto di calendario (crediti una tantum); il modello non ne ha (I-6). — risolto (#322): senza inizio periodo lo snapshot non ha target (E9, I-6).
+3. **Il consiglio `autonomy`** non ha limiti sulla riduzione: TP-2 mostra 100 %, TP-4 0 %. È calcolato su autonomia e giorni lavorativi *arrotondati* (TP-1: 8,4 / 8,6), non su quelli esatti (I-4). Corretto nel package Go `advice` (HYP#165): i limiti si controllano sulla riduzione mostrata, i parametri restano esatti. L’integrazione TypeScript rimane parte di HYP#75. — risolto (#165)
+4. **Il rapporto del verdetto** è calcolato da `perUnit` e `idealPerUnit` già arrotondati a 0,01 (I-4): `ρ` ai limiti 0,95/1,05/0,5 può ribaltarsi. Il verdetto confronta `proj > 100` sul valore arrotondato a 0,1. — risolto (#164): il verdetto in Go legge `q`, `s` e proiezione esatti, e lo snapshot li passa senza arrotondarli (#322, I-4).
+5. **Punto giornaliero scritto a ogni aggiornamento, anche non fresco** (il flag `fresh` vale solo per i campioni): il modello ha una sola regola, solo fresco (I-12). — risolto (#162): `history.Record` ignora le osservazioni non fresche, e lo snapshot passa la freschezza della risposta (#322; E5, I-12).
+6. **Reset passato**: `sustainableHourlyRate` risponde `0` invece di «indefinito»; il misuratore allora si legge come «sempre oltre». — risolto (#275): `pace.Ceiling` è indefinito con il reset passato, quindi lo snapshot non ha target (#322; E5, I-6).
+7. **Finestra mobile senza `resetsAt`** ripiega sulla regola di rinnovo manuale come fine periodo; privo di senso per una finestra mobile (E6). — risolto (#161): `quotaperiod.ResolvePeriod` dà alle finestre mobili solo il loro reset.
+8. **Limiti dei giorni mobili troncati al giorno locale** (`startOfDay`): HYP#78 conta 3,78 trascorsi / 3,22 rimanenti invece di 2,82 / 4,18. Modello confermato (§1-2): conservare i timestamp mobili esatti e pesare la sovrapposizione di ogni giorno locale per la sua unità lavorativa, divisa per 24 ore; i cicli di fatturazione mantengono giorni locali interi. Implementato nel package Go `quotaperiod` (HYP#161); l’integrazione TypeScript rimane parte di HYP#75. — risolto (#161)
 9. ~~**`resolveRenewalDate` con giorno 29-31** traboccava nel mese seguente~~ — risolto (#111, N-6..N-9).
-10. **`budget.ts` mescola** pacing a giorni, misuratore a ore, gestione dello storico, grafico, insight e consigli in un solo file; il modello suggerisce la divisione usata da questo documento (§2 tempo, §3.2-3.8 pacing, §3.6/3.9 orario, §3.11-3.12 storico, §3.14-3.15 consigli).
+10. **`budget.ts` mescola** pacing a giorni, misuratore a ore, gestione dello storico, grafico, insight e consigli in un solo file; il modello suggerisce la divisione usata da questo documento (§2 tempo, §3.2-3.8 pacing, §3.6/3.9 orario, §3.11-3.12 storico, §3.14-3.15 consigli). — risolto (#75): i package Go `quotaperiod`, `history`, `pace`, `outlook` e `advice`, composti da `snapshot` (#322), e `insights` (#324).
+11. **Orario disattivato in un giorno di cambio dell’ora legale**: `todayElapsedUnits` divide il tempo dalla mezzanotte per 24 ore, così in un giorno di 25 ore `e` supera 1 nell’ultima ora e `E + R` non è più uguale a `N` (I-8); in un giorno di 23 ore il giorno non arriva mai a 1. Trovato dalla verifica a tappeto degli invarianti dello snapshot (#322). — risolto (#322): in Go `quotaperiod` divide per la durata reale di quel giorno (D-2.3); l’integrazione TypeScript rimane parte di HYP#75.
 
 ---
 

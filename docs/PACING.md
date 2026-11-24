@@ -44,7 +44,7 @@ A window without a reset date and without a way to derive it has no forward-look
 
 **D-2.3 Today's elapsed units** `e` **for billing cycles** (the part of today already worked), domain `[0, u(today)]`:
 - schedule enabled: `0` while no activity was seen today; otherwise `min(u(today), max(2 h, worked) / hoursPerDay)` where *worked* = last increase − first activity of the day (§3.1); `0` on a day off;
-- schedule disabled: fraction of the calendar day elapsed (`10:00` → 0.4167).
+- schedule disabled: fraction of the calendar day elapsed (`10:00` → 0.4167), over that day's real length (23 or 25 hours on the days daylight saving time changes, so `e` never exceeds 1).
 
 For billing cycles, D-2.4 to D-2.6 hold for `today` inside the period, `start ≤ today < end` (local days). For rolling days they hold for `start ≤ now < end` (exact instants). Outside it: **before the start** `E = 0`, `R = U = N`; **from the end on** `E = N`, `R = U = 0`.
 
@@ -345,7 +345,7 @@ Each row says what the quantities are. "—" = undefined, the indicator is hidde
 |---|---|---|---|
 | E1 | **Start of window** | S on Thu 10-01 09:00, x = 0, x₀ = 0 | E = 0, R = 22, idx —, proj 0, a hidden, B = 4.55 (used 0), q = s = 4.55, verdict on track, preliminary, T = 0.57, v — |
 | E2 | **Last minutes before the reset** | S, Fri 10-30 17:00, 7.9 h worked, x = 60, x₀ = 58 | R = 0.0125, proj 60.0, a = 14.7 > R (no tip), q = 40 (ρ 8.8, ahead), B = 42, **T = 0.57** (ceiling 400 ignored) |
-| E3 | **Quota exhausted** | S, x = 100, x₀ = 90 | verdict exhausted, a = 0, rem 0, q = 0, T = 0, B = 1.11 used 13 (pace alert), no `autonomy` tip, no `rating`-based push to consume |
+| E3 | **Quota exhausted** | S, x = 100, x₀ = 90 | verdict exhausted, a = 0, rem 0, q = 0, T = 0, B = 1.11 used 10 (pace alert), no `autonomy` tip, no `rating`-based push to consume |
 | E3b | **Over the limit** | S, x = 103 | as E3; shown value 103, never clamped; remaining 0 |
 | E4 | **No usage yet today** | S, x = x₀ = 60, no activity | e = 0, E = 13, R = 9, used_today 0, B = 4.44, v = 0 or —, gauge position 0, today not rated |
 | E5 | **Reset passed** (stale last response, `resetsAt` < `now`) | 5-hour window, resetsAt 09:00, now 10:00, x = 80 stale | no forward-looking values: hoursLeft 0, projected = 80, autonomy —, T —, verdict from x only (exhausted if ≥ 100, else no pacing); shown as stale until a fresh fetch |
@@ -416,16 +416,17 @@ Rules: a computation **reads** state and never writes it; the snapshot sent to t
 
 Found while writing the model; each becomes a failing case and an item of the refactoring. **No fix before #75** (see the issue's rule).
 
-1. **Target = ceiling** (`sustainableHourlyRate` returns `C`): G-7 gives 0.87 instead of 0.57, G-12 gives 331 instead of 0.57. Only the calendar fallback prevents the zero-hours case.
-2. **Target for an unknown period start** is the calendar ceiling (one-off credits); the model has none (I-6).
-3. **`autonomy` tip** has no bounds on the reduction: TP-2 shows 100 %, TP-4 0 %. It is computed from the *rounded* autonomy and working days (TP-1: 8.4 / 8.6), not the exact ones (I-4). Fixed in the Go `advice` package (HYP#165): the bounds are checked on the displayed reduction, the parameters stay exact. TypeScript integration remains part of HYP#75.
-4. **Verdict ratio** is computed from `perUnit` and `idealPerUnit` already rounded to 0.01 (I-4): `ρ` at the 0.95/1.05/0.5 edges can flip. The verdict compares `proj > 100` on the value rounded to 0.1.
-5. **Daily point written on every refresh, also stale** (the lone `fresh` flag is applied to samples only): the model has one rule, fresh only (I-12).
-6. **Reset passed**: `sustainableHourlyRate` answers `0` instead of "undefined"; the gauge then reads as "always over".
-7. **Rolling window without `resetsAt`** falls back to the manual renewal rule as period end; meaningless for a rolling window (E6).
-8. **Rolling-days bounds truncated to local days** (`startOfDay`): HYP#78 counts 3.78 elapsed / 3.22 remaining instead of 2.82 / 4.18. Confirmed model (§1-2): keep exact rolling timestamps and weight each local day's overlap by its scheduled unit, divided by 24 hours; billing cycles keep whole local days. Implemented in the Go `quotaperiod` package (HYP#161); TypeScript integration remains part of HYP#75.
+1. **Target = ceiling** (`sustainableHourlyRate` returns `C`): G-7 gives 0.87 instead of 0.57, G-12 gives 331 instead of 0.57. Only the calendar fallback prevents the zero-hours case. — fixed (#275): the Go `pace.Target` is `min(C, s_h)`, composed by the snapshot (#322; G-12 and E2 end to end).
+2. **Target for an unknown period start** is the calendar ceiling (one-off credits); the model has none (I-6). — fixed (#322): without a period start the snapshot has no target (E9, I-6).
+3. **`autonomy` tip** has no bounds on the reduction: TP-2 shows 100 %, TP-4 0 %. It is computed from the *rounded* autonomy and working days (TP-1: 8.4 / 8.6), not the exact ones (I-4). Fixed in the Go `advice` package (HYP#165): the bounds are checked on the displayed reduction, the parameters stay exact. TypeScript integration remains part of HYP#75. — fixed (#165)
+4. **Verdict ratio** is computed from `perUnit` and `idealPerUnit` already rounded to 0.01 (I-4): `ρ` at the 0.95/1.05/0.5 edges can flip. The verdict compares `proj > 100` on the value rounded to 0.1. — fixed (#164): the Go verdict reads the exact `q`, `s` and projection, and the snapshot passes them unrounded (#322, I-4).
+5. **Daily point written on every refresh, also stale** (the lone `fresh` flag is applied to samples only): the model has one rule, fresh only (I-12). — fixed (#162): `history.Record` ignores observations that are not fresh, and the snapshot passes the response's freshness (#322; E5, I-12).
+6. **Reset passed**: `sustainableHourlyRate` answers `0` instead of "undefined"; the gauge then reads as "always over". — fixed (#275): `pace.Ceiling` is undefined with the reset passed, so the snapshot has no target then (#322; E5, I-6).
+7. **Rolling window without `resetsAt`** falls back to the manual renewal rule as period end; meaningless for a rolling window (E6). — fixed (#161): `quotaperiod.ResolvePeriod` gives rolling windows only their own reset.
+8. **Rolling-days bounds truncated to local days** (`startOfDay`): HYP#78 counts 3.78 elapsed / 3.22 remaining instead of 2.82 / 4.18. Confirmed model (§1-2): keep exact rolling timestamps and weight each local day's overlap by its scheduled unit, divided by 24 hours; billing cycles keep whole local days. Implemented in the Go `quotaperiod` package (HYP#161); TypeScript integration remains part of HYP#75. — fixed (#161)
 9. ~~**`resolveRenewalDate` with day 29-31** overflowed into the following month~~ — fixed (#111, N-6..N-9).
-10. **`budget.ts` mixes** day-based pacing, hour-based gauge, history bookkeeping, chart, insights and tips in one file; the model suggests the split used by this document (§2 time, §3.2-3.8 pacing, §3.6/3.9 hourly, §3.11-3.12 history, §3.14-3.15 advice).
+10. **`budget.ts` mixes** day-based pacing, hour-based gauge, history bookkeeping, chart, insights and tips in one file; the model suggests the split used by this document (§2 time, §3.2-3.8 pacing, §3.6/3.9 hourly, §3.11-3.12 history, §3.14-3.15 advice). — fixed (#75): the Go packages `quotaperiod`, `history`, `pace`, `outlook` and `advice`, composed by `snapshot` (#322), and `insights` (#324).
+11. **Schedule disabled on a daylight saving day**: `todayElapsedUnits` divides the time since midnight by 24 hours, so on a 25-hour day `e` passes 1 in the last hour and `E + R` no longer equals `N` (I-8); on a 23-hour day the day never reaches 1. Found by the snapshot's invariant sweep (#322). — fixed (#322): the Go `quotaperiod` divides by that day's real length (D-2.3); TypeScript integration remains part of HYP#75.
 
 ---
 
