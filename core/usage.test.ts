@@ -412,8 +412,65 @@ test('a service read from before midnight, picked up after it, lands on its own 
 
   const points = h.history.dailyUsage.filter((p) => p.windowId === 'seven_day').map(({ date, used, dayStartUsed }) => ({ date, used, dayStartUsed }));
   assert.deepEqual(points, [
-    { date: '2026-10-14', used: 50, dayStartUsed: at(points, 0).dayStartUsed },
+    { date: '2026-10-14', used: 50, dayStartUsed: 40 },
     { date: '2026-10-15', used: 50, dayStartUsed: 50 },
   ]);
   assert.equal(h.history.recentSamples.at(-1)?.timestamp, beforeMidnight);
+});
+
+test('a CLI read that takes a few seconds keeps its sample in the instant pace of its refresh', async () => {
+  const h = harness([claudeAccount()], usage(weeklyWindow(10)));
+  // The fetch takes 5 s of the fake clock: the read is stamped after the refresh began.
+  const slowRead = (used: number) => async (): Promise<RawAccountUsage> => {
+    h.clock.now = new Date(h.clock.now.getTime() + 5000);
+    return usage(weeklyWindow(used));
+  };
+  h.answer.next = slowRead(10);
+  await h.core.buildUsageSnapshot('forced');
+  h.clock.now = new Date(NOW.getTime() + 30 * MIN);
+  h.answer.next = slowRead(20);
+  await h.core.buildUsageSnapshot('forced');
+  h.clock.now = new Date(NOW.getTime() + 60 * MIN);
+  h.answer.next = slowRead(50);
+  const { snapshot } = await h.core.buildUsageSnapshot('forced');
+  assert.equal(at(at(snapshot.accounts, 0).windows, 0).instantRate, 40);
+  // The samples carry the time the refresh began, as before #182.
+  assert.equal(h.history.recentSamples.at(-1)?.timestamp, new Date(NOW.getTime() + 60 * MIN).toISOString());
+});
+
+test('a refresh started before midnight whose CLI read ends after it writes no point for the next day', async () => {
+  const h = harness([claudeAccount()], usage(weeklyWindow(40)));
+  const started = new Date(2026, 9, 14, 23, 59, 50);
+  h.clock.now = started;
+  h.answer.next = async () => {
+    h.clock.now = new Date(2026, 9, 15, 0, 0, 20);
+    return usage(weeklyWindow(40));
+  };
+  await h.core.buildUsageSnapshot('forced');
+  assert.deepEqual(h.history.dailyUsage.map((p) => p.date), ['2026-10-14']);
+  assert.equal(h.history.recentSamples.at(-1)?.timestamp, started.toISOString());
+});
+
+test('a late service read from yesterday moves the start of a today point already written (no double count)', async () => {
+  const h = harness([claudeAccount()], usage(weeklyWindow(40)));
+  const lastEvening = new Date(2026, 9, 14, 23, 50);
+  h.clock.now = lastEvening;
+  await h.core.buildUsageSnapshot('forced');
+
+  // 00:01: the service still holds the 23:50 document: no new value, but today's point is written.
+  h.served.fetchedAt = lastEvening.toISOString();
+  h.clock.now = new Date(2026, 9, 15, 0, 1);
+  await h.core.buildUsageSnapshot('forced');
+  assert.deepEqual(h.history.dailyUsage.find((p) => p.date === '2026-10-15')?.dayStartUsed, 40);
+
+  // 00:03: the service's 23:58 read (50) belongs to yesterday; today starts from it.
+  h.served.fetchedAt = new Date(2026, 9, 14, 23, 58).toISOString();
+  h.clock.now = new Date(2026, 9, 15, 0, 3);
+  h.answer.next = async () => usage(weeklyWindow(50));
+  await h.core.buildUsageSnapshot('forced');
+  const points = h.history.dailyUsage.map(({ date, used, dayStartUsed }) => ({ date, used, dayStartUsed }));
+  assert.deepEqual(points, [
+    { date: '2026-10-14', used: 50, dayStartUsed: 40 },
+    { date: '2026-10-15', used: 50, dayStartUsed: 50 },
+  ]);
 });
