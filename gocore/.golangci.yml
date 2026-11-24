@@ -101,12 +101,34 @@ linters:
               desc: outlook is pure, no I/O
             - pkg: unsafe
               desc: outlook is pure, no I/O
+        advice-is-pure:
+          list-mode: strict
+          files:
+            - "**/internal/pacing/advice/**"
+            - "!$test"
+          allow:
+            - $gostd
+            - github.com/suppressio/aipermiler/gocore/internal/pacing/quotaperiod
+            - github.com/suppressio/aipermiler/gocore/internal/pacing/history
+            - github.com/suppressio/aipermiler/gocore/internal/pacing/pace
+          deny:
+            - pkg: os
+              desc: advice is pure, no I/O
+            - pkg: io/fs
+              desc: advice is pure, no I/O
+            - pkg: net
+              desc: advice is pure, no I/O
+            - pkg: syscall
+              desc: advice is pure, no I/O
+            - pkg: unsafe
+              desc: advice is pure, no I/O
         pacing-is-pure:
           list-mode: strict
           files:
             - "**/internal/pacing/**"
             - "!**/internal/pacing/pace/**"
             - "!**/internal/pacing/outlook/**"
+            - "!**/internal/pacing/advice/**"
             - "!$test"
           allow:
             - $gostd

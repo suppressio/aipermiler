@@ -1,0 +1,23 @@
+[
+  {"id": "C-6", "description": "Mon 2.0 under, Sun 0, Sat 0, Fri 3.5 under, Thu 5.0 over", "pastDays": 7, "upcoming": 2,
+   "points": [["2026-10-15", 57, 52], ["2026-10-16", 60.5, 57], ["2026-10-17", 60.5, 60.5], ["2026-10-18", 60.5, 60.5], ["2026-10-19", 62.5, 60.5], ["2026-10-20", 62.5, 62.5]],
+   "days": 5, "peak": 5, "average": 2.1, "hasPeakAverage": true, "hasStreak": true, "streak": 2},
+  {"id": "C-7", "description": "all deltas 0: peak 0, average 0, no streak", "pastDays": 7, "upcoming": 2,
+   "points": [["2026-10-16", 60, 60], ["2026-10-19", 60, 60]],
+   "days": 2, "peak": 0, "average": 0, "hasPeakAverage": true, "hasStreak": false, "streak": 0},
+  {"id": "C-8", "description": "one completed day only: peak and average hidden", "pastDays": 7, "upcoming": 2,
+   "points": [["2026-10-19", 62.5, 60.5]],
+   "days": 1, "peak": 2, "average": 2, "hasPeakAverage": false, "hasStreak": true, "streak": 1},
+  {"id": "C-8", "description": "no completed day", "pastDays": 7, "upcoming": 2,
+   "points": [["2026-10-20", 62.5, 60.5]],
+   "days": 0, "peak": 0, "average": 0, "hasPeakAverage": false, "hasStreak": false, "streak": 0},
+  {"id": "I-9", "description": "a day drawn over budget breaks the streak even under the even share", "pastDays": 7, "upcoming": 2,
+   "points": [["2026-10-15", 56.5, 52], ["2026-10-16", 60, 57]],
+   "days": 2, "peak": 4.5, "average": 3.75, "hasPeakAverage": true, "hasStreak": true, "streak": 1},
+  {"id": "D-3.25", "description": "a day without any limit ends the streak", "pastDays": 7, "upcoming": 2, "noPeriod": true,
+   "points": [["2026-10-16", 61, 60], ["2026-10-19", 62, 61]],
+   "days": 2, "peak": 1, "average": 1, "hasPeakAverage": true, "hasStreak": false, "streak": 0},
+  {"id": "D-3.24", "description": "reset days are not in the peak or the average", "pastDays": 7, "upcoming": 2,
+   "points": [["2026-10-15", 55, 52], ["2026-10-16", 3, 55], ["2026-10-19", 62, 60]],
+   "days": 2, "peak": 3, "average": 2.5, "hasPeakAverage": true, "hasStreak": true, "streak": 2}
+]
