@@ -17,6 +17,7 @@ import type {
 } from '../types/index';
 import type { AipermilerBridge } from '../types/ipc';
 import { windowLabel } from './windowLabel.js';
+import { accountStatusLabel } from './accountStatus.js';
 import { byId } from './dom.js';
 import { applySeverity, severityLevel, todaySeverity } from './severity.js';
 import { GAUGE_TARGET_POSITION, GAUGE_TICK_RATIOS, gaugePosition } from './gauge.js';
@@ -29,7 +30,6 @@ import { flowSpan, instantFlow, isWorkingDay } from './instantFlow.js';
 import {
   applyTranslations,
   formatDate,
-  formatDateTime,
   formatNumber,
   formatTime,
   resolveLocale,
@@ -944,19 +944,8 @@ function renderSnapshot(snapshot: UsageSnapshot): void {
   } else if (account.planTier === 'free') {
     label = t('widget.freePlan');
   }
-  if (account.stale && account.notice && !account.lastUpdatedAt) {
-    // A state the user has to act on (e.g. sign in with Codex, #178), not a failed sync.
-    label = account.notice;
-  } else if (account.stale) {
-    // Never a successful sync so far: the account IS connected but the very first
-    // fetch failed — not to be confused with "not connected".
-    label = account.lastUpdatedAt
-      ? t('widget.stale', { label, time: formatDateTime(account.lastUpdatedAt) })
-      : t('widget.firstSyncFailed');
-    const reason = account.lastError ?? account.notice;
-    if (reason) label = t('widget.withError', { label, error: reason });
-  }
-  byId('current-label').textContent = label;
+  // Stale data, an error, a notice or the service still reading (renderer/accountStatus.ts).
+  byId('current-label').textContent = accountStatusLabel(account, label);
   // The compact view hides the account tabs: the label carries the account name there (style.css).
   byId('current-label').dataset.account = account.label;
 

@@ -80,7 +80,7 @@ aipermiler/
 ├── preload.ts                   ← contextBridge renderer ↔ main
 ├── gocore/                      ← Go core module (#145), strict lint + depguard; CI job `go-checks`
 │   ├── cmd/aipermiler/          ← one binary, subcommand entry point
-│   ├── contract/v1/             ← shared normative JSON fixtures (Go + TypeScript client); service/ = the service's own documents (#248), not yet read by the TypeScript client (#182)
+│   ├── contract/v1/             ← shared normative JSON fixtures (Go + TypeScript client); service/ = the service's own documents (#248), read by main/serviceClient.ts (#182)
 │   └── internal/
 │       ├── buildinfo/           ← binary name and build-time version
 │       ├── cli/                 ← command dispatch and exit codes
@@ -105,9 +105,10 @@ aipermiler/
 ├── main/
 │   ├── ipc.ts                   ← typed handle/listen/sendToRenderer wrappers keyed on types/ipc.ts
 │   ├── appDir.ts                ← folder of the main entry (dist/): base of the renderer and preload paths in the bundle and in the tsc output
-│   ├── core.ts                  ← the app's one core client (binary resolved per call)
+│   ├── core.ts                  ← the app's one core client (binary resolved per call) and service client (config folder resolved per call)
 │   ├── coreRequests.ts          ← provider flags of the core commands from an account config (pure, + test)
 │   ├── localInsights.ts         ← which cached Claude local insights may still be shown: only those counted by the core (#299) (+ test)
+│   ├── serviceClient.ts         ← reads usage from the core's always-on service when it runs (api.json, /health, contract version), CLI fallback with the reason (#182) (+ test)
 │   ├── coreClient.ts            ← runs the bundled core CLI (execFile, no shell, timeout, --json, secrets on stdin) and parses contract v1 against gocore/contract/v1 (+ test)
 │   ├── windows.ts               ← main window (skins filled/filled-dark/transparent-digital) and Settings window
 │   ├── tray.ts                  ← cross-platform tray; createTray returns { tray, refreshMenu }
@@ -124,6 +125,8 @@ aipermiler/
 │   ├── settings.html, settings.css, settings.ts ← Settings window (accounts table, language, updates, …)
 │   ├── dom.ts                   ← byId(id, ElementType): typed, checked element access
 │   ├── schedule.ts              ← one-line summary of an account work schedule (+ test)
+│   ├── accountStatus.ts         ← the widget's status line: stale, error, notice, service "refreshing" (+ test)
+│   ├── usageSource.ts           ← Settings → Diagnostics: service or CLI per account (+ test)
 │   ├── windowLabel.ts           ← localized quota-window labels, including Codex limits (+ test)
 │   ├── gauge.ts                 ← log-scale position of the instant pace against its target (+ test)
 │   ├── visibility.ts            ← which indicators are shown (autonomy, peak/average, streak) (+ test)
@@ -178,7 +181,7 @@ aipermiler/
 - Think through every path on Windows, macOS and Linux before writing it.
 
 ### Service interface
-Every provider is read by the Go core CLI since #179 (no TypeScript usage service left): `main/core.ts` runs `aipermiler usage <provider> --json` and gets `RawAccountUsage` (contract v1, docs/CORE-CLI.md; full types in `types/index.ts`, multi-window rationale in docs/ARCHITECTURE.md §0):
+Every provider is read by the Go core CLI since #179 (no TypeScript usage service left): `main/core.ts` runs `aipermiler usage <provider> --json`, or reads the same document from the core's always-on service when one runs (#182, `main/serviceClient.ts`, the CLI as fallback for that read), and gets `RawAccountUsage` (contract v1, docs/CORE-CLI.md; full types in `types/index.ts`, multi-window rationale in docs/ARCHITECTURE.md §0):
 
 ```ts
 // RawAccountUsage = { planTier, subscriptionRenewsAt, quotaWindows: QuotaWindow[] }

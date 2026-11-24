@@ -13,6 +13,7 @@ import type {
   UsageSnapshot,
   WindowStyle,
   TrayViewState,
+  UsageSourceStatus,
 } from './index';
 
 export interface CopilotOAuthPayload {
@@ -21,7 +22,8 @@ export interface CopilotOAuthPayload {
   host: string;
 }
 
-export type CoreStatus = { ok: true; version: string } | { ok: false; error: string };
+// With the source of each enabled account's last usage read (#182): the service or the CLI.
+export type CoreStatus = ({ ok: true; version: string } | { ok: false; error: string }) & { sources: UsageSourceStatus[] };
 
 // A handler with nothing to return (`void` is only allowed as a generic argument).
 type NoResult = Awaited<Promise<void>>;

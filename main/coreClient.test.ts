@@ -43,6 +43,9 @@ test('every shared fixture is read by this client (none left untested)', () => {
     'insights-claude.json', 'insights-empty.json', 'login-authorize.json', 'raw.json',
     'usage-claude.json', 'usage-count-window.json', 'usage-ok.json', 'usage-stale.json', 'version.json',
   ]);
+  // The service's own documents (#248), read by main/serviceClient.ts (#182, serviceClient.test.ts).
+  const service = fs.readdirSync(path.join(FIXTURES, 'service')).filter((f) => f.endsWith('.json')).sort();
+  assert.deepEqual(service, ['error-not-read.json', 'health.json', 'usage-list.json', 'usage-not-read.json']);
 });
 
 test('usage-ok: RawAccountUsage with ISO strings, every window field', () => {
@@ -79,7 +82,7 @@ test('usage-count-window: billing-cycle count window and renewal date', () => {
 test('usage-stale: exit 0 with the stale mark and its reason', () => {
   const result = parseUsageRun(runOf('usage-stale', 0), 'fake');
   assert.equal(result.stale, true);
-  assert.deepEqual(result.staleReason, { code: 'unavailable', message: 'Provider is temporarily unavailable' });
+  assert.deepEqual(result.staleReason, { code: 'unavailable', message: 'Provider is temporarily unavailable', reason: null });
   assert.equal(result.usage.quotaWindows.length, 2);
 });
 

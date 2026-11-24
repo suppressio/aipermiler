@@ -82,6 +82,8 @@ export class CoreProviderError extends Error {
 export interface CoreStaleReason {
   code: CoreErrorCode;
   message: string;
+  // A known case inside the code, as for errors (e.g. the service's `not_read_yet`, #182).
+  reason: string | null;
 }
 
 /** A successful usage document: the provider data, with the stale mark when it gave last known values. */
@@ -345,7 +347,7 @@ export function parseUsageRun(run: CoreRun, provider: string): CoreUsageResult {
   if (doc.stale) {
     const reason = doc.staleReason;
     if (!isRecord(reason) || typeof reason.message !== 'string') throw new CoreOutputError('Core document: a stale result needs a staleReason');
-    staleReason = { code: errorCode(reason.code), message: reason.message };
+    staleReason = { code: errorCode(reason.code), message: reason.message, reason: typeof reason.reason === 'string' ? reason.reason : null };
   }
   return { usage: parseUsage(doc.usage), fetchedAt: doc.fetchedAt, stale: doc.stale, staleReason };
 }
@@ -358,8 +360,8 @@ export function parseUsageRun(run: CoreRun, provider: string): CoreUsageResult {
  */
 export function requireFresh(result: CoreUsageResult, provider: string): RawAccountUsage {
   if (!result.stale) return result.usage;
-  const reason = result.staleReason ?? { code: 'unavailable', message: 'Core returned stale values' };
-  throw new CoreProviderError(reason.code, reason.message, provider);
+  const reason = result.staleReason ?? { code: 'unavailable', message: 'Core returned stale values', reason: null };
+  throw new CoreProviderError(reason.code, reason.message, provider, reason.reason);
 }
 
 export function parseVersionRun(run: CoreRun): CoreVersion {
