@@ -273,7 +273,7 @@ Un consiglio è un **dato** (`{ key, params }`); i candidati sono quelli la cui 
 |---|---|---|
 | `autonomy` | non preliminare, `x < 100`, `0 < a < R` (finita), e la riduzione mostrata è **tra 1 % e 99 %** | `a`, `R`, `reduction = (1 − a / R) × 100` |
 | `rating` | stelle ≥ 4 | stelle, media |
-| `nearReset` / `nearResetToday` | giorni al reset ≤ 2 (0 → *oggi*) e `x ≥ 70` | giorni, `x` |
+| `nearReset` / `nearResetToday` | giorni al reset ≤ 2 (< 1 → *oggi*, coerente con il testo «meno di un giorno»; il codice TypeScript usa i giorni di calendario = 0) e `x ≥ 70` | giorni, `x` |
 | `cause` | la causa di consumo è chiara (§3.15) | percentuali, giorni |
 
 | # | Input | Atteso |
@@ -418,7 +418,7 @@ Emersi scrivendo il modello; ognuno diventa un caso che fallisce e una voce del 
 
 1. **Target = tetto** (`sustainableHourlyRate` restituisce `C`): G-7 dà 0,87 invece di 0,57, G-12 dà 331 invece di 0,57. Solo il ripiego sul calendario evita il caso a zero ore.
 2. **Target con inizio periodo ignoto** è il tetto di calendario (crediti una tantum); il modello non ne ha (I-6).
-3. **Il consiglio `autonomy`** non ha limiti sulla riduzione: TP-2 mostra 100 %, TP-4 0 %. È calcolato su autonomia e giorni lavorativi *arrotondati* (TP-1: 8,4 / 8,6), non su quelli esatti (I-4). Corretto nel package Go `advice` (HYP#165): i limiti si controllano sulla riduzione mostrata, i parametri restano esatti.
+3. **Il consiglio `autonomy`** non ha limiti sulla riduzione: TP-2 mostra 100 %, TP-4 0 %. È calcolato su autonomia e giorni lavorativi *arrotondati* (TP-1: 8,4 / 8,6), non su quelli esatti (I-4). Corretto nel package Go `advice` (HYP#165): i limiti si controllano sulla riduzione mostrata, i parametri restano esatti. L’integrazione TypeScript rimane parte di HYP#75.
 4. **Il rapporto del verdetto** è calcolato da `perUnit` e `idealPerUnit` già arrotondati a 0,01 (I-4): `ρ` ai limiti 0,95/1,05/0,5 può ribaltarsi. Il verdetto confronta `proj > 100` sul valore arrotondato a 0,1.
 5. **Punto giornaliero scritto a ogni aggiornamento, anche non fresco** (il flag `fresh` vale solo per i campioni): il modello ha una sola regola, solo fresco (I-12).
 6. **Reset passato**: `sustainableHourlyRate` risponde `0` invece di «indefinito»; il misuratore allora si legge come «sempre oltre».
