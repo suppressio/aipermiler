@@ -232,12 +232,18 @@ export function computeWindowSnapshot(
   now: Date,
   localInsights: ClaudeLocalInsights | null,
   fresh: boolean,
+  // When the values were read: now for a CLI read, the service's fetchedAt for a
+  // document of the core's service (#182), which may be minutes earlier.
+  readAt: Date,
 ): QuotaWindowSnapshot {
   const { periodStart, periodEnd } = resolvePeriodBounds(window, subscription, providerRenewsAt, now);
+  // A fresh value read on an earlier day (a service read at 23:58 picked up at 00:03)
+  // belongs to that day; today's point then starts from it.
+  if (fresh && budget.localDateKey(readAt) !== budget.localDateKey(now)) recordDailyUsage(draft, accountId, window, periodStart, readAt);
   const todayPoint = recordDailyUsage(draft, accountId, window, periodStart, now);
   // Only a value just read from the provider is a sample: last known data repeated
   // after a failed or skipped fetch would flatten the instant pace.
-  if (fresh) recordRecentSample(draft, accountId, window, now);
+  if (fresh) recordRecentSample(draft, accountId, window, readAt);
   const { chartDays } = draft;
   // chartDays + 1 points: N+1 cumulative values are needed for N daily deltas
   // (consumption-per-day chart and rating) — the rating used to see only N-1.
@@ -365,7 +371,9 @@ export function computeAccountSnapshot(
 ): AccountSnapshot {
   const { subscription, workSchedule } = cfg;
   const identity = { accountId: cfg.id, provider: cfg.provider, label: cfg.label };
-  const windows = raw.quotaWindows.map((w) => computeWindowSnapshot(draft, cfg.id, w, subscription, raw.subscriptionRenewsAt, workSchedule, now, localInsights, fresh));
+  // A fresh value's own read time (core/usage fetchAccountOrFallback stamps it).
+  const readAt = fresh && raw.lastUpdatedAt ? new Date(raw.lastUpdatedAt) : now;
+  const windows = raw.quotaWindows.map((w) => computeWindowSnapshot(draft, cfg.id, w, subscription, raw.subscriptionRenewsAt, workSchedule, now, localInsights, fresh, readAt));
   // The window needing attention first (at risk/exhausted), then the most used.
   const criticalSnapshot = budget.pickCriticalSnapshot(windows) ?? undefined;
   const criticalWindow = criticalSnapshot?.window ?? null;

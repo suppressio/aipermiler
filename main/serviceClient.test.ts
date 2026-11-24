@@ -35,7 +35,8 @@ interface FakeService {
   close: () => Promise<void>;
 }
 
-type Route = { status: number; body: string };
+// 'hang': accept the request and never answer it.
+type Route = { status: number; body: string; headers?: Record<string, string> } | 'hang';
 
 /** A loopback server that checks the bearer token like the real one, writing api.json in a temp folder. */
 async function fakeService(routes: Record<string, Route>, apiFile?: (port: number) => unknown): Promise<FakeService> {
@@ -51,7 +52,8 @@ async function fakeService(routes: Record<string, Route>, apiFile?: (port: numbe
       res.writeHead(404, { 'Content-Type': 'application/json' }).end(fixture('error-usage'));
       return;
     }
-    res.writeHead(route.status, { 'Content-Type': 'application/json' }).end(route.body);
+    if (route === 'hang') return;
+    res.writeHead(route.status, { 'Content-Type': 'application/json', ...route.headers }).end(route.body);
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
   const { port } = server.address() as AddressInfo;
@@ -64,6 +66,7 @@ async function fakeService(routes: Record<string, Route>, apiFile?: (port: numbe
     requests,
     close: () => new Promise<void>((resolve) => {
       server.close(() => { resolve(); });
+      server.closeAllConnections();
       fs.rmSync(dir, { recursive: true, force: true });
     }),
   };
@@ -72,10 +75,11 @@ async function fakeService(routes: Record<string, Route>, apiFile?: (port: numbe
 const HEALTH: Route = { status: 200, body: fixture('service/health') };
 const usageRoute = (id: string): string => `/api/v1/accounts/${id}/usage`;
 
-async function withService<T>(routes: Record<string, Route>, run: (svc: FakeService, client: ServiceClient) => Promise<T>, apiFile?: (port: number) => unknown): Promise<T> {
+async function withService<T>(routes: Record<string, Route>, run: (svc: FakeService, client: ServiceClient) => Promise<T>, apiFile?: (port: number) => unknown,
+  timeouts?: { healthMs: number; usageMs: number }): Promise<T> {
   const svc = await fakeService(routes, apiFile);
   try {
-    return await run(svc, createServiceClient({ configDir: () => svc.dir }));
+    return await run(svc, createServiceClient({ configDir: () => svc.dir, ...(timeouts ? { timeouts } : {}) }));
   } finally {
     await svc.close();
   }
@@ -164,7 +168,7 @@ test('fallback: stopped service (leftover api.json, nobody listening) → unreac
 
 test('fallback: unreadable api.json → malformed', async () => {
   for (const info of [{ port: 'x', token: TOKEN }, { port: 0, token: TOKEN }, { token: TOKEN }, (port: number) => ({ port, token: '' })]) {
-    const reason = await withService({ '/api/v1/health': HEALTH }, (_svc, client) => unusableReason(client.usage('a1', 'fake')),
+    const reason: string = await withService({ '/api/v1/health': HEALTH }, (_svc, client) => unusableReason(client.usage('a1', 'fake')),
       (port) => (typeof info === 'function' ? info(port) : info));
     assert.equal(reason, 'malformed');
   }
@@ -197,7 +201,13 @@ test('fallback: an account the service does not serve (404) → unknown_account'
 });
 
 test('fallback: a failing service (5xx other than a provider error, failed health) → failed', async () => {
-  await withService({ '/api/v1/health': HEALTH, [usageRoute('a1')]: { status: 503, body: fixture('error-unavailable') } }, async (_svc, client) => {
+  // The service's own 503s (stopping, no refresh loop) carry no provider.
+  const stopping = '{"schemaVersion":1,"error":{"code":"unavailable","message":"The service is stopping"}}';
+  await withService({ '/api/v1/health': HEALTH, [usageRoute('a1')]: { status: 503, body: stopping } }, async (_svc, client) => {
+    assert.equal(await unusableReason(client.usage('a1', 'fake')), 'failed');
+  });
+  // A 502 whose body is not an error document.
+  await withService({ '/api/v1/health': HEALTH, [usageRoute('a1')]: { status: 502, body: fixture('usage-ok') } }, async (_svc, client) => {
     assert.equal(await unusableReason(client.usage('a1', 'fake')), 'failed');
   });
   await withService({ '/api/v1/health': HEALTH, [usageRoute('a1')]: { status: 500, body: '' } }, async (_svc, client) => {
@@ -214,7 +224,8 @@ test('fallback: malformed answers → malformed', async () => {
     { '/api/v1/health': HEALTH, [usageRoute('a1')]: { status: 200, body: '{"schemaVersion":1' } },
     { '/api/v1/health': HEALTH, [usageRoute('a1')]: { status: 200, body: fixture('usage-ok').replace('"schemaVersion":1', '"schemaVersion":2') } },
     { '/api/v1/health': HEALTH, [usageRoute('a1')]: { status: 200, body: fixture('error-unavailable') } },
-    { '/api/v1/health': HEALTH, [usageRoute('a1')]: { status: 502, body: fixture('usage-ok') } },
+    // A provider error document without its message.
+    { '/api/v1/health': HEALTH, [usageRoute('a1')]: { status: 502, body: '{"schemaVersion":1,"provider":"fake","error":{"code":"timeout"}}' } },
   ];
   for (const routes of cases) {
     await withService(routes, async (_svc, client) => {
@@ -267,4 +278,41 @@ test('coreConfigDir: the Go core folder on each OS, with the override', () => {
   const override = path.join(path.sep, 'dev', 'core');
   assert.equal(coreConfigDir({ AIPERMILER_CONFIG_DIR: override }, 'win32', home), override);
   assert.throws(() => coreConfigDir({ AIPERMILER_CONFIG_DIR: 'rel' }, 'linux', home), /absolute/);
+});
+
+test('a 503 error document for the provider (not_ready) is the account answer: no CLI probe next to the service (#182 (d))', async () => {
+  await withService({ '/api/v1/health': HEALTH, [usageRoute('a1')]: { status: 503, body: fixture('error-not-ready') } }, async (_svc, client) => {
+    let cliCalls = 0;
+    const cli = (): Promise<CoreUsageResult> => { cliCalls += 1; return Promise.reject(new Error('no CLI expected')); };
+    await assert.rejects(readUsageWithFallback(client, 'a1', 'fake', cli, () => undefined),
+      (err: unknown) => err instanceof CoreProviderError && err.code === 'not_ready');
+    assert.equal(cliCalls, 0);
+  });
+});
+
+test('fallback: a read the service refused (400 usage error) → rejected', async () => {
+  await withService({ '/api/v1/health': HEALTH, [usageRoute('a1')]: { status: 400, body: fixture('error-usage') } }, async (_svc, client) => {
+    assert.equal(await unusableReason(client.usage('a1', 'fake')), 'rejected');
+  });
+});
+
+test('fallback: a hanging service (connection accepted, no answer) → unreachable within the timeout', async () => {
+  const timeouts = { healthMs: 200, usageMs: 200 };
+  for (const routes of [{ '/api/v1/health': 'hang' as const }, { '/api/v1/health': HEALTH, [usageRoute('a1')]: 'hang' as const }]) {
+    const started = Date.now();
+    const reason = await withService(routes, (_svc, client) => unusableReason(client.usage('a1', 'fake')), undefined, timeouts);
+    assert.equal(reason, 'unreachable');
+    assert.ok(Date.now() - started < 5000, 'bounded by the client timeout');
+  }
+});
+
+test('a redirect is never followed: the token stays on the service port', async () => {
+  const routes: Record<string, Route> = {
+    '/api/v1/health': { status: 302, body: '', headers: { Location: '/elsewhere' } },
+    '/elsewhere': HEALTH,
+  };
+  await withService(routes, async (svc, client) => {
+    assert.equal(await unusableReason(client.usage('a1', 'fake')), 'unreachable');
+    assert.deepEqual(svc.requests.map((r) => r.url), ['/api/v1/health']);
+  });
 });

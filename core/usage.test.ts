@@ -365,6 +365,7 @@ test('a service read records a sample only when its fetchedAt is newer than the 
   const fresh = await h.core.buildUsageSnapshot('forced');
   assert.equal(at(fresh.snapshot.accounts, 0).lastUpdatedAt, newer);
   assert.equal(h.history.recentSamples.length, 3);
+  assert.equal(h.history.recentSamples.at(-1)?.timestamp, newer, 'the sample is stamped with the service read time');
   assert.equal(fresh.consumptionRose, true);
 });
 
@@ -397,4 +398,22 @@ test('not read yet by a restarted service: a neutral refreshing state, not a fai
   const skipped = at((await h.core.buildUsageSnapshot('scheduled')).snapshot.accounts, 0);
   assert.equal(skipped.refreshing, true);
   assert.deepEqual(h.logs, []);
+});
+
+test('a service read from before midnight, picked up after it, lands on its own day (#182)', async () => {
+  const h = harness([claudeAccount()], usage(weeklyWindow(40)));
+  await h.core.buildUsageSnapshot('forced');
+
+  const beforeMidnight = new Date(2026, 9, 14, 23, 58).toISOString();
+  h.served.fetchedAt = beforeMidnight;
+  h.clock.now = new Date(2026, 9, 15, 0, 3);
+  h.answer.next = async () => usage(weeklyWindow(50));
+  await h.core.buildUsageSnapshot('forced');
+
+  const points = h.history.dailyUsage.filter((p) => p.windowId === 'seven_day').map(({ date, used, dayStartUsed }) => ({ date, used, dayStartUsed }));
+  assert.deepEqual(points, [
+    { date: '2026-10-14', used: 50, dayStartUsed: at(points, 0).dayStartUsed },
+    { date: '2026-10-15', used: 50, dayStartUsed: 50 },
+  ]);
+  assert.equal(h.history.recentSamples.at(-1)?.timestamp, beforeMidnight);
 });

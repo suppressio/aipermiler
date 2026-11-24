@@ -10,6 +10,7 @@ const REASON_KEYS = {
   unauthorized: 'settings.diagnostics.reason.unauthorized',
   incompatible: 'settings.diagnostics.reason.incompatible',
   unknown_account: 'settings.diagnostics.reason.unknownAccount',
+  rejected: 'settings.diagnostics.reason.rejected',
   failed: 'settings.diagnostics.reason.failed',
   malformed: 'settings.diagnostics.reason.malformed',
 } as const satisfies Record<UsageSourceReason, string>;

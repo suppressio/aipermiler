@@ -314,10 +314,10 @@ export interface AccountSnapshot extends RawAccountUsage {
 /**
  * Why an account's usage was read through the CLI instead of the core's service (#182,
  * main/serviceClient.ts): no service, nobody listening at its port, token refused,
- * another contract version, an account the service does not serve, a failing or
- * malformed answer.
+ * another contract version, an account the service does not serve, a read it refused
+ * (400), a failing or malformed answer.
  */
-export type UsageSourceReason = 'not_running' | 'unreachable' | 'unauthorized' | 'incompatible' | 'unknown_account' | 'failed' | 'malformed';
+export type UsageSourceReason = 'not_running' | 'unreachable' | 'unauthorized' | 'incompatible' | 'unknown_account' | 'rejected' | 'failed' | 'malformed';
 
 /** Where an account's last usage read came from (Settings → Diagnostics, diagnostic report). */
 export interface UsageSourceStatus {
