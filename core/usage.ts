@@ -238,8 +238,15 @@ export function computeWindowSnapshot(
 ): QuotaWindowSnapshot {
   const { periodStart, periodEnd } = resolvePeriodBounds(window, subscription, providerRenewsAt, now);
   // A fresh value read on an earlier day (a service read at 23:58 picked up at 00:03)
-  // belongs to that day; today's point then starts from it.
-  if (fresh && budget.localDateKey(readAt) !== budget.localDateKey(now)) recordDailyUsage(draft, accountId, window, periodStart, readAt);
+  // belongs to that day; today's point then starts from it, also when it was already
+  // written this morning from the older value (otherwise the delta counts on both days).
+  const todayKey = budget.localDateKey(now);
+  if (fresh && budget.localDateKey(readAt) < todayKey) {
+    const earlier = recordDailyUsage(draft, accountId, window, periodStart, readAt);
+    const at = draft.dailyUsage.findIndex((h) => h.date === todayKey && h.accountId === accountId && h.windowId === window.id);
+    const today = draft.dailyUsage[at];
+    if (earlier && today) draft.dailyUsage[at] = { ...today, dayStartUsed: earlier.used };
+  }
   const todayPoint = recordDailyUsage(draft, accountId, window, periodStart, now);
   // Only a value just read from the provider is a sample: last known data repeated
   // after a failed or skipped fetch would flatten the instant pace.
@@ -371,8 +378,11 @@ export function computeAccountSnapshot(
 ): AccountSnapshot {
   const { subscription, workSchedule } = cfg;
   const identity = { accountId: cfg.id, provider: cfg.provider, label: cfg.label };
-  // A fresh value's own read time (core/usage fetchAccountOrFallback stamps it).
-  const readAt = fresh && raw.lastUpdatedAt ? new Date(raw.lastUpdatedAt) : now;
+  // A fresh value's own read time, never later than the refresh: a service document's
+  // fetchedAt is earlier; a CLI read is stamped when it ends, after the refresh began, and
+  // counts at `now` (budget.instantaneousRate and todayActivitySpan only see samples up
+  // to now).
+  const readAt = fresh && raw.lastUpdatedAt ? new Date(Math.min(Date.parse(raw.lastUpdatedAt), now.getTime())) : now;
   const windows = raw.quotaWindows.map((w) => computeWindowSnapshot(draft, cfg.id, w, subscription, raw.subscriptionRenewsAt, workSchedule, now, localInsights, fresh, readAt));
   // The window needing attention first (at risk/exhausted), then the most used.
   const criticalSnapshot = budget.pickCriticalSnapshot(windows) ?? undefined;
