@@ -7,16 +7,20 @@
 // the OS keyring. No provider secret lives in the app any more, except a Copilot token
 // of an earlier version until main.ts moves it to the keyring. Claude (#180) is read by
 // the core through the user's own Claude Code sign-in (`claude /usage` in a PTY, #147),
-// never a claude.ai session (#140). Adding a provider = a new branch in each function below (the exhaustive
+// never a claude.ai session (#140). Usage is read from the core's always-on service when
+// one runs, the CLI being the fallback for that read (#182, main/serviceClient.ts); the
+// source of each account's last read is kept for diagnostics. Adding a provider = a new branch in each function below (the exhaustive
 // `switch` on `provider` makes tsc fail when one is forgotten).
 
-import { core } from './core';
-import { requireFresh } from './coreClient';
+import { core, coreService } from './core';
+import { requireFresh, type CoreUsageResult } from './coreClient';
 import { oneAtATime } from './oneAtATime';
+import { readUsageWithFallback, type UsageSourceRecord } from './serviceClient';
+import type { AccountRead } from '../core/usage';
 import { claudeUsageRequest, codexUsageRequest, copilotAccountFlags, copilotUsageRequest } from './coreRequests';
 import { clearClaudePartition } from './claude-auth';
 import { PROVIDER_DISPLAY_NAMES } from '../store/migrate';
-import type { AccountConfig, ProviderId, RawAccountUsage } from '../types/index';
+import type { AccountConfig, AccountId, ProviderId } from '../types/index';
 
 const SECRET_PLACEHOLDER = '••••••••';
 
@@ -51,16 +55,42 @@ const oneClaudeReadAtATime = oneAtATime();
 export const CLAUDE_CORE_ENDPOINT_LABEL = 'core: claude /usage status line rate_limits';
 
 
-/** Calls the provider service's fetchUsage with the account credentials. */
-export async function fetchUsage(cfg: AccountConfig): Promise<RawAccountUsage> {
+/** The CLI read of the account's usage (the fallback when no service serves it). */
+function cliUsage(cfg: AccountConfig): Promise<CoreUsageResult> {
   switch (cfg.provider) {
     case 'codex':
-      return requireFresh(await core.usage(codexUsageRequest(cfg)), 'codex');
+      return core.usage(codexUsageRequest(cfg));
     case 'claude':
-      return requireFresh(await oneClaudeReadAtATime(() => core.usage(claudeUsageRequest(cfg))), 'claude');
+      return oneClaudeReadAtATime(() => core.usage(claudeUsageRequest(cfg)));
     case 'copilot':
-      return requireFresh(await core.usage(copilotUsageRequest(cfg)), 'copilot');
+      return core.usage(copilotUsageRequest(cfg));
   }
+}
+
+// Where each account's last usage read came from (memory only): Settings → Diagnostics
+// and the diagnostic report.
+const usageSources = new Map<AccountId, UsageSourceRecord>();
+
+export function lastUsageSource(accountId: AccountId): UsageSourceRecord | null {
+  return usageSources.get(accountId) ?? null;
+}
+
+/**
+ * The account's usage document from the core's service when one serves it, else from
+ * the CLI. While the service serves an account the app never probes it itself (#182 (d)):
+ * the service's own errors are the account's answer.
+ */
+function readUsage(cfg: AccountConfig): Promise<{ result: CoreUsageResult; source: UsageSourceRecord['source'] }> {
+  return readUsageWithFallback(coreService, cfg.id, cfg.provider, () => cliUsage(cfg), (source) => { usageSources.set(cfg.id, source); });
+}
+
+/**
+ * The account's fresh usage. A service document carries the time its loop read it
+ * (core/usage.ts records a sample only when that is newer, #182 (a)); a CLI read is now.
+ */
+export async function fetchUsage(cfg: AccountConfig): Promise<AccountRead> {
+  const { result, source } = await readUsage(cfg);
+  return { usage: requireFresh(result, cfg.provider), fetchedAt: source === 'service' ? result.fetchedAt : null };
 }
 
 /**
@@ -72,12 +102,14 @@ export async function fetchRawResponse(cfg: AccountConfig): Promise<{ endpointLa
   switch (cfg.provider) {
     case 'codex':
       // The core's reading (contract v1 document), not the raw app-server answer: the
-      // core never forwards it. Redacted like any response by the report.
-      return { endpointLabel: CODEX_CORE_ENDPOINT_LABEL, response: await core.usage(codexUsageRequest(cfg)) };
+      // core never forwards it. Redacted like any response by the report. From the
+      // service when it serves the account, so the report never starts a probe of its own.
+      return { endpointLabel: CODEX_CORE_ENDPOINT_LABEL, response: (await readUsage(cfg)).result };
     case 'claude':
       // The core's reading too: the status line JSON stays inside the core.
-      return { endpointLabel: CLAUDE_CORE_ENDPOINT_LABEL, response: await oneClaudeReadAtATime(() => core.usage(claudeUsageRequest(cfg))) };
+      return { endpointLabel: CLAUDE_CORE_ENDPOINT_LABEL, response: (await readUsage(cfg)).result };
     case 'copilot':
+      // Through the CLI: a GitHub API call, no probe to share with the service.
       // copilot_internal/user, the main source of both scopes, raw (redacted by the report).
       return core.raw({ provider: 'copilot', flags: copilotAccountFlags(cfg) });
   }

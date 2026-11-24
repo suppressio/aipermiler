@@ -25,6 +25,7 @@ import type { TrayHandle } from './main/tray';
 import { FormatDriftError, liveSignatures, shapeSignature } from './services/_shape';
 import { CoreBinaryError, CoreOutputError, CoreProviderError, CoreTimeoutError } from './main/coreClient';
 import { core } from './main/core';
+import { NOT_READ_YET } from './main/serviceClient';
 import { usableInsightsCache } from './main/localInsights';
 import { binaryPathChanged, copilotAccountFlags } from './main/coreRequests';
 import { buildFormatDriftIssueUrl, buildReportIssueUrl, shortError } from './diagnostics/githubIssue';
@@ -47,6 +48,7 @@ import type {
   ProviderId,
   UpdateSettings,
   UsageSnapshot,
+  UsageSourceStatus,
   WindowStyle,
 } from './types/index';
 
@@ -355,6 +357,9 @@ function reportInterpretation(accountId: AccountId, accounts: Pick<ReportAccount
     stale: account.stale ?? false,
     lastError: account.lastError ? neutralize(account.lastError, accounts) : null,
     notice: account.notice ?? null,
+    refreshing: account.refreshing ?? false,
+    // Where the last read came from: the core's service, or the CLI and why (#182).
+    source: providers.lastUsageSource(accountId),
     criticalWindow: account.criticalWindow?.id ?? null,
     windows: account.windows.map((w) => ({
       id: w.window.id,
@@ -460,6 +465,8 @@ const usageCore = createUsageCore({
     const key = accountNoticeKey(err);
     return key === null ? null : t(key);
   },
+  // The core's service restarted and has not read the account yet (#182).
+  refreshing: (err) => err instanceof CoreProviderError && err.reason === NOT_READ_YET,
   localInsights: computeLocalInsightsIfNeeded,
   describeError: friendlyErrorMessage,
   onFetchError: maybeReportFormatDrift,
@@ -894,12 +901,17 @@ function registerIpcHandlers(): void {
   handle('app:getVersion', () => app.getVersion());
 
   // The bundled core's version, or why it cannot run (Settings, next to the app version).
+  // With the source of each enabled account's last usage read (#182): service or CLI.
   handle('core:getStatus', async () => {
+    const sources = getAccounts().flatMap((cfg): UsageSourceStatus[] => {
+      const last = cfg.enabled ? providers.lastUsageSource(cfg.id) : null;
+      return last ? [{ label: cfg.label, source: last.source, reason: last.reason }] : [];
+    });
     try {
       const v = await core.version();
-      return { ok: true, version: `${v.name} ${v.version} (${v.os}/${v.arch})` };
+      return { ok: true, version: `${v.name} ${v.version} (${v.os}/${v.arch})`, sources };
     } catch (err) {
-      return { ok: false, error: friendlyErrorMessage(err) };
+      return { ok: false, error: friendlyErrorMessage(err), sources };
     }
   });
 

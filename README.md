@@ -78,7 +78,7 @@ From the quota left **now**, spread over the working days until the reset, compa
 
 Percentage of the quota used, and below it the absolute value when the provider gives one (e.g. Copilot AI credits, Claude extra credit in USD) and the renewal date.
 
-When the last reading of an account failed, its value is greyed out, its tab shows ⚠, and the line below says "data not up to date" with the time of the last successful update and the reason. The app keeps the last values and tries again at the next refresh.
+When the last reading of an account failed, its value is greyed out, its tab shows ⚠, and the line below says "data not up to date" with the time of the last successful update and the reason. The app keeps the last values and tries again at the next refresh. Right after the AIpermiler service restarts, the line says "refreshing" instead: nothing failed, the service has not read the account again yet.
 
 ### Instant consumption
 

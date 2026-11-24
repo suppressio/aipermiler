@@ -8,6 +8,7 @@ import { applyTranslations, formatDate, formatDateTime, formatTime, resolveLocal
 import { summarizeWorkSchedule } from './schedule.js';
 import { windowLabel } from './windowLabel.js';
 import { renewalFromProvider } from './renewal.js';
+import { usageSourceLine } from './usageSource.js';
 
 declare global {
   interface Window {
@@ -732,6 +733,10 @@ async function init(): Promise<void> {
   // Not awaited: running the core takes a moment and must not delay the form.
   runGuarded(window.aipermiler.getCoreStatus().then((status) => {
     byId('core-status', HTMLElement).textContent = status.ok ? status.version : t('settings.diagnostics.coreUnavailable', { error: status.error });
+    // Service or CLI per account (#182), once the accounts have been read.
+    const sources = usageSourceLine(status.sources);
+    byId('usage-source', HTMLElement).textContent = sources ?? '';
+    byId('usage-source-row', HTMLElement).hidden = sources === null;
   }));
   renderUpdatesCard(settings.updates);
   // Disabled in the markup until the settings are loaded and the handlers bound.

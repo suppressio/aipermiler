@@ -43,10 +43,20 @@ export interface UsageStore {
   setLastGood(accountId: AccountId, usage: StampedUsage): void;
 }
 
+/**
+ * One read of an account: the usage, and when it was read when that is not now. A read
+ * through the core's service (#182) returns the document the service holds, read by its
+ * own loop at `fetchedAt`; a CLI read is fresh (null).
+ */
+export interface AccountRead {
+  usage: RawAccountUsage;
+  fetchedAt: string | null;
+}
+
 export interface UsageCoreDeps {
   store: UsageStore;
-  /** Calls the provider service with the account credentials (main/providers.ts). */
-  fetchUsage(cfg: AccountConfig): Promise<RawAccountUsage>;
+  /** Reads the account through the core's service or CLI (main/providers.ts). */
+  fetchUsage(cfg: AccountConfig): Promise<AccountRead>;
   isConnected(cfg: AccountConfig): boolean;
   /** Local Claude Code insights, cached by the caller; only asked for opted-in Claude accounts. */
   localInsights(): Promise<ClaudeLocalInsights | null>;
@@ -58,16 +68,23 @@ export interface UsageCoreDeps {
    * lastError. null = an error.
    */
   accountNotice(err: unknown): string | null;
+  /**
+   * A failed fetch that only means "not read yet": the core's service restarted and has
+   * not read the account since (#182). Shown as a neutral refreshing state, not logged as
+   * a failure.
+   */
+  refreshing(err: unknown): boolean;
   /** Called on every failed fetch, before falling back to the last good data (format drift report). */
   onFetchError(provider: ProviderId, err: unknown): void;
   now(): Date;
   logError(message: string, ...details: unknown[]): void;
 }
 
-export type StampedUsage = RawAccountUsage & { accountId: AccountId; lastUpdatedAt: string; stale: boolean; lastError?: string; notice?: string };
+export type StampedUsage = RawAccountUsage & { accountId: AccountId; lastUpdatedAt: string; stale: boolean; lastError?: string; notice?: string; refreshing?: boolean };
 
-// Why an account has no fresh data: an error, or a state the user has to act on.
-type AccountProblem = { lastError: string } | { notice: string };
+// Why an account has no fresh data: an error, a state the user has to act on, or the
+// service not having read it yet.
+type AccountProblem = { lastError: string } | { notice: string } | { refreshing: true };
 
 // ---------------------------------------------------------------------------
 // Local history: neither Claude nor Copilot provides a daily history via API (see
@@ -340,7 +357,7 @@ export function computeWindowSnapshot(
 
 export function computeAccountSnapshot(
   draft: HistoryDraft,
-  raw: RawAccountUsage & { accountId: AccountId; lastUpdatedAt?: string; stale?: boolean; lastError?: string; notice?: string },
+  raw: RawAccountUsage & { accountId: AccountId; lastUpdatedAt?: string; stale?: boolean; lastError?: string; notice?: string; refreshing?: boolean },
   cfg: AccountConfig,
   now: Date,
   localInsights: ClaudeLocalInsights | null,
@@ -435,23 +452,32 @@ export function createUsageCore(deps: UsageCoreDeps): { buildUsageSnapshot(mode:
   const accountFetchErrors = new Map<AccountId, AccountProblem>();
 
   function describeProblem(err: unknown): AccountProblem {
+    if (deps.refreshing(err)) return { refreshing: true };
     const notice = deps.accountNotice(err);
     return notice === null ? { lastError: deps.describeError(err) } : { notice };
   }
 
-  async function fetchAccountOrFallback(cfg: AccountConfig): Promise<StampedUsage> {
+  // `isNew`: values read after the last ones recorded, which become samples. A service
+  // document read no later than the last good one (the same document again, or one older
+  // than a CLI read in between) adds nothing: the last good result is shown, no
+  // duplicate sample (#182 (a)).
+  async function fetchAccountOrFallback(cfg: AccountConfig): Promise<{ usage: StampedUsage; isNew: boolean }> {
     const accountId = cfg.id;
     try {
-      const raw = await deps.fetchUsage(cfg);
+      const read = await deps.fetchUsage(cfg);
       accountFetchStates.set(accountId, refreshPolicy.recordFetchAttempt(accountFetchStates.get(accountId), deps.now().getTime(), true));
       accountFetchErrors.delete(accountId);
-      const stamped: StampedUsage = { ...raw, accountId, lastUpdatedAt: deps.now().toISOString(), stale: false };
+      const lastGood = store.history().lastGood?.[accountId];
+      if (read.fetchedAt !== null && lastGood && !(Date.parse(read.fetchedAt) > Date.parse(lastGood.lastUpdatedAt))) {
+        return { usage: { ...lastGood, stale: false }, isNew: false };
+      }
+      const stamped: StampedUsage = { ...read.usage, accountId, lastUpdatedAt: read.fetchedAt ?? deps.now().toISOString(), stale: false };
       store.setLastGood(accountId, stamped);
-      return stamped;
+      return { usage: stamped, isNew: true };
     } catch (err) {
       accountFetchStates.set(accountId, refreshPolicy.recordFetchAttempt(accountFetchStates.get(accountId), deps.now().getTime(), false));
       const error = err as Error;
-      deps.logError(`[main] refresh ${accountId} failed:`, error.message);
+      if (!deps.refreshing(err)) deps.logError(`[main] refresh ${accountId} failed:`, error.message);
       // Reported here (not only in the caller) because a fallback to valid previous data
       // "absorbs" the error below — without this call a format drift appearing AFTER the
       // first successful fetch would never be detected.
@@ -460,7 +486,7 @@ export function createUsageCore(deps: UsageCoreDeps): { buildUsageSnapshot(mode:
       const problem = describeProblem(err);
       accountFetchErrors.set(accountId, problem);
       if (!lastGood) throw err; // no previous data: propagate, the caller decides how to show it
-      return { ...lastGood, stale: true, ...problem };
+      return { usage: { ...lastGood, stale: true, ...problem }, isNew: false };
     }
   }
 
@@ -486,15 +512,17 @@ export function createUsageCore(deps: UsageCoreDeps): { buildUsageSnapshot(mode:
         // would read as a pause in the instant pace).
         const lastGood = store.history().lastGood?.[cfg.id];
         const fetchNow = !lastGood || refreshPolicy.shouldFetchAccount(accountFetchStates.get(cfg.id), mode, now.getTime(), intervalMs);
-        const raw = fetchNow
+        const read = fetchNow
           ? await fetchAccountOrFallback(cfg)
-          : cachedUsage(lastGood, accountFetchErrors.get(cfg.id));
-        const fresh = fetchNow && !raw.stale;
+          : { usage: cachedUsage(lastGood, accountFetchErrors.get(cfg.id)), isNew: false };
+        const raw = read.usage;
+        const fresh = read.isNew;
         if (fetchNow) consumptionRose = consumptionRose === true || (fresh && windowsRose(draft, cfg.id, raw.quotaWindows));
         account = computeAccountSnapshot(draft, raw, cfg, now, localInsights, fresh);
       } catch (err) {
         const problem = describeProblem(err);
-        deps.logError(`[main] ${cfg.label} unavailable and no previous data:`, 'notice' in problem ? problem.notice : problem.lastError);
+        if ('lastError' in problem) deps.logError(`[main] ${cfg.label} unavailable and no previous data:`, problem.lastError);
+        else if ('notice' in problem) deps.logError(`[main] ${cfg.label} unavailable and no previous data:`, problem.notice);
         account = emptyAccountSnapshot(cfg, problem);
       }
       if (localInsights) account.localInsights = localInsights;

@@ -26,6 +26,8 @@ export const en = {
   'widget.resetAtTime': 'at {time}',
   'widget.stale': '{label} — data not up to date (last successful update: {time})',
   'widget.withError': '{label} ({error})',
+  'widget.serviceRefreshing': '{label} — refreshing (last update: {time})',
+  'widget.serviceRefreshingFirst': 'Refreshing…',
   'widget.error': 'Error: {message}',
 
   // --- Widget: instant consumption gauge ------------------------------------
@@ -302,6 +304,16 @@ export const en = {
   'settings.diagnostics.reportResponsesHint': "Saves in your Downloads folder one text file with the usage responses of every connected account (real values; names, ids and credentials redacted), the settings that affect pacing, how the app read the data, recent history, the last errors and a few system facts (time zone, screens, memory used by the app). A confirmation lists everything before anything is read. Then a GitHub issue draft opens: attach the file if you want. Nothing is sent by the app.",
   'settings.diagnostics.core': 'Core:',
   'settings.diagnostics.coreUnavailable': 'not available — {error}',
+  'settings.diagnostics.source': 'Usage read from:',
+  'settings.diagnostics.sourceService': '{account}: service',
+  'settings.diagnostics.sourceCli': '{account}: CLI ({reason})',
+  'settings.diagnostics.reason.notRunning': 'service not running',
+  'settings.diagnostics.reason.unreachable': 'service not reachable',
+  'settings.diagnostics.reason.unauthorized': 'service refused the connection',
+  'settings.diagnostics.reason.incompatible': 'service version not supported',
+  'settings.diagnostics.reason.unknownAccount': 'account not known to the service',
+  'settings.diagnostics.reason.failed': 'service error',
+  'settings.diagnostics.reason.malformed': 'unreadable service answer',
   'settings.diagnostics.reportCreated': 'Report saved in Downloads: {file}. Attach it to the issue draft opened in the browser.',
 } as const;
 

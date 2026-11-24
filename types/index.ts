@@ -306,6 +306,25 @@ export interface AccountSnapshot extends RawAccountUsage {
   // A state of the account the user has to act on (e.g. "sign in with Codex", #178),
   // shown in place of an error; never set together with lastError.
   notice?: string;
+  // The core's service restarted and has not read the account yet (#182): a neutral
+  // "refreshing" state, neither an error nor a notice; the last data stays shown.
+  refreshing?: boolean;
+}
+
+/**
+ * Why an account's usage was read through the CLI instead of the core's service (#182,
+ * main/serviceClient.ts): no service, nobody listening at its port, token refused,
+ * another contract version, an account the service does not serve, a failing or
+ * malformed answer.
+ */
+export type UsageSourceReason = 'not_running' | 'unreachable' | 'unauthorized' | 'incompatible' | 'unknown_account' | 'failed' | 'malformed';
+
+/** Where an account's last usage read came from (Settings → Diagnostics, diagnostic report). */
+export interface UsageSourceStatus {
+  label: string;
+  source: 'service' | 'cli';
+  // Only for 'cli'.
+  reason: UsageSourceReason | null;
 }
 
 export interface UsageSnapshot {

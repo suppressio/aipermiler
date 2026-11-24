@@ -40,6 +40,8 @@ interface Harness {
   logs: string[];
   localInsightsCalls: { count: number };
   answer: { next: () => Promise<RawAccountUsage> };
+  // fetchedAt of the read: null for a CLI read, the service's read time otherwise (#182).
+  served: { fetchedAt: string | null };
 }
 
 function harness(accounts: AccountConfig[], first: RawAccountUsage, extra: Partial<UsageCoreDeps> = {}): Harness {
@@ -50,6 +52,7 @@ function harness(accounts: AccountConfig[], first: RawAccountUsage, extra: Parti
   const logs: string[] = [];
   const localInsightsCalls = { count: 0 };
   const answer = { next: async (): Promise<RawAccountUsage> => first };
+  const served: { fetchedAt: string | null } = { fetchedAt: null };
   const store: UsageStore = {
     accounts: () => [...accounts],
     ui: () => DEFAULTS.ui,
@@ -59,17 +62,18 @@ function harness(accounts: AccountConfig[], first: RawAccountUsage, extra: Parti
   };
   const core = createUsageCore({
     store,
-    fetchUsage: async (cfg) => { fetches.push(cfg.id); return answer.next(); },
+    fetchUsage: async (cfg) => { fetches.push(cfg.id); return { usage: await answer.next(), fetchedAt: served.fetchedAt }; },
     isConnected: (cfg) => cfg.provider === 'claude' && !!cfg.session.sessionKey,
     localInsights: async () => { localInsightsCalls.count += 1; return null as ClaudeLocalInsights | null; },
     describeError: (err) => `friendly: ${(err as Error).message}`,
     accountNotice: (err) => ((err as Error).message === 'signed out' ? 'sign in please' : null),
+    refreshing: (err) => (err as Error).message === 'not read yet',
     onFetchError: (provider, err) => { errors.push({ provider, err }); },
     now: () => clock.now,
     logError: (message) => { logs.push(message); },
     ...extra,
   });
-  return { core, history, clock, fetches, errors, logs, localInsightsCalls, answer };
+  return { core, history, clock, fetches, errors, logs, localInsightsCalls, answer, served };
 }
 
 test('refreshIntervalMs: configured minutes, at least 5, 30 when unset', () => {
@@ -318,4 +322,79 @@ test('a failed fetch that is a state (signed out) is a notice, not an error, wit
   h.clock.now = new Date(NOW.getTime() + 62 * MIN);
   const skipped = at((await h.core.buildUsageSnapshot('scheduled')).snapshot.accounts, 0);
   assert.equal(skipped.notice, 'sign in please');
+});
+
+test('a service read records a sample only when its fetchedAt is newer than the last one (#182 (a))', async () => {
+  const h = harness([claudeAccount()], usage(weeklyWindow(40)));
+  const servedAt = new Date(NOW.getTime() - 2 * MIN).toISOString();
+  h.served.fetchedAt = servedAt;
+  const first = at((await h.core.buildUsageSnapshot('forced')).snapshot.accounts, 0);
+  assert.equal(first.stale, false);
+  assert.equal(first.lastUpdatedAt, servedAt, 'the service read time, not the app clock');
+  assert.equal(h.history.recentSamples.length, 1);
+
+  // The same document again (the service has not read the account since): shown as
+  // current, no duplicate sample, no rise.
+  h.clock.now = new Date(NOW.getTime() + 10 * MIN);
+  h.answer.next = async () => usage(weeklyWindow(40));
+  const again = await h.core.buildUsageSnapshot('forced');
+  const same = at(again.snapshot.accounts, 0);
+  assert.equal(same.stale, false);
+  assert.equal(same.lastUpdatedAt, servedAt);
+  assert.equal(h.history.recentSamples.length, 1);
+  assert.equal(again.consumptionRose, false);
+
+  // An older document than the app's own last read (a CLI read meanwhile): the newer data stays.
+  h.served.fetchedAt = null;
+  h.clock.now = new Date(NOW.getTime() + 20 * MIN);
+  h.answer.next = async () => usage(weeklyWindow(45));
+  await h.core.buildUsageSnapshot('forced');
+  assert.equal(h.history.recentSamples.length, 2);
+  h.served.fetchedAt = new Date(NOW.getTime() + 15 * MIN).toISOString();
+  h.clock.now = new Date(NOW.getTime() + 30 * MIN);
+  h.answer.next = async () => usage(weeklyWindow(43));
+  const older = at((await h.core.buildUsageSnapshot('forced')).snapshot.accounts, 0);
+  assert.equal(at(older.windows, 0).window.used, 45);
+  assert.equal(h.history.recentSamples.length, 2);
+
+  // A newer service read: a new sample at its own time.
+  const newer = new Date(NOW.getTime() + 38 * MIN).toISOString();
+  h.served.fetchedAt = newer;
+  h.clock.now = new Date(NOW.getTime() + 40 * MIN);
+  h.answer.next = async () => usage(weeklyWindow(50));
+  const fresh = await h.core.buildUsageSnapshot('forced');
+  assert.equal(at(fresh.snapshot.accounts, 0).lastUpdatedAt, newer);
+  assert.equal(h.history.recentSamples.length, 3);
+  assert.equal(fresh.consumptionRose, true);
+});
+
+test('not read yet by a restarted service: a neutral refreshing state, not a failure (#182)', async () => {
+  const h = harness([claudeAccount()], usage(weeklyWindow(40)));
+  h.answer.next = async () => { throw new Error('not read yet'); };
+  const empty = at((await h.core.buildUsageSnapshot('forced')).snapshot.accounts, 0);
+  assert.equal(empty.refreshing, true);
+  assert.equal(empty.lastError, undefined);
+  assert.equal(empty.notice, undefined);
+  assert.equal(empty.stale, true);
+  assert.deepEqual(h.logs, [], 'not logged as a failure');
+
+  h.answer.next = async () => usage(weeklyWindow(40));
+  h.clock.now = new Date(NOW.getTime() + 10 * MIN);
+  const ok = at((await h.core.buildUsageSnapshot('forced')).snapshot.accounts, 0);
+  assert.equal(ok.refreshing, undefined);
+
+  h.answer.next = async () => { throw new Error('not read yet'); };
+  h.clock.now = new Date(NOW.getTime() + 20 * MIN);
+  const later = at((await h.core.buildUsageSnapshot('forced')).snapshot.accounts, 0);
+  assert.equal(later.refreshing, true);
+  assert.equal(later.lastError, undefined);
+  assert.equal(later.stale, true);
+  assert.equal(at(later.windows, 0).window.used, 40, 'the last data stays shown');
+  assert.equal(later.lastUpdatedAt, new Date(NOW.getTime() + 10 * MIN).toISOString());
+
+  // Retried soon (the first backoff step), and still refreshing meanwhile.
+  h.clock.now = new Date(NOW.getTime() + 22 * MIN);
+  const skipped = at((await h.core.buildUsageSnapshot('scheduled')).snapshot.accounts, 0);
+  assert.equal(skipped.refreshing, true);
+  assert.deepEqual(h.logs, []);
 });
