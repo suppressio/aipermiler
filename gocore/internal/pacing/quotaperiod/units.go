@@ -101,11 +101,15 @@ func todayElapsed(now time.Time, loc *time.Location, schedule Schedule, workedHo
 func rollingUnitsBetween(start, end time.Time, loc *time.Location, schedule Schedule) float64 {
 	var units float64
 	for cursor := start; cursor.Before(end); {
-		next := localDay(cursor, loc).AddDate(0, 0, 1)
+		day := localDay(cursor, loc)
+		dayEnd := day.AddDate(0, 0, 1)
+		next := dayEnd
 		if end.Before(next) {
 			next = end
 		}
-		units += schedule.DayUnit(cursor, loc) * next.Sub(cursor).Hours() / 24
+		// Weighted by the day's real length, 23 or 25 hours when daylight
+		// saving time changes, so a day never counts more than its unit (I-8).
+		units += schedule.DayUnit(cursor, loc) * next.Sub(cursor).Hours() / dayEnd.Sub(day).Hours()
 		cursor = next
 	}
 	return units
