@@ -17,7 +17,7 @@ test('one entry per account: service, or CLI with the reason', () => {
 test('every fallback reason has a text in both languages', () => {
   for (const locale of ['en', 'it'] as const) {
     setLocale(locale);
-    for (const reason of ['not_running', 'unreachable', 'unauthorized', 'incompatible', 'unknown_account', 'failed', 'malformed'] as const) {
+    for (const reason of ['not_running', 'unreachable', 'unauthorized', 'incompatible', 'unknown_account', 'rejected', 'failed', 'malformed'] as const) {
       const line = usageSourceLine([{ label: 'A', source: 'cli', reason }]);
       assert.ok(!line?.includes('settings.'), `${locale} ${reason}: ${String(line)}`);
     }

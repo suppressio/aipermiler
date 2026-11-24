@@ -312,6 +312,7 @@ export const en = {
   'settings.diagnostics.reason.unauthorized': 'service refused the connection',
   'settings.diagnostics.reason.incompatible': 'service version not supported',
   'settings.diagnostics.reason.unknownAccount': 'account not known to the service',
+  'settings.diagnostics.reason.rejected': 'service refused the read',
   'settings.diagnostics.reason.failed': 'service error',
   'settings.diagnostics.reason.malformed': 'unreadable service answer',
   'settings.diagnostics.reportCreated': 'Report saved in Downloads: {file}. Attach it to the issue draft opened in the browser.',

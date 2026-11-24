@@ -292,6 +292,7 @@ export const it: Record<MessageKey, string> = {
   'settings.diagnostics.reason.unauthorized': 'il servizio ha rifiutato la connessione',
   'settings.diagnostics.reason.incompatible': 'versione del servizio non supportata',
   'settings.diagnostics.reason.unknownAccount': 'account non noto al servizio',
+  'settings.diagnostics.reason.rejected': 'il servizio ha rifiutato la lettura',
   'settings.diagnostics.reason.failed': 'errore del servizio',
   'settings.diagnostics.reason.malformed': 'risposta del servizio illeggibile',
   'settings.diagnostics.reportCreated': 'Report salvato in Download: {file}. Allegalo alla bozza di issue aperta nel browser.',

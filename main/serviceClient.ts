@@ -9,9 +9,11 @@
 // version, an account the service does not serve, a 5xx other than a provider error,
 // a malformed answer) is a ServiceUnusableError with its reason: the caller falls back
 // to the CLI for that read (readUsageWithFallback) and shows the reason in diagnostics.
-// A provider error the service serves (502), or `not_read_yet` (503, the service has
-// not read the account since it started), is the account's answer, not a fallback:
-// while the service serves an account, the app does not probe it itself (#182 (d)).
+// An error document for the account's provider (502, or 503 for `not_ready` and
+// `not_read_yet`: the service has not read the account since it started) is the
+// account's answer, not a fallback: while the service serves an account, the app does
+// not probe it itself (#182 (d)). The service's own 503s (stopping, no refresh loop)
+// carry no provider and fall back.
 
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -21,9 +23,13 @@ import type { UsageSourceReason } from '../types/index';
 /** `staleReason.reason` / error `reason` of an account the service has not read since it started. */
 export const NOT_READ_YET = 'not_read_yet';
 
-const HEALTH_TIMEOUT_MS = 2000;
-// The account document is what the service already holds: it answers at once.
-const USAGE_TIMEOUT_MS = 10000;
+export interface ServiceTimeouts {
+  healthMs: number;
+  // The account document is what the service already holds: it answers at once.
+  usageMs: number;
+}
+
+const DEFAULT_TIMEOUTS: ServiceTimeouts = { healthMs: 2000, usageMs: 10000 };
 
 /** No usable service for this read: the caller reads through the CLI instead. */
 export class ServiceUnusableError extends Error {
@@ -100,13 +106,15 @@ export async function readApiFile(dir: string): Promise<ServiceEndpoint> {
   return { baseUrl: `http://127.0.0.1:${String(info.port)}`, token: info.token };
 }
 
-export type FetchLike = (url: string, init: { headers: Record<string, string>; signal: AbortSignal }) => Promise<Response>;
+export type FetchLike = (url: string, init: { headers: Record<string, string>; signal: AbortSignal; redirect: 'error' }) => Promise<Response>;
 
 async function get(fetchImpl: FetchLike, endpoint: ServiceEndpoint, route: string, timeoutMs: number): Promise<{ status: number; body: string }> {
   try {
     const response = await fetchImpl(`${endpoint.baseUrl}${route}`, {
       headers: { Authorization: `Bearer ${endpoint.token}` },
       signal: AbortSignal.timeout(timeoutMs),
+      // The token never follows a redirect away from the service's port.
+      redirect: 'error',
     });
     return { status: response.status, body: await response.text() };
   } catch (err) {
@@ -121,8 +129,8 @@ export interface ServiceHealth {
 }
 
 /** `/api/v1/health`: the service answers with the token and speaks this client's contract. */
-export async function checkHealth(fetchImpl: FetchLike, endpoint: ServiceEndpoint): Promise<ServiceHealth> {
-  const { status, body } = await get(fetchImpl, endpoint, '/api/v1/health', HEALTH_TIMEOUT_MS);
+export async function checkHealth(fetchImpl: FetchLike, endpoint: ServiceEndpoint, timeoutMs = DEFAULT_TIMEOUTS.healthMs): Promise<ServiceHealth> {
+  const { status, body } = await get(fetchImpl, endpoint, '/api/v1/health', timeoutMs);
   if (status === 401) throw new ServiceUnusableError('unauthorized', 'Service refused the token');
   if (status !== 200) throw new ServiceUnusableError('failed', `Service health answered ${String(status)}`);
   const doc = parseJson(body);
@@ -137,23 +145,27 @@ export async function checkHealth(fetchImpl: FetchLike, endpoint: ServiceEndpoin
   return { version: doc.version, contractVersion: doc.contractVersion };
 }
 
-function isNotReadYet(body: string): boolean {
+// A contract v1 error document of the account's provider (the service's own 503s have
+// no provider).
+function isProviderErrorDocument(body: string, provider: string): boolean {
   const doc = parseJson(body);
-  return isRecord(doc) && isRecord(doc.error) && doc.error.reason === NOT_READ_YET;
+  return isRecord(doc) && doc.schemaVersion === 1 && doc.provider === provider && isRecord(doc.error);
 }
 
 /**
  * Reads an account's document from the service's answer. 200 is a usage document
- * (stale included), 502 a provider error and 503 `not_read_yet` the service's own
- * "not read yet": these are the account's answer (thrown as the CLI's would be).
- * Every other answer means no usable service for this read.
+ * (stale included); a 502 or 503 carrying an error document of the provider (a failed
+ * read, `not_ready`, `not_read_yet`) is the account's answer, thrown as the CLI's would
+ * be. Every other answer means no usable service for this read.
  */
 export function parseServiceUsage(status: number, body: string, provider: string): CoreUsageResult {
   let exitCode: number;
   if (status === 200) exitCode = 0;
-  else if (status === 502 || (status === 503 && isNotReadYet(body))) exitCode = 1;
+  else if ((status === 502 || status === 503) && isProviderErrorDocument(body, provider)) exitCode = 1;
   else if (status === 401) throw new ServiceUnusableError('unauthorized', 'Service refused the token');
   else if (status === 404) throw new ServiceUnusableError('unknown_account', 'Account not served by the service');
+  // The service's CLI child refused the account's flags: the CLI will tell why.
+  else if (status === 400) throw new ServiceUnusableError('rejected', 'Service refused the read');
   else throw new ServiceUnusableError('failed', `Service answered ${String(status)}`);
   try {
     return parseUsageRun({ exitCode, stdout: body }, provider);
@@ -172,10 +184,12 @@ export interface ServiceClientOptions {
   // Resolved on every read: a service started or stopped later is found then.
   configDir: () => string;
   fetch?: FetchLike;
+  timeouts?: ServiceTimeouts;
 }
 
 export function createServiceClient(options: ServiceClientOptions): ServiceClient {
   const fetchImpl: FetchLike = options.fetch ?? ((url, init) => fetch(url, init));
+  const timeouts = options.timeouts ?? DEFAULT_TIMEOUTS;
   return {
     async usage(accountId, provider) {
       let dir: string;
@@ -186,8 +200,8 @@ export function createServiceClient(options: ServiceClientOptions): ServiceClien
       }
       // api.json and /health on every read: a restarted service has a new port and token.
       const endpoint = await readApiFile(dir);
-      await checkHealth(fetchImpl, endpoint);
-      const { status, body } = await get(fetchImpl, endpoint, `/api/v1/accounts/${encodeURIComponent(accountId)}/usage`, USAGE_TIMEOUT_MS);
+      await checkHealth(fetchImpl, endpoint, timeouts.healthMs);
+      const { status, body } = await get(fetchImpl, endpoint, `/api/v1/accounts/${encodeURIComponent(accountId)}/usage`, timeouts.usageMs);
       return parseServiceUsage(status, body, provider);
     },
   };
