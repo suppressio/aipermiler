@@ -134,13 +134,13 @@ func TestAllFixturesAreVersionedDocuments(t *testing.T) {
 	if len(files) != 19 {
 		t.Fatalf("fixture count = %d; want 19", len(files))
 	}
-	// The service's own documents (#248), reproduced by internal/service.
+	// The service's own documents (#248, #284), reproduced by internal/service.
 	service, err := filepath.Glob(filepath.Join("..", "..", "contract", "v1", "service", "*.json"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(service) != 4 {
-		t.Fatalf("service fixture count = %d; want 4", len(service))
+	if len(service) != 6 {
+		t.Fatalf("service fixture count = %d; want 6", len(service))
 	}
 	files = append(files, service...)
 	for _, file := range files {

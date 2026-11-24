@@ -80,7 +80,7 @@ aipermiler/
 ├── preload.ts                   ← contextBridge renderer ↔ main
 ├── gocore/                      ← Go core module (#145), strict lint + depguard; CI job `go-checks`
 │   ├── cmd/aipermiler/          ← one binary, subcommand entry point
-│   ├── contract/v1/             ← shared normative JSON fixtures (Go + TypeScript client); service/ = the service's own documents (#248), read by main/serviceClient.ts (#182)
+│   ├── contract/v1/             ← shared normative JSON fixtures (Go + TypeScript client); service/ = the service's own documents (#248, #284), the usage ones read by main/serviceClient.ts (#182), the settings ones not yet read by the TypeScript client (#181)
 │   └── internal/
 │       ├── buildinfo/           ← binary name and build-time version
 │       ├── cli/                 ← command dispatch and exit codes
@@ -90,7 +90,7 @@ aipermiler/
 │       ├── insights/            ← local insights from Claude Code's session JSONL (`aipermiler insights claude`, #298): one count per `requestId`, subagents included, drift detection
 │       ├── github/              ← allowed GitHub hosts (github.com, <tenant>.ghe.com) and JSON client with a 10 s timeout
 │       ├── store/               ← the core's state file `store.json`: settings, accounts, history, lastGood; one writer, crash-safe writes (#295)
-│       ├── service/             ← the always-on service (#31): single-instance lock, loopback API (health, shutdown, account documents, refresh, raw: #247, #248, #286), api.json, `service stop`
+│       ├── service/             ← the always-on service (#31): single-instance lock, loopback API (health, shutdown, account documents, refresh, raw, settings: #247, #248, #286, #284), api.json, `service stop`
 │       ├── secrets/             ← OS keyring (go-keyring): the Copilot token, never in argv or documents
 │       ├── config/              ← OS config directory and development override
 │       ├── logging/             ← stderr text logger and level selection

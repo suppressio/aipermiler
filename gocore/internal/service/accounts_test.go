@@ -51,9 +51,17 @@ type fakeLoop struct {
 	modes  []policy.Mode
 	hook   func(ctx context.Context) error
 	called chan struct{}
+	// changed is every Changed call, in order.
+	changed [][]string
 }
 
 func (l *fakeLoop) Run(ctx context.Context) error { <-ctx.Done(); return nil }
+
+func (l *fakeLoop) Changed(ids ...string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.changed = append(l.changed, ids)
+}
 
 func (l *fakeLoop) LastError(id string) error {
 	l.mu.Lock()

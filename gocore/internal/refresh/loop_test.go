@@ -414,3 +414,183 @@ func TestLastErrorBeforeTheFirstRead(t *testing.T) {
 		t.Errorf("LastError = %v; want ErrNotRead, never not_ready (Claude's prompt state)", err)
 	}
 }
+
+// waitRead waits until the loop is idle after at least n reads of id.
+func (h *harness) waitRead(id string, n int) {
+	h.t.Helper()
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(time.Millisecond) {
+		if h.fetch.count(id) >= n && !h.loop.Busy() && h.loop.Pending() == "" {
+			h.idle()
+			return
+		}
+	}
+	h.t.Fatalf("%s never read %d times", id, n)
+}
+
+// Changed forgets what the loop knew of an account (last error, backoff), so
+// it is served as not read yet, and reads it alone at once: the others keep
+// their schedule (#284).
+func TestChangedForgetsAndReadsOnlyThatAccount(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, 30, claude("a"), claude("b"))
+	failure := &usage.Error{Code: usage.CodeSignedOut, Message: "Sign in required"}
+	h.fetch.answer = func(_ context.Context, account store.Account) (usage.Usage, error) {
+		if account.ID == "a" {
+			return usage.Usage{}, failure
+		}
+		return window(10), nil
+	}
+	h.run()
+	h.advance(10 * time.Minute)
+	if err := h.loop.LastError("a"); !errors.Is(err, failure) {
+		t.Fatalf("LastError = %v", err)
+	}
+	reading := make(chan struct{}, 4)
+	release := make(chan struct{})
+	h.fetch.answer = func(_ context.Context, account store.Account) (usage.Usage, error) {
+		if account.ID == "a" {
+			reading <- struct{}{}
+			<-release
+		}
+		return window(10), nil
+	}
+	h.loop.Changed("a")
+	if err := h.loop.LastError("a"); !errors.Is(err, refresh.ErrNotRead) {
+		t.Errorf("LastError right after Changed = %v; want ErrNotRead, not the old error", err)
+	}
+	<-reading // read at once, inside its backoff and before the interval
+	if err := h.loop.LastError("a"); !errors.Is(err, refresh.ErrNotRead) {
+		t.Errorf("LastError during the read = %v; want ErrNotRead", err)
+	}
+	close(release)
+	h.waitRead("a", 2)
+	if h.fetch.count("a") != 2 || h.fetch.count("b") != 1 {
+		t.Fatalf("reads a=%d b=%d; want 2 and 1", h.fetch.count("a"), h.fetch.count("b"))
+	}
+	if err := h.loop.LastError("a"); err != nil {
+		t.Errorf("LastError after the read = %v", err)
+	}
+	// b keeps its schedule: read 30 min after the start, not 30 after Changed.
+	h.advance(20 * time.Minute)
+	if h.fetch.count("b") != 2 {
+		t.Errorf("b reads at its interval = %d; want 2", h.fetch.count("b"))
+	}
+}
+
+// An account added to the store while the loop runs is read once Changed
+// names it; a removed one is no longer read.
+func TestChangedPicksUpAddedAndRemovedAccounts(t *testing.T) {
+	t.Parallel()
+	h := newHarness(t, 30, claude("a"))
+	h.run()
+	if err := h.store.Update(func(s *store.State) error {
+		s.Accounts = []store.Account{claude("new")}
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	h.loop.Changed("a", "new")
+	h.waitRead("new", 1)
+	if h.store.Snapshot().Account("new").LastGood == nil || h.loop.LastError("new") != nil {
+		t.Error("the added account was not recorded")
+	}
+	h.advance(30 * time.Minute)
+	if h.fetch.count("a") != 1 {
+		t.Errorf("removed account read again: %d", h.fetch.count("a"))
+	}
+}
+
+// A read that started before the change reads the old settings: nothing of it
+// is kept, neither its values nor its error, and the account is read again.
+func TestChangedDiscardsTheReadInProgress(t *testing.T) {
+	t.Parallel()
+	for name, fail := range map[string]bool{"good read": false, "failed read": true} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			acc := store.Account{ID: "c", Provider: "copilot", Label: "c", Enabled: true, Host: "old.ghe.com"}
+			h := newHarness(t, 30, acc)
+			h.run()
+			reading := make(chan struct{}, 1)
+			release := make(chan struct{})
+			var mu sync.Mutex
+			var hosts []string
+			h.fetch.answer = func(_ context.Context, account store.Account) (usage.Usage, error) {
+				mu.Lock()
+				hosts = append(hosts, account.Host)
+				mu.Unlock()
+				if account.Host == "old.ghe.com" {
+					reading <- struct{}{}
+					<-release
+					if fail {
+						return usage.Usage{}, &usage.Error{Code: usage.CodeSignedOut, Message: "old host"}
+					}
+					return window(99), nil
+				}
+				return window(20), nil
+			}
+			got := make(chan error, 1)
+			go func() { got <- h.loop.Refresh(context.Background(), policy.Forced) }()
+			<-reading
+			if err := h.store.Update(func(s *store.State) error {
+				s.Account("c").Host = "new.ghe.com"
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+			h.loop.Changed("c")
+			close(release)
+			if err := <-got; err != nil {
+				t.Fatal(err)
+			}
+			h.waitRead("c", 3)
+			if err := h.loop.LastError("c"); err != nil {
+				t.Errorf("LastError = %v; want the new read's (none)", err)
+			}
+			lg := h.store.Snapshot().Account("c").LastGood
+			if lg == nil || lg.QuotaWindows[0].Used != 20 {
+				t.Errorf("lastGood = %+v; want the new host's read", lg)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if len(hosts) != 2 || hosts[1] != "new.ghe.com" {
+				t.Errorf("reads = %v; want the old host then the new one", hosts)
+			}
+		})
+	}
+}
+
+// Between the discarded read and the new one, the account is never served
+// with the old read's error.
+func TestChangedNeverServesTheDiscardedError(t *testing.T) {
+	t.Parallel()
+	acc := store.Account{ID: "c", Provider: "copilot", Label: "c", Enabled: true, Host: "old.ghe.com"}
+	h := newHarness(t, 30, acc)
+	h.run()
+	reading := make(chan struct{}, 1)
+	release := make(chan struct{})
+	block := make(chan struct{})
+	h.fetch.answer = func(_ context.Context, account store.Account) (usage.Usage, error) {
+		if account.Host == "old.ghe.com" {
+			reading <- struct{}{}
+			<-release
+			return usage.Usage{}, &usage.Error{Code: usage.CodeSignedOut, Message: "old host"}
+		}
+		<-block // the new read stays in progress while the test looks
+		return window(20), nil
+	}
+	go func() { _ = h.loop.Refresh(context.Background(), policy.Forced) }()
+	<-reading
+	if err := h.store.Update(func(s *store.State) error { s.Account("c").Host = "new.ghe.com"; return nil }); err != nil {
+		t.Fatal(err)
+	}
+	h.loop.Changed("c")
+	close(release)
+	for h.fetch.count("c") < 3 {
+		time.Sleep(time.Millisecond)
+	}
+	if err := h.loop.LastError("c"); !errors.Is(err, refresh.ErrNotRead) {
+		t.Errorf("LastError while the new read runs = %v; want ErrNotRead", err)
+	}
+	close(block)
+	h.waitRead("c", 3)
+}

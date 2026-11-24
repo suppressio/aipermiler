@@ -18,7 +18,8 @@ type HandlerConfig struct {
 	ContractVersion int
 	// Shutdown starts the clean stop (POST /api/v1/shutdown); nil does nothing.
 	Shutdown func()
-	// Store, Loop and Raw serve the account endpoints (#248); without a Store
+	// Store, Loop and Raw serve the account endpoints (#248) and the settings
+	// (#284); without a Store
 	// they are not registered. A nil Loop never reads, a nil Raw answers an error.
 	Store *store.Store
 	Loop  Loop
@@ -64,6 +65,7 @@ func NewHandler(cfg HandlerConfig) http.Handler {
 		rawSlot := make(chan struct{}, 1)
 		rawSlot <- struct{}{}
 		accountsAPI{store: cfg.Store, loop: loop, raw: cfg.Raw, rawSlot: rawSlot}.register(mux)
+		settingsAPI{store: cfg.Store, loop: loop}.register(mux)
 	}
 	want := sha256.Sum256([]byte(cfg.Token))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

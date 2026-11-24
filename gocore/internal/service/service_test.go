@@ -569,3 +569,4 @@ type runLoop func(ctx context.Context)
 func (f runLoop) Run(ctx context.Context) error            { f(ctx); return nil }
 func (runLoop) Refresh(context.Context, policy.Mode) error { return refresh.ErrStopped }
 func (runLoop) LastError(string) error                     { return nil }
+func (runLoop) Changed(...string)                          {}

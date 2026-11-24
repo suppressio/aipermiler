@@ -128,6 +128,21 @@ type Account struct {
 	LastGood *LastGood                `json:"lastGood"`
 }
 
+// ReadsLike reports whether a read of a gives what a read of b would: same id
+// (Copilot's keyring entry), provider and provider flags. The label, schedule,
+// renewal day, enabled state, history and lastGood do not change a read.
+func (a Account) ReadsLike(b Account) bool {
+	return a.ID == b.ID && a.Provider == b.Provider && a.Host == b.Host && a.Scope == b.Scope &&
+		a.ManualQuota == b.ManualQuota && deref(a.BinaryPath) == deref(b.BinaryPath)
+}
+
+func deref(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
 // Record applies one observation to a window's history through history.Record,
 // the only way history changes.
 func (a *Account) Record(windowID string, sample history.Sample, now time.Time, settings history.Settings) {

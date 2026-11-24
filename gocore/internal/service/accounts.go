@@ -27,6 +27,11 @@ type Loop interface {
 	// refresh.ErrNotRead before the loop has read the account in this process
 	// (its lastGood is then not confirmed: stale).
 	LastError(accountID string) error
+	// Changed tells the loop that these accounts were added, removed, enabled,
+	// disabled or are now read differently (#284): it forgets what it knew of
+	// them, so LastError is refresh.ErrNotRead until it has read them again,
+	// at once. It does not wait.
+	Changed(accountIDs ...string)
 }
 
 // RawFunc reads an account's diagnostic raw document through the CLI
@@ -44,6 +49,7 @@ func (noLoop) Refresh(context.Context, policy.Mode) error {
 	return errNoLoop
 }
 func (noLoop) LastError(string) error { return refresh.ErrNotRead }
+func (noLoop) Changed(...string)      {}
 
 // maxRefreshBody bounds the body of POST /api/v1/refresh: one small object.
 const maxRefreshBody = 4 << 10
