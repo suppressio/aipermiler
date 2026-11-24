@@ -112,6 +112,26 @@ function positiveInt(v, fallback) {
   return Number.isInteger(v) && v >= 1 && v <= 2147483647 ? v : fallback;
 }
 
+/** A positive integer clamped to [min, max]: the ranges PUT /api/v1/settings accepts (#284). */
+function clampedInt(v, min, max, fallback) {
+  const n = positiveInt(v, fallback);
+  return Math.min(max, Math.max(min, n));
+}
+
+// gocore/internal/secrets ValidAccount: an id names the keyring entry.
+const ACCOUNT_ID = /^[A-Za-z0-9._-]{1,128}$/;
+const TENANT_HOST = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.ghe\.com$/;
+
+/** gocore/internal/github NormalizeHost: "github.com", "<tenant>.ghe.com" or "". */
+function normalizeHost(value) {
+  let host = value.trim().toLowerCase();
+  if (host.startsWith('https://')) host = host.slice('https://'.length);
+  const slash = host.indexOf('/');
+  if (slash !== -1) host = host.slice(0, slash);
+  if (host.startsWith('api.')) host = host.slice('api.'.length);
+  return host === 'github.com' || TENANT_HOST.test(host) ? host : '';
+}
+
 /**
  * An RFC 3339 time as Go's encoding/json writes it back (RFC3339Nano): the offset kept,
  * "Z" for UTC, trailing zeros of the fraction dropped. null when invalid.
@@ -170,6 +190,16 @@ function convertAccount(src, accounts, skip) {
     skip(`account ${JSON.stringify(src.id)} appears twice`);
     return;
   }
+  if (!ACCOUNT_ID.test(src.id)) {
+    skip(`account ${JSON.stringify(src.id)} has an id the core cannot use`);
+    return;
+  }
+  // The Copilot token goes only to the host the user set: never defaulted to another.
+  const host = src.provider === 'copilot' && str(src.host) ? normalizeHost(src.host) : '';
+  if (src.provider === 'copilot' && str(src.host) && !host) {
+    skip(`account ${JSON.stringify(src.id)} has a GitHub host that is neither github.com nor a .ghe.com tenant`);
+    return;
+  }
   const rule = isObject(src.subscription) && isObject(src.subscription.renewalRule) ? src.subscription.renewalRule : {};
   const work = isObject(src.workSchedule) ? src.workSchedule : {};
   const days = isObject(work.days) ? work.days : {};
@@ -179,19 +209,22 @@ function convertAccount(src, accounts, skip) {
     provider: src.provider,
     label: str(src.label),
     enabled: src.enabled === true,
-    renewalDay: rule.type === 'dayOfMonth' && Number.isInteger(rule.day) ? rule.day : 0,
+    // Out of 1-31 means none, as out-of-range values below get their default:
+    // the service's PUT /api/v1/settings refuses them (#284).
+    renewalDay: rule.type === 'dayOfMonth' && Number.isInteger(rule.day) && rule.day >= 1 && rule.day <= 31 ? rule.day : 0,
     schedule: {
       enabled: work.enabled === true,
       days: WEEKDAYS.map((name) => weight(days[name])),
-      hoursPerDay: isNumber(work.hoursPerDay) && work.hoursPerDay > 0 ? work.hoursPerDay : 8,
+      hoursPerDay: isNumber(work.hoursPerDay) && work.hoursPerDay > 0 && work.hoursPerDay <= 24 ? work.hoursPerDay : 8,
     },
   };
   // Go omits empty host/scope/manualQuota/binaryPath (omitempty).
   if (src.provider === 'copilot') {
-    if (str(src.host)) account.host = src.host;
-    if (str(src.accountScope)) account.scope = src.accountScope;
-    if (isNumber(src.manualQuota) && src.manualQuota !== 0) account.manualQuota = src.manualQuota;
-  } else if (str(src.binaryPath)) {
+    if (host) account.host = host;
+    if (src.accountScope === 'personal' || src.accountScope === 'organization') account.scope = src.accountScope;
+    if (isNumber(src.manualQuota) && src.manualQuota > 0) account.manualQuota = src.manualQuota;
+  } else if (str(src.binaryPath) && path.isAbsolute(src.binaryPath)) {
+    // A relative path is dropped: the core then finds the binary itself.
     account.binaryPath = src.binaryPath;
   }
   account.history = {};
@@ -317,9 +350,10 @@ function convert(settings) {
   const state = {
     schemaVersion: SCHEMA_VERSION,
     settings: {
-      refreshIntervalMinutes: positiveInt(ui.refreshIntervalMinutes, DEFAULT_SETTINGS.refreshIntervalMinutes),
-      retentionDays: positiveInt(history.retentionDays, DEFAULT_SETTINGS.retentionDays),
-      notificationThresholdPercent: positiveInt(ui.notificationThresholdPercent, DEFAULT_SETTINGS.notificationThresholdPercent),
+      // The ranges of PUT /api/v1/settings (#284), so a GET → PUT of the result is accepted.
+      refreshIntervalMinutes: clampedInt(ui.refreshIntervalMinutes, 5, 1440, DEFAULT_SETTINGS.refreshIntervalMinutes),
+      retentionDays: clampedInt(history.retentionDays, 1, 3650, DEFAULT_SETTINGS.retentionDays),
+      notificationThresholdPercent: clampedInt(ui.notificationThresholdPercent, 1, 100, DEFAULT_SETTINGS.notificationThresholdPercent),
     },
     accounts,
   };

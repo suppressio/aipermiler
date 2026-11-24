@@ -25,6 +25,8 @@ What is copied: accounts and their settings (renewal day, work schedule, Copilot
 3. If the core already has a `store.json`, asks before replacing it and keeps it as `store.json.bak-<date>` next to it.
 4. Writes the new `store.json`, readable by your user only, and lists anything it left out (by account id, never with values).
 
+Values the core does not accept are fixed on the way, so the core's settings can be saved later without errors: the refresh interval is kept between 5 and 1440 minutes, the history retention between 1 and 3650 days and the notification threshold between 1 and 100%. A renewal day outside 1-31 becomes none, hours per day outside 0-24 become 8, a negative Copilot manual quota or an unknown Copilot scope is dropped, and so is a binary path that is not absolute (the core then finds the binary itself). An account whose id the core cannot use, or a Copilot account whose host is neither `github.com` nor a `.ghe.com` tenant, is left out and listed: its token must never go to another host. Check these accounts in Settings afterwards.
+
 ## Run it
 
 Quit AIpermiler first (tray menu, *Quit*).

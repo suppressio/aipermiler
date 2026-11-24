@@ -106,6 +106,41 @@ test('convert: a missing dayStartUsed takes the previous day, duplicates keep th
   assert.equal(warnings.length, 3); // duplicate account, unknown provider, unknown window type
 });
 
+// The service's PUT /api/v1/settings (#284) refuses values outside its ranges, so a
+// GET → PUT of a migrated store must not carry any: clamped, or the default.
+test('convert: out-of-range values become what the service accepts', async () => {
+  const m = await load();
+  const schedule = { enabled: true, days: { mon: 'full' }, hoursPerDay: 30 };
+  const { state, warnings } = m.convert({
+    accounts: [
+      { id: 'c', provider: 'claude', enabled: true, subscription: { renewalRule: { type: 'dayOfMonth', day: 40 } }, workSchedule: schedule, binaryPath: 'bin/claude' },
+      { id: 'p', provider: 'copilot', enabled: true, subscription: { renewalRule: { type: 'dayOfMonth', day: -2 } }, workSchedule: schedule,
+        manualQuota: -5, accountScope: 'team' },
+      { id: 'h', provider: 'copilot', enabled: true, host: 'evil.example.com' },
+      { id: 'q', provider: 'copilot', enabled: true, workSchedule: { hoursPerDay: 7.5 }, manualQuota: 300, accountScope: 'personal', host: 'https://API.Acme.ghe.com/' },
+      { id: 'a/b', provider: 'codex', enabled: true },
+    ],
+    ui: { refreshIntervalMinutes: 2, notificationThresholdPercent: 150 },
+    history: { retentionDays: 5000 },
+  }) as { state: { settings: unknown; accounts: { id: string; renewalDay: number; schedule: { hoursPerDay: number }; binaryPath?: string; manualQuota?: number; scope?: string; host?: string }[] }; warnings: string[] };
+  assert.deepEqual(state.settings, { refreshIntervalMinutes: 5, retentionDays: 3650, notificationThresholdPercent: 100 });
+  assert.deepEqual(state.accounts.map((a) => a.id), ['c', 'p', 'q']);
+  assert.ok(warnings.some((w) => w.includes('"a/b"')), warnings.join('\n'));
+  // A token must never go to a host other than the one the user set: skipped, not defaulted.
+  assert.ok(warnings.some((w) => w.includes('"h"')), warnings.join('\n'));
+  const [c, p, q] = [at(state.accounts, 0), at(state.accounts, 1), at(state.accounts, 2)];
+  assert.equal(c.renewalDay, 0);
+  assert.equal(c.schedule.hoursPerDay, 8);
+  assert.equal(c.binaryPath, undefined, 'a relative binary path is dropped: the core finds the binary');
+  assert.equal(p.renewalDay, 0);
+  assert.equal(p.manualQuota, undefined);
+  assert.equal(p.scope, undefined);
+  assert.equal(q.schedule.hoursPerDay, 7.5);
+  assert.equal(q.manualQuota, 300);
+  assert.equal(q.scope, 'personal');
+  assert.equal(q.host, 'acme.ghe.com', 'normalized as github.NormalizeHost does');
+});
+
 test('convert: day keys match Go where a DST change skips or repeats midnight (time.ParseInLocation)', async () => {
   const m = await load();
   // Values printed by Go's json.Marshal(time.Date(y, m, d, 0, 0, 0, 0, loc)). Go resolves a
