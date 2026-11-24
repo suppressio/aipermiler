@@ -25,6 +25,8 @@ Cosa viene copiato: gli account e le loro impostazioni (giorno di rinnovo, orari
 3. Se il core ha già uno `store.json`, chiede prima di sostituirlo e lo conserva accanto come `store.json.bak-<data>`.
 4. Scrive il nuovo `store.json`, leggibile solo dal tuo utente, ed elenca quello che ha lasciato fuori (per id di account, mai con i valori).
 
+I valori che il core non accetta vengono corretti durante la copia, così in seguito le impostazioni del core si possono salvare senza errori: l'intervallo di aggiornamento resta tra 5 e 1440 minuti, la conservazione dello storico tra 1 e 3650 giorni e la soglia di notifica tra 1 e 100%. Un giorno di rinnovo fuori da 1-31 diventa nessuno, le ore al giorno fuori da 0-24 diventano 8, una quota manuale di Copilot negativa o un ambito di Copilot sconosciuto vengono tolti, e così un percorso del binario non assoluto (il core allora trova il binario da solo). Un account con un id che il core non può usare, o un account Copilot con un host che non è né `github.com` né un tenant `.ghe.com`, viene lasciato fuori ed elencato: il suo token non deve mai andare a un altro host. Dopo, controlla questi account nelle Impostazioni.
+
 ## Come lanciarlo
 
 Prima chiudi AIpermiler (menu della tray, *Esci*).
