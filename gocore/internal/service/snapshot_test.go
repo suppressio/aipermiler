@@ -51,8 +51,11 @@ func pacedAccount() store.Account {
 		Schedule: store.Schedule{Days: [7]float64{1, 1, 1, 1, 1, 1, 1}, HoursPerDay: 8},
 		History: map[string]history.State{
 			"five-hour": {
-				DailyUsage:    []history.DailyPoint{{Day: day(4), Used: 30, DayStartUsed: 10}},
-				RecentSamples: []history.Reading{{At: at(4, 14, 25), Used: 26}, {At: at(4, 14, 40), Used: 28}, {At: at(4, 14, 55), Used: 30}},
+				DailyUsage: []history.DailyPoint{{Day: day(4), Used: 30, DayStartUsed: 10}},
+				RecentSamples: []history.Reading{
+					{At: at(4, 13, 40), Used: 18}, {At: at(4, 13, 55), Used: 19}, {At: at(4, 14, 10), Used: 20},
+					{At: at(4, 14, 25), Used: 21}, {At: at(4, 14, 40), Used: 28}, {At: at(4, 14, 55), Used: 30},
+				},
 			},
 			"weekly": {
 				DailyUsage: []history.DailyPoint{
@@ -105,6 +108,7 @@ type snapshotDoc struct {
 			Chart     []struct {
 				Day string `json:"day"`
 			} `json:"chart"`
+			Trend     *string `json:"trend"`
 			Judgement struct {
 				Verdict string `json:"verdict"`
 			} `json:"judgement"`
@@ -228,6 +232,77 @@ func TestSnapshotValuesAreExact(t *testing.T) {
 	}
 	if len(doc.Pacing.Windows) != 4 {
 		t.Errorf("windows = %d; want 4", len(doc.Pacing.Windows))
+	}
+}
+
+// The instant trend (D-3.28, moved here from #303) is in each window: the
+// pace's direction on a fresh read, null without one (too few samples) and
+// null on every window while the last read failed (TR-8): the values shown
+// are then the last known ones.
+func TestSnapshotTrend(t *testing.T) {
+	t.Parallel()
+	trends := func(lastErr error) map[string]*string {
+		api := newAPI(t, pacedAccount())
+		if lastErr != nil {
+			api.loop.errs["a1"] = lastErr
+		}
+		out := map[string]*string{}
+		for _, w := range parseSnapshot(t, api.snapshot(t, "a1/snapshot", nil)).Pacing.Windows {
+			out[w.ID] = w.Trend
+		}
+		return out
+	}
+	str := func(p *string) string {
+		if p == nil {
+			return "null"
+		}
+		return *p
+	}
+	// five-hour: 4 pp/h at 14:30, 11 pp/h at 15:00, θ = 2 × (1 + 1/0.75).
+	fresh := trends(nil)
+	for id, want := range map[string]string{"five-hour": "accelerating", "premium": "null", "extra": "null"} {
+		if got := str(fresh[id]); got != want {
+			t.Errorf("fresh %s: trend %s; want %s", id, got, want)
+		}
+	}
+	for name, lastErr := range map[string]error{
+		"failed read":  &usage.Error{Code: usage.CodeUnavailable, Message: "Provider is temporarily unavailable"},
+		"not read yet": refresh.ErrNotRead,
+	} {
+		for id, trend := range trends(lastErr) {
+			if trend != nil {
+				t.Errorf("%s %s: trend %s; want null", name, id, *trend)
+			}
+		}
+	}
+}
+
+// A fresh read is not counted again (the loop recorded it): apart from the
+// trend, its pacing is the one of the same read served as stale, which is
+// never recorded.
+func TestSnapshotFreshReadIsNotRecordedAgain(t *testing.T) {
+	t.Parallel()
+	pacing := func(lastErr error) []map[string]json.RawMessage {
+		api := newAPI(t, pacedAccount())
+		if lastErr != nil {
+			api.loop.errs["a1"] = lastErr
+		}
+		var doc struct {
+			Pacing struct {
+				Windows []map[string]json.RawMessage `json:"windows"`
+			} `json:"pacing"`
+		}
+		if err := json.Unmarshal(api.snapshot(t, "a1/snapshot", nil).Body.Bytes(), &doc); err != nil {
+			t.Fatal(err)
+		}
+		for _, w := range doc.Pacing.Windows {
+			delete(w, "trend")
+		}
+		return doc.Pacing.Windows
+	}
+	fresh, stale := pacing(nil), pacing(refresh.ErrNotRead)
+	if !reflect.DeepEqual(fresh, stale) {
+		t.Errorf("fresh\n%v\nstale\n%v", fresh, stale)
 	}
 }
 

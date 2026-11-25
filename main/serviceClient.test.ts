@@ -117,6 +117,18 @@ test('service fixtures: health, usage list, stale not_read_yet and error not_rea
     (err: unknown) => err instanceof CoreProviderError && err.code === 'unavailable' && err.reason === NOT_READ_YET);
 });
 
+// The pacing snapshot (#326) is the usage document plus `pacing`: today's parser
+// reads it as the usage document, unknown fields ignored. Reading the pacing
+// itself is the client's next step (#181).
+test('service fixture snapshot: read as a usage document, with pacing per window', () => {
+  const doc = JSON.parse(fixture('service/snapshot')) as { pacing: { critical: number; windows: { id: string; trend: string | null }[] } };
+  const usage = parseServiceUsage(200, fixture('service/snapshot'), 'fake');
+  assert.equal(usage.stale, false);
+  assert.deepEqual(usage.usage.quotaWindows.map((w) => w.id), doc.pacing.windows.map((w) => w.id));
+  assert.equal(doc.pacing.critical, 1);
+  assert.deepEqual(doc.pacing.windows.map((w) => w.trend), ['accelerating', null, null, null]);
+});
+
 test('a running service: api.json, /health with the token, then the account document', async () => {
   await withService({ '/api/v1/health': HEALTH, [usageRoute('a1')]: { status: 200, body: fixture('usage-ok') } }, async (svc, client) => {
     const result = await client.usage('a1', 'fake');
