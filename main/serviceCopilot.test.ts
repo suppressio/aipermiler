@@ -46,6 +46,7 @@ interface FakeService { dir: string; requests: Request[]; close: () => Promise<v
 
 async function fakeService(routes: Record<string, Route>): Promise<FakeService> {
   const requests: Request[] = [];
+  const table = new Map(Object.entries(routes));
   const server = http.createServer((req, res) => {
     let body = '';
     req.on('data', (chunk: Buffer) => { body += chunk.toString('utf8'); });
@@ -56,7 +57,7 @@ async function fakeService(routes: Record<string, Route>): Promise<FakeService> 
         res.writeHead(401).end();
         return;
       }
-      const route = routes[`${request.method} ${request.url}`];
+      const route = table.get(`${request.method} ${request.url}`);
       const answer = typeof route === 'function' ? route(request) : route ?? { status: 404, body: NO_ACCOUNT };
       res.writeHead(answer.status, { 'Content-Type': 'application/json' }).end(answer.body);
     });
