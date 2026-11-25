@@ -50,6 +50,7 @@ const bridge: AipermilerBridge = {
   removeAccount: (id) => invoke('accounts:remove', id),
   connectCopilot: (id, token, host) => invoke('accounts:connectCopilot', id, token, host),
   connectCopilotOAuth: (id, clientId, clientSecret, host) => invoke('accounts:connectCopilotOAuth', id, { clientId, clientSecret, host }),
+  cancelCopilotOAuth: (id) => invoke('accounts:cancelCopilotOAuth', id),
   disconnectAccount: (id) => invoke('accounts:disconnect', id),
   // Diagnostic report: after a confirmation, saves the report file in Downloads and opens
   // a GitHub issue draft; `created` false when the user cancelled.
@@ -58,6 +59,7 @@ const bridge: AipermilerBridge = {
   // Updates (issue #5): the URL to open is decided by the main process, never by the renderer.
   getAppVersion: () => invoke('app:getVersion'),
   getCoreStatus: () => invoke('core:getStatus'),
+  getServiceStatus: () => invoke('service:getStatus'),
   checkForUpdates: () => invoke('updates:check'),
   downloadUpdate: () => invoke('updates:download'),
   openReleaseNotes: () => invoke('updates:openReleaseNotes'),

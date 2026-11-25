@@ -122,7 +122,7 @@ Further reading:
 ## Security rules
 
 - `nodeIntegration: false` and `contextIsolation: true` always: the renderer never has direct access to Node.js; every value coming from it through IPC is validated.
-- No provider secret in the app: the Copilot token lives in the OS keyring, owned by the Go core (#179); Codex keeps nothing secret (read through the core and the user's own Codex sign-in). The Copilot OAuth client secret is typed in Settings and handed to the core on stdin, never saved. Nothing reaches the renderer or logs. They never reach the renderer or logs.
+- No provider secret in the app: the Copilot token lives in the OS keyring, owned by the Go core (#179); Codex keeps nothing secret (read through the core and the user's own Codex sign-in). The Copilot OAuth client secret is typed in Settings and handed to the core's service in the request body (then to the core on stdin, #338), never saved. Neither secret reaches the renderer, the logs or the diagnostic report (`main/serviceCopilot.test.ts`).
 - URLs opened in the browser are built in the main process from fixed prefixes, never taken from the renderer.
 
 ## Project status

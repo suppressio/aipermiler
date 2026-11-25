@@ -12,7 +12,7 @@
 // source of each account's last read is kept for diagnostics. Adding a provider = a new branch in each function below (the exhaustive
 // `switch` on `provider` makes tsc fail when one is forgotten).
 
-import { core, coreService } from './core';
+import { copilotService, core, coreService } from './core';
 import { requireFresh, type CoreUsageResult } from './coreClient';
 import { oneAtATime } from './oneAtATime';
 import { readUsageWithFallback, type UsageSourceRecord } from './serviceClient';
@@ -129,12 +129,13 @@ export async function disconnect(cfg: AccountConfig): Promise<AccountConfig> {
       await clearClaudePartition(cfg.partition);
       return { ...cfg, enabled: false, session: { sessionKey: null, organizationId: null, capturedAt: null, expiresAt: null } };
     case 'copilot':
-      // The token lives in the core's keyring: removed there. A failure (keyring not
-      // reachable) is thrown, so the account does not look disconnected while its token
-      // stays stored. oauthApp.clientId is kept: not a secret, handy to reconnect.
-      // A never-connected account has nothing to remove (no core call needed to delete it).
+      // The token lives in the core's keyring: removed there, through the service
+      // (#338; no service running is an error, Settings disables the action). A failure
+      // (keyring not reachable) is thrown, so the account does not look disconnected
+      // while its token stays stored. oauthApp.clientId is kept: not a secret, handy to
+      // reconnect. A never-connected account has nothing to remove (no call needed).
       if (cfg.credentials.username || cfg.credentials.token) {
-        await core.tokenDelete({ provider: 'copilot', flags: copilotAccountFlags(cfg) });
+        await copilotService.deleteToken(cfg.id);
       }
       return { ...cfg, enabled: false, credentials: { token: null, username: null } };
   }

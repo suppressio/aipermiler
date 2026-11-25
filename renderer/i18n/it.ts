@@ -210,6 +210,8 @@ export const it: Record<MessageKey, string> = {
   'settings.copilot.oauthHint': "Utile per i piani personali (anche Free): con un token OAuth GitHub restituisce le quote di crediti. Serve una OAuth App registrata da te, una volta sola.",
   'settings.copilot.clientSecretPlaceholder': 'mai salvato su disco',
   'settings.copilot.oauthConnect': 'Connetti con GitHub (OAuth)',
+  'settings.copilot.oauthCancel': 'Annulla accesso',
+  'settings.copilot.serviceRequired': 'Il servizio di AIpermiler non è avviato: il collegamento e lo scollegamento degli account Copilot passano dal servizio. Avvialo (`aipermiler serve`) e riapri le Impostazioni.',
 
   'settings.schedule.title': 'Calendario di lavoro',
   'settings.schedule.enabled': 'Limita il pacing a giorni/ore specifici della settimana',

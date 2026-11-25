@@ -29,6 +29,10 @@ let savedSettings: AppSettings | null = null;
 let saveTimer: ReturnType<typeof setTimeout> | null = null;
 // Account whose detail panel is open in the table (one at a time).
 let expandedAccountId: AccountId | null = null;
+// Whether the core's service runs (#338): the Copilot account actions (token, OAuth
+// sign-in, disconnect) go through it and are disabled with a notice without it. null
+// until the main process answered: nothing disabled meanwhile (main refuses anyway).
+let serviceRunning: boolean | null = null;
 // Account just created with "Add account" and not saved yet: same detail form,
 // only the title changes ("New … account" instead of "Configure …").
 let newAccountId: AccountId | null = null;
@@ -231,6 +235,32 @@ function renderAccountsTable(): void {
       tbody.appendChild(detailRow);
     }
   });
+  applyServiceState();
+}
+
+const SERVICE_ACTIONS = ['connect-copilot-pat', 'connect-copilot-oauth', 'disconnect'];
+
+// Without the service the Copilot account actions are disabled and the detail says why
+// (owner decision D1 on #181: a message, no CLI fallback, no start button).
+function applyServiceState(): void {
+  const blocked = serviceRunning === false;
+  for (const account of accounts()) {
+    if (account.provider !== 'copilot') continue;
+    const selector = `[data-account-id="${CSS.escape(account.id)}"]`;
+    for (const action of SERVICE_ACTIONS) {
+      document.querySelectorAll<HTMLButtonElement>(`button[data-action="${action}"]${selector}`).forEach((btn) => {
+        btn.disabled = blocked;
+        btn.title = blocked ? t('settings.copilot.serviceRequired') : '';
+      });
+    }
+    const notice = detailElement(account.id)?.querySelector<HTMLElement>('[data-role="service-notice"]');
+    if (notice) notice.hidden = !blocked;
+  }
+}
+
+async function refreshServiceState(): Promise<void> {
+  serviceRunning = (await window.aipermiler.getServiceStatus()).running;
+  applyServiceState();
 }
 
 function renderTrayBadgeOptions(): void {
@@ -423,6 +453,8 @@ async function runAccountAction(action: string, id: AccountId, button: HTMLButto
     if (expandedAccountId === null) newAccountId = null;
     captureDraftFromForm();
     populateForm();
+    // A service started or stopped since Settings opened is seen when a detail opens.
+    if (account.provider === 'copilot') runGuarded(refreshServiceState());
     return;
   }
 
@@ -448,9 +480,19 @@ async function runAccountAction(action: string, id: AccountId, button: HTMLButto
         return;
       }
       setDetailStatus(id, t('settings.accounts.oauthAuthorize'));
-      const result = await window.aipermiler.connectCopilotOAuth(id, clientId, clientSecret, githubHostInput(id));
-      await reloadAfterAccountAction(id);
-      showSaveStatus(t('settings.accounts.connectedOauthAs', { name, user: result.username }));
+      // The sign-in waits for the browser (up to 5 minutes): it can be cancelled.
+      const cancel = detailElement(id)?.querySelector<HTMLButtonElement>('[data-action="cancel-copilot-oauth"]');
+      if (cancel) cancel.hidden = false;
+      try {
+        const result = await window.aipermiler.connectCopilotOAuth(id, clientId, clientSecret, githubHostInput(id));
+        await reloadAfterAccountAction(id);
+        showSaveStatus(t('settings.accounts.connectedOauthAs', { name, user: result.username }));
+      } finally {
+        if (cancel) cancel.hidden = true;
+      }
+    } else if (action === 'cancel-copilot-oauth') {
+      // The pending connect ends with the "cancelled" message.
+      await window.aipermiler.cancelCopilotOAuth(id);
     } else if (action === 'disconnect') {
       await window.aipermiler.disconnectAccount(id);
       await reloadAfterAccountAction(id);
@@ -467,6 +509,8 @@ async function runAccountAction(action: string, id: AccountId, button: HTMLButto
   } finally {
     if (button.isConnected) button.disabled = false;
   }
+  // A Copilot action may have failed because the service stopped meanwhile.
+  if (account.provider === 'copilot') await refreshServiceState();
 }
 
 // Reads every field currently in the DOM back into the draft: needed before
@@ -730,6 +774,7 @@ async function init(): Promise<void> {
   populateForm();
   bindEvents();
   byId('app-version', HTMLElement).textContent = await window.aipermiler.getAppVersion();
+  runGuarded(refreshServiceState());
   // Not awaited: running the core takes a moment and must not delay the form.
   runGuarded(window.aipermiler.getCoreStatus().then((status) => {
     byId('core-status', HTMLElement).textContent = status.ok ? status.version : t('settings.diagnostics.coreUnavailable', { error: status.error });
