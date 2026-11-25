@@ -108,14 +108,22 @@ const isObject = (v) => typeof v === 'object' && v !== null && !Array.isArray(v)
 const isNumber = (v) => typeof v === 'number' && Number.isFinite(v);
 const str = (v) => (typeof v === 'string' ? v : '');
 
-function positiveInt(v, fallback) {
-  return Number.isInteger(v) && v >= 1 && v <= 2147483647 ? v : fallback;
-}
+const present = (v) => v !== undefined && v !== null;
 
-/** A positive integer clamped to [min, max]: the ranges PUT /api/v1/settings accepts (#284). */
-function clampedInt(v, min, max, fallback) {
-  const n = positiveInt(v, fallback);
-  return Math.min(max, Math.max(min, n));
+/**
+ * A global setting within [min, max], the range PUT /api/v1/settings accepts (#284):
+ * the default when missing, and a warning naming the setting (never its value) when a
+ * present value is replaced or clamped.
+ */
+function clampedSetting(name, v, min, max, fallback, warn) {
+  if (!present(v)) return fallback;
+  if (!Number.isInteger(v) || v < 1) {
+    warn(`settings.${name} is not a positive integer, set to the default ${fallback}`);
+    return fallback;
+  }
+  const clamped = Math.min(max, Math.max(min, v));
+  if (clamped !== v) warn(`settings.${name} out of range, clamped to ${clamped}`);
+  return clamped;
 }
 
 // gocore/internal/secrets ValidAccount: an id names the keyring entry.
@@ -195,37 +203,54 @@ function convertAccount(src, accounts, skip) {
     return;
   }
   // The Copilot token goes only to the host the user set: never defaulted to another.
-  const host = src.provider === 'copilot' && str(src.host) ? normalizeHost(src.host) : '';
-  if (src.provider === 'copilot' && str(src.host) && !host) {
+  const hasHost = src.provider === 'copilot' && present(src.host) && src.host !== '';
+  const host = hasHost && typeof src.host === 'string' ? normalizeHost(src.host) : '';
+  if (hasHost && !host) {
     skip(`account ${JSON.stringify(src.id)} has a GitHub host that is neither github.com nor a .ghe.com tenant`);
     return;
   }
+  // A present value changed or dropped is listed by account and field, never with the value.
+  const changed = (field, what) => skip(`account ${JSON.stringify(src.id)}: ${field} ${what}`);
   const rule = isObject(src.subscription) && isObject(src.subscription.renewalRule) ? src.subscription.renewalRule : {};
   const work = isObject(src.workSchedule) ? src.workSchedule : {};
   const days = isObject(work.days) ? work.days : {};
   const weight = (status) => (status === 'full' ? 1 : status === 'half' ? 0.5 : 0);
+  // Out-of-range values get their default (a renewal day: none), so the service's
+  // PUT /api/v1/settings accepts the result (#284).
+  let renewalDay = 0;
+  if (rule.type === 'dayOfMonth' && present(rule.day)) {
+    if (Number.isInteger(rule.day) && rule.day >= 1 && rule.day <= 31) renewalDay = rule.day;
+    else changed('renewalDay', 'is not a day 1-31, set to none');
+  }
+  let hoursPerDay = 8;
+  if (present(work.hoursPerDay)) {
+    if (isNumber(work.hoursPerDay) && work.hoursPerDay > 0 && work.hoursPerDay <= 24) hoursPerDay = work.hoursPerDay;
+    else changed('schedule.hoursPerDay', 'is not over 0 and at most 24, set to 8');
+  }
   const account = {
     id: src.id,
     provider: src.provider,
     label: str(src.label),
     enabled: src.enabled === true,
-    // Out of 1-31 means none, as out-of-range values below get their default:
-    // the service's PUT /api/v1/settings refuses them (#284).
-    renewalDay: rule.type === 'dayOfMonth' && Number.isInteger(rule.day) && rule.day >= 1 && rule.day <= 31 ? rule.day : 0,
+    renewalDay,
     schedule: {
       enabled: work.enabled === true,
       days: WEEKDAYS.map((name) => weight(days[name])),
-      hoursPerDay: isNumber(work.hoursPerDay) && work.hoursPerDay > 0 && work.hoursPerDay <= 24 ? work.hoursPerDay : 8,
+      hoursPerDay,
     },
   };
   // Go omits empty host/scope/manualQuota/binaryPath (omitempty).
   if (src.provider === 'copilot') {
     if (host) account.host = host;
     if (src.accountScope === 'personal' || src.accountScope === 'organization') account.scope = src.accountScope;
+    else if (present(src.accountScope) && src.accountScope !== '') changed('scope', 'is not personal or organization, dropped');
     if (isNumber(src.manualQuota) && src.manualQuota > 0) account.manualQuota = src.manualQuota;
+    else if (present(src.manualQuota) && src.manualQuota !== 0) changed('manualQuota', 'is not 0 or more, dropped');
   } else if (str(src.binaryPath) && path.isAbsolute(src.binaryPath)) {
-    // A relative path is dropped: the core then finds the binary itself.
     account.binaryPath = src.binaryPath;
+  } else if (present(src.binaryPath) && src.binaryPath !== '') {
+    // The core then finds the binary itself.
+    changed('binaryPath', 'is not absolute, dropped');
   }
   account.history = {};
   account.lastGood = null;
@@ -351,9 +376,9 @@ function convert(settings) {
     schemaVersion: SCHEMA_VERSION,
     settings: {
       // The ranges of PUT /api/v1/settings (#284), so a GET → PUT of the result is accepted.
-      refreshIntervalMinutes: clampedInt(ui.refreshIntervalMinutes, 5, 1440, DEFAULT_SETTINGS.refreshIntervalMinutes),
-      retentionDays: clampedInt(history.retentionDays, 1, 3650, DEFAULT_SETTINGS.retentionDays),
-      notificationThresholdPercent: clampedInt(ui.notificationThresholdPercent, 1, 100, DEFAULT_SETTINGS.notificationThresholdPercent),
+      refreshIntervalMinutes: clampedSetting('refreshIntervalMinutes', ui.refreshIntervalMinutes, 5, 1440, DEFAULT_SETTINGS.refreshIntervalMinutes, skip),
+      retentionDays: clampedSetting('retentionDays', history.retentionDays, 1, 3650, DEFAULT_SETTINGS.retentionDays, skip),
+      notificationThresholdPercent: clampedSetting('notificationThresholdPercent', ui.notificationThresholdPercent, 1, 100, DEFAULT_SETTINGS.notificationThresholdPercent, skip),
     },
     accounts,
   };
@@ -480,8 +505,8 @@ async function main(argv) {
   }
   writeAtomic(target, `${JSON.stringify(state, null, 2)}\n`);
 
-  for (const w of warnings) console.log(`Left out: ${w}`);
-  console.log(`Migrated ${state.accounts.length} accounts into ${target} (${warnings.length} entries left out).`);
+  for (const w of warnings) console.log(`Left out or changed: ${w}`);
+  console.log(`Migrated ${state.accounts.length} accounts into ${target} (${warnings.length} entries left out or changed).`);
   console.log(`The app's own file was not changed: ${source}`);
 }
 

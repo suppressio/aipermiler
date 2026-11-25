@@ -103,7 +103,9 @@ test('convert: a missing dayStartUsed takes the previous day, duplicates keep th
     { day: '2026-11-03T00:00:00+01:00', used: 9, dayStartUsed: 5 },
   ]);
   assert.deepEqual(migrated.lastGood, { updatedAt: '2026-11-03T09:00:00.12Z', planTier: null, subscriptionRenewsAt: null, quotaWindows: [] });
-  assert.equal(warnings.length, 3); // duplicate account, unknown provider, unknown window type
+  // Duplicate account, unknown provider, unknown window type; hoursPerDay 0, interval 2.5 and
+  // threshold -1 present but invalid: changed, and listed. The empty binaryPath is no value.
+  assert.equal(warnings.length, 6, warnings.join('\n'));
 });
 
 // The service's PUT /api/v1/settings (#284) refuses values outside its ranges, so a
@@ -117,6 +119,7 @@ test('convert: out-of-range values become what the service accepts', async () =>
       { id: 'p', provider: 'copilot', enabled: true, subscription: { renewalRule: { type: 'dayOfMonth', day: -2 } }, workSchedule: schedule,
         manualQuota: -5, accountScope: 'team' },
       { id: 'h', provider: 'copilot', enabled: true, host: 'evil.example.com' },
+      { id: 'n', provider: 'copilot', enabled: true, host: 42 },
       { id: 'q', provider: 'copilot', enabled: true, workSchedule: { hoursPerDay: 7.5 }, manualQuota: 300, accountScope: 'personal', host: 'https://API.Acme.ghe.com/' },
       { id: 'a/b', provider: 'codex', enabled: true },
     ],
@@ -128,6 +131,22 @@ test('convert: out-of-range values become what the service accepts', async () =>
   assert.ok(warnings.some((w) => w.includes('"a/b"')), warnings.join('\n'));
   // A token must never go to a host other than the one the user set: skipped, not defaulted.
   assert.ok(warnings.some((w) => w.includes('"h"')), warnings.join('\n'));
+  assert.ok(warnings.some((w) => w.includes('"n"')), 'a host that is not a string is skipped too');
+  // Every present value changed or dropped is listed by account id and field, never its value.
+  for (const expected of [
+    'account "c": renewalDay is not a day 1-31, set to none',
+    'account "c": schedule.hoursPerDay is not over 0 and at most 24, set to 8',
+    'account "c": binaryPath is not absolute, dropped',
+    'account "p": renewalDay is not a day 1-31, set to none',
+    'account "p": schedule.hoursPerDay is not over 0 and at most 24, set to 8',
+    'account "p": manualQuota is not 0 or more, dropped',
+    'account "p": scope is not personal or organization, dropped',
+    'settings.refreshIntervalMinutes out of range, clamped to 5',
+    'settings.retentionDays out of range, clamped to 3650',
+    'settings.notificationThresholdPercent out of range, clamped to 100',
+  ]) assert.ok(warnings.includes(expected), `missing "${expected}" in:\n${warnings.join('\n')}`);
+  assert.equal(warnings.length, 10 + 3, warnings.join('\n'));
+  for (const w of warnings) assert.ok(!/bin\/claude|team|-5|\b40\b|\b30\b|5000|150|evil/.test(w), `a value leaked: ${w}`);
   const [c, p, q] = [at(state.accounts, 0), at(state.accounts, 1), at(state.accounts, 2)];
   assert.equal(c.renewalDay, 0);
   assert.equal(c.schedule.hoursPerDay, 8);
