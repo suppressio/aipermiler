@@ -160,6 +160,33 @@ test('convert: out-of-range values become what the service accepts', async () =>
   assert.equal(q.host, 'acme.ghe.com', 'normalized as github.NormalizeHost does');
 });
 
+test('convert: Claude localInsights and Copilot authMethod are copied as the service validates them (#336)', async () => {
+  const m = await load();
+  const { state, warnings } = m.convert({
+    accounts: [
+      { id: 'c1', provider: 'claude', enabled: true, localInsights: true, authMethod: 'sso' },
+      { id: 'c2', provider: 'claude', enabled: true, localInsights: true },
+      { id: 'c3', provider: 'claude', enabled: true, localInsights: false },
+      { id: 'p', provider: 'copilot', enabled: true, authMethod: 'oauth' },
+      { id: 'q', provider: 'copilot', enabled: true, authMethod: 'password' },
+      { id: 'x', provider: 'codex', enabled: true, localInsights: true },
+    ],
+  }) as { state: { accounts: { id: string; localInsights?: boolean; authMethod?: string }[] }; warnings: string[] };
+  assert.deepEqual(state.accounts.map((a) => [a.id, a.localInsights, a.authMethod]), [
+    ['c1', true, undefined], // Claude's own authMethod (claude.ai sign-in, gone since #140) is not the service's field
+    ['c2', undefined, undefined],
+    ['c3', undefined, undefined], // false is omitted, as Go's omitempty
+    ['p', undefined, 'oauth'],
+    ['q', undefined, undefined],
+    ['x', undefined, undefined],
+  ]);
+  for (const expected of [
+    'account "c2": localInsights is already on another Claude account, dropped',
+    'account "q": authMethod is not pat or oauth, dropped',
+  ]) assert.ok(warnings.includes(expected), `missing "${expected}" in:\n${warnings.join('\n')}`);
+  assert.equal(warnings.length, 2, warnings.join('\n'));
+});
+
 test('convert: day keys match Go where a DST change skips or repeats midnight (time.ParseInLocation)', async () => {
   const m = await load();
   // Values printed by Go's json.Marshal(time.Date(y, m, d, 0, 0, 0, 0, loc)). Go resolves a

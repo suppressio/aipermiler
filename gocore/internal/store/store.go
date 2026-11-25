@@ -123,6 +123,12 @@ type Account struct {
 	Scope       string  `json:"scope,omitempty"`
 	ManualQuota float64 `json:"manualQuota,omitempty"`
 	BinaryPath  *string `json:"binaryPath,omitempty"`
+	// LocalInsights is Claude's: this machine's Claude Code sessions are counted
+	// for this account (opt-in, at most one account, #336). AuthMethod is
+	// Copilot's: how the account was last connected, "pat" or "oauth" (#336).
+	// Neither changes a quota read.
+	LocalInsights bool   `json:"localInsights,omitempty"`
+	AuthMethod    string `json:"authMethod,omitempty"`
 	// History is per quota window id.
 	History  map[string]history.State `json:"history"`
 	LastGood *LastGood                `json:"lastGood"`

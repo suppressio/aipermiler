@@ -38,8 +38,9 @@ type settingsDocument struct {
 	Accounts      []accountSettings `json:"accounts"`
 }
 
-// accountSettings is the editable part of a store.Account. Host, Scope and
-// ManualQuota are Copilot's, BinaryPath Claude's and Codex's.
+// accountSettings is the editable part of a store.Account. Host, Scope,
+// ManualQuota and AuthMethod are Copilot's, BinaryPath Claude's and Codex's,
+// LocalInsights Claude's.
 type accountSettings struct {
 	ID          string           `json:"id"`
 	Provider    string           `json:"provider"`
@@ -51,6 +52,9 @@ type accountSettings struct {
 	Scope       string           `json:"scope,omitempty"`
 	ManualQuota float64          `json:"manualQuota,omitempty"`
 	BinaryPath  *string          `json:"binaryPath,omitempty"`
+	// LocalInsights and AuthMethod are additive in v1 (#336).
+	LocalInsights bool   `json:"localInsights,omitempty"`
+	AuthMethod    string `json:"authMethod,omitempty"`
 }
 
 // scheduleSettings is store.Schedule with a slice, so a wrong number of days
@@ -187,6 +191,7 @@ func decodeSettings(body io.Reader) (settingsRequest, error) {
 		return req, err
 	}
 	seen := map[string]bool{}
+	insights := false
 	for i := range *req.Accounts {
 		account := &(*req.Accounts)[i]
 		if err := checkAccount(fmt.Sprintf("accounts[%d]", i), account); err != nil {
@@ -196,6 +201,10 @@ func decodeSettings(body io.Reader) (settingsRequest, error) {
 			return req, invalid(fmt.Sprintf("accounts[%d].id", i), "%q appears twice", account.ID)
 		}
 		seen[account.ID] = true
+		if account.LocalInsights && insights {
+			return req, invalid(fmt.Sprintf("accounts[%d].localInsights", i), "only one claude account can count local insights")
+		}
+		insights = insights || account.LocalInsights
 	}
 	return req, nil
 }
@@ -252,6 +261,12 @@ func checkAccount(path string, a *accountSettings) error {
 	if a.ManualQuota != 0 && (!copilot || a.ManualQuota < 0) {
 		return invalid(field("manualQuota"), "must be 0 or more, on copilot accounts only")
 	}
+	if a.LocalInsights && a.Provider != "claude" {
+		return invalid(field("localInsights"), "only on claude accounts")
+	}
+	if a.AuthMethod != "" && (!copilot || (a.AuthMethod != "pat" && a.AuthMethod != "oauth")) {
+		return invalid(field("authMethod"), "must be pat or oauth, on copilot accounts only")
+	}
 	if a.BinaryPath != nil && *a.BinaryPath == "" {
 		a.BinaryPath = nil
 	}
@@ -284,6 +299,7 @@ func applyAccounts(current []store.Account, next []accountSettings) ([]store.Acc
 		account.Schedule = store.Schedule{Enabled: n.Schedule.Enabled, HoursPerDay: n.Schedule.HoursPerDay}
 		copy(account.Schedule.Days[:], n.Schedule.Days)
 		account.Host, account.Scope, account.ManualQuota, account.BinaryPath = n.Host, n.Scope, n.ManualQuota, n.BinaryPath
+		account.LocalInsights, account.AuthMethod = n.LocalInsights, n.AuthMethod
 		out = append(out, account)
 	}
 	return out, nil
@@ -323,6 +339,7 @@ func writeSettings(w http.ResponseWriter, s store.State) {
 			ID: a.ID, Provider: a.Provider, Label: a.Label, Enabled: a.Enabled, RenewalDay: a.RenewalDay,
 			Schedule: scheduleSettings{Enabled: a.Schedule.Enabled, Days: a.Schedule.Days[:], HoursPerDay: a.Schedule.HoursPerDay},
 			Host:     a.Host, Scope: a.Scope, ManualQuota: a.ManualQuota, BinaryPath: binary,
+			LocalInsights: a.LocalInsights, AuthMethod: a.AuthMethod,
 		})
 	}
 	data, _ := json.Marshal(doc) // plain data: cannot fail
