@@ -168,7 +168,16 @@ export function createCopilotServiceActions(options: CopilotServiceOptions): Cop
   };
 }
 
+/** Thrown by `onAuthorize` for a sign-in URL it will not open: the login stops at once. */
+export class AuthorizeUrlRejectedError extends Error {
+  constructor() {
+    super('The sign-in URL does not match the account\'s GitHub domain');
+    this.name = 'AuthorizeUrlRejectedError';
+  }
+}
+
 export interface LoginPolling {
+  // May throw (AuthorizeUrlRejectedError): the login is cancelled and the error thrown.
   onAuthorize: (url: string) => void;
   // Interval between two status reads.
   pollMs?: number;
@@ -184,20 +193,26 @@ const DEFAULT_LOGIN_DEADLINE_MS = (CORE_LOGIN_TIMEOUT_SECONDS + 60) * 1000;
 /**
  * The whole OAuth login through the service: start, open the authorize URL, poll the
  * status until the user name or an error (timeout, denied, cancelled from Settings:
- * `cancelLogin` makes the next status read throw `login_cancelled`).
+ * `cancelLogin` makes the next status read throw `login_cancelled`). An error document
+ * of the provider means the login already ended; any other failure (rejected URL,
+ * service gone, bad answer, deadline) cancels it, best effort, so a retry does not get
+ * `login_in_progress`.
  */
 export async function loginThroughService(actions: CopilotServiceActions, accountId: string, request: CopilotLoginRequest, polling: LoginPolling): Promise<string> {
   const sleep = polling.sleep ?? ((ms: number) => new Promise<void>((resolve) => { setTimeout(resolve, ms); }));
   const now = polling.now ?? Date.now;
   const deadline = now() + (polling.deadlineMs ?? DEFAULT_LOGIN_DEADLINE_MS);
-  polling.onAuthorize(await actions.startLogin(accountId, request));
-  for (;;) {
-    await sleep(polling.pollMs ?? DEFAULT_POLL_MS);
-    const status = await actions.loginStatus(accountId);
-    if (status.state === 'connected') return status.username;
-    if (now() >= deadline) {
-      await actions.cancelLogin(accountId);
-      throw new CoreTimeoutError('The sign-in did not end in time');
+  const url = await actions.startLogin(accountId, request);
+  try {
+    polling.onAuthorize(url);
+    for (;;) {
+      await sleep(polling.pollMs ?? DEFAULT_POLL_MS);
+      const status = await actions.loginStatus(accountId);
+      if (status.state === 'connected') return status.username;
+      if (now() >= deadline) throw new CoreTimeoutError('The sign-in did not end in time');
     }
+  } catch (err) {
+    if (!(err instanceof CoreProviderError)) await actions.cancelLogin(accountId).catch(() => undefined);
+    throw err;
   }
 }

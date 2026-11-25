@@ -128,6 +128,7 @@ aipermiler/
 │   ├── schedule.ts              ← one-line summary of an account work schedule (+ test)
 │   ├── accountStatus.ts         ← the widget's status line: stale, error, notice, service "refreshing" (+ test)
 │   ├── usageSource.ts           ← Settings → Diagnostics: service or CLI per account (+ test)
+│   ├── copilotLogin.ts          ← Settings: a Copilot sign-in refused because another one runs, found by error name (+ test)
 │   ├── windowLabel.ts           ← localized quota-window labels, including Codex limits (+ test)
 │   ├── gauge.ts                 ← log-scale position of the instant pace against its target (+ test)
 │   ├── visibility.ts            ← which indicators are shown (autonomy, peak/average, streak) (+ test)

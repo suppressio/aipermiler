@@ -22,6 +22,11 @@ export interface CopilotOAuthPayload {
   host: string;
 }
 
+// Name of the error accounts:connectCopilotOAuth fails with when another sign-in runs
+// (`login_in_progress`): IPC keeps only the error's text, so Settings finds it by name
+// and offers to cancel (#338).
+export type CopilotLoginInProgressErrorName = 'CopilotLoginInProgressError';
+
 // With the source of each enabled account's last usage read (#182): the service or the CLI.
 export type CoreStatus = ({ ok: true; version: string } | { ok: false; error: string }) & { sources: UsageSourceStatus[] };
 
