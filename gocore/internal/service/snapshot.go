@@ -45,19 +45,15 @@ func (s snapshotAPI) register(mux *http.ServeMux) {
 }
 
 func (s snapshotAPI) snapshot(w http.ResponseWriter, r *http.Request) {
-	chartDays := 7
-	if q := r.URL.Query(); q.Has("chartDays") {
-		switch q.Get("chartDays") {
-		case "7":
-		case "30":
-			chartDays = 30
-		default:
-			writeUsageError(w, http.StatusBadRequest, "chartDays must be 7 or 30")
-			return
-		}
-	}
-	account, ok := s.accounts.enabledAccount(w, r)
+	// One store snapshot for the account and the settings: they agree.
+	state := s.accounts.store.Snapshot()
+	account, ok := enabledAccountIn(state, w, r)
 	if !ok {
+		return
+	}
+	chartDays, ok := chartDaysOf(r)
+	if !ok {
+		writeUsageError(w, http.StatusBadRequest, "chartDays must be given once, 7 or 30")
 		return
 	}
 	// Freshness, errors and their status are exactly the usage endpoint's:
@@ -74,7 +70,7 @@ func (s snapshotAPI) snapshot(w http.ResponseWriter, r *http.Request) {
 		FetchedAt: lg.UpdatedAt.UTC().Format(time.RFC3339),
 		Stale:     u.Stale != nil, StaleReason: u.Stale, Usage: u,
 	}
-	settings := s.accounts.store.Snapshot().Settings
+	settings := state.Settings
 	result := snapshot.Build(snapshot.Input{
 		History:  account.History,
 		Response: response(u, lg.UpdatedAt),
@@ -100,6 +96,25 @@ func (s snapshotAPI) snapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeDocument(w, http.StatusOK, buf.Bytes())
+}
+
+// chartDaysOf reads the optional chartDays parameter: 7 (the default) or 30,
+// given at most once; false for anything else.
+func chartDaysOf(r *http.Request) (int, bool) {
+	values, given := r.URL.Query()["chartDays"]
+	if !given {
+		return 7, true
+	}
+	if len(values) != 1 {
+		return 0, false
+	}
+	switch values[0] {
+	case "7":
+		return 7, true
+	case "30":
+		return 30, true
+	}
+	return 0, false
 }
 
 // response is the lastGood (u, read at fetchedAt). It is fresh while the
