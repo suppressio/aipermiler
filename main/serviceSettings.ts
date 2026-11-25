@@ -219,6 +219,45 @@ export function withConnectionFields(account: ServiceAccount, cfg: AccountConfig
   return out;
 }
 
+/** A service account with the connection fields of Electron's copy, in the whole document; null when the service lacks it. */
+export function connectionDocument(doc: ServiceSettingsDocument, id: string, cfg: AccountConfig): ServiceSettingsDocument | null {
+  if (!doc.accounts.some((a) => a.id === id)) return null;
+  return { ...doc, accounts: doc.accounts.map((a) => (a.id === id ? withConnectionFields(a, cfg) : a)) };
+}
+
+/**
+ * Electron's copy has an account the service lacks: v0.6.x data the migration script
+ * would move (docs/UPGRADE-TO-0.7.md). Until then Electron's file is the script's source
+ * and its global settings must not be overwritten with the service's.
+ */
+export function hasUnmigratedAccounts(local: readonly { id: string }[], service: readonly { id: string }[]): boolean {
+  return local.some((a) => !service.some((s) => s.id === a.id));
+}
+
+/**
+ * The upgrade notice of Settings, until dismissed: with the service up, when Electron's
+ * copy has an account the service lacks; with it down (`service` null, as the migration
+ * script needs it), when Electron's copy has any account.
+ */
+export function showUpgradeNotice(input: { dismissed: boolean; local: readonly { id: string }[]; service: readonly { id: string }[] | null }): boolean {
+  if (input.dismissed) return false;
+  return input.service === null ? input.local.length > 0 : hasUnmigratedAccounts(input.local, input.service);
+}
+
+/**
+ * The accounts a Settings save sends: those of the patch the service has now (`known`,
+ * from a fresh GET), then the service's accounts missing from the patch. An account of
+ * the patch the service lacks (removed by another client, or only in Electron's copy)
+ * is dropped: accounts are created only by accounts:add, removed only by accounts:remove.
+ */
+export function accountsToSave(patch: readonly AccountConfig[], known: readonly AccountConfig[]): AccountConfig[] {
+  const out = patch.filter((a) => known.some((k) => k.id === a.id));
+  for (const a of known) {
+    if (!out.some((m) => m.id === a.id)) out.push(a);
+  }
+  return out;
+}
+
 // --- parsing -----------------------------------------------------------------------------
 
 function parseAccount(raw: unknown): ServiceAccount | null {
