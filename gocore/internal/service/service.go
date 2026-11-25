@@ -32,6 +32,9 @@ type Options struct {
 	Loop func(st *store.Store) Loop
 	// Raw reads an account's diagnostic raw document (GET .../raw).
 	Raw RawFunc
+	// Accounts runs the Copilot account actions (#285): token set and
+	// delete, login. A login is cancelled by the stop.
+	Accounts AccountCommands
 }
 
 // Run holds the single-instance lock, serves the API on a random loopback port
@@ -101,6 +104,7 @@ func run(ctx context.Context, opts Options, listen func(context.Context) (net.Li
 		Token: token, Host: net.JoinHostPort("127.0.0.1", strconv.Itoa(port)),
 		Version: opts.Version, ContractVersion: opts.ContractVersion,
 		Shutdown: requestStop, Store: st, Loop: loop, Raw: opts.Raw,
+		Accounts: opts.Accounts, Context: workCtx, Logger: opts.Logger,
 	}), opts.Logger)
 	serveErr, serveDone := make(chan error, 1), make(chan struct{})
 	go func() {

@@ -25,6 +25,9 @@ func TestMain(m *testing.M) {
 		time.Sleep(time.Minute)
 		os.Exit(0)
 	}
+	if dir := os.Getenv(fakeCLIEnv); dir != "" {
+		os.Exit(fakeAccountCLI(dir))
+	}
 	os.Exit(m.Run())
 }
 

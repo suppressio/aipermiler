@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -34,6 +35,26 @@ func TestMain(m *testing.M) {
 		}
 		_, _ = os.Stdout.Write(data)
 		os.Exit(0)
+	case strings.HasPrefix(mode, "account:"):
+		// An account command: records its arguments and its stdin, then
+		// writes the file named after "account:" (one document per line).
+		recordArgsAndStdin()
+		data, err := os.ReadFile(strings.TrimPrefix(mode, "account:"))
+		if err != nil {
+			os.Exit(9)
+		}
+		_, _ = os.Stdout.Write(data)
+		os.Exit(0)
+	case strings.HasPrefix(mode, "login-hang:"):
+		// A login that announces its URL and then waits for the browser.
+		recordArgsAndStdin()
+		data, err := os.ReadFile(strings.TrimPrefix(mode, "login-hang:"))
+		if err != nil {
+			os.Exit(9)
+		}
+		_, _ = os.Stdout.Write(data)
+		time.Sleep(time.Minute)
+		os.Exit(0)
 	case mode == "garbage":
 		fmt.Println("claude: command not found")
 		os.Exit(4)
@@ -61,6 +82,17 @@ func TestMain(m *testing.M) {
 		os.Exit(0)
 	default:
 		os.Exit(9)
+	}
+}
+
+// recordArgsAndStdin writes the arguments to FAKE_ARGS and stdin to FAKE_STDIN.
+func recordArgsAndStdin() {
+	if file := os.Getenv("FAKE_ARGS"); file != "" {
+		_ = os.WriteFile(file, []byte(strings.Join(os.Args[1:], "\n")), 0o600)
+	}
+	if file := os.Getenv("FAKE_STDIN"); file != "" {
+		data, _ := io.ReadAll(os.Stdin)
+		_ = os.WriteFile(file, data, 0o600)
 	}
 }
 

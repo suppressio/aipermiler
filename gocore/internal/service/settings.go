@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"path/filepath"
 	"slices"
@@ -80,8 +81,10 @@ func invalid(field, format string, args ...any) *invalidSettings {
 // writer is the service (#146), and tells the loop which accounts' reads
 // changed (#284).
 type settingsAPI struct {
-	store *store.Store
-	loop  Loop
+	store    *store.Store
+	loop     Loop
+	accounts AccountCommands // deletes a removed Copilot account's token (#285)
+	logger   *slog.Logger
 }
 
 func (a settingsAPI) register(mux *http.ServeMux) {
@@ -108,12 +111,14 @@ func (a settingsAPI) put(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var changed []string
+	var removed []store.Account
 	err = a.store.Update(func(s *store.State) error {
 		accounts, err := applyAccounts(s.Accounts, *req.Accounts)
 		if err != nil {
 			return err
 		}
 		changed = changedAccounts(s.Accounts, accounts)
+		removed = removedCopilot(s.Accounts, accounts)
 		s.Settings = *req.Settings
 		s.Accounts = accounts
 		return nil
@@ -130,7 +135,20 @@ func (a settingsAPI) put(w http.ResponseWriter, r *http.Request) {
 	if len(changed) > 0 {
 		a.loop.Changed(changed...)
 	}
+	deleteRemovedTokens(r.Context(), a.accounts, a.logger, removed)
 	writeSettings(w, a.store.Snapshot())
+}
+
+// removedCopilot are the Copilot accounts of before that after no longer has:
+// their token goes with them.
+func removedCopilot(before, after []store.Account) []store.Account {
+	var removed []store.Account
+	for _, a := range before {
+		if a.Provider == "copilot" && !slices.ContainsFunc(after, func(b store.Account) bool { return b.ID == a.ID }) {
+			removed = append(removed, a)
+		}
+	}
+	return removed
 }
 
 var errBodyTooLarge = &invalidSettings{"body", fmt.Sprintf("over %d KiB", maxSettingsBody>>10)}
