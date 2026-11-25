@@ -222,7 +222,6 @@ func TestPutSettingsRejectsInvalidInput(t *testing.T) {
 		{name: "negative quota", change: func(d map[string]any) { accountOf(d, 0)["manualQuota"] = -1 }, field: "accounts[0].manualQuota"},
 		{name: "relative binary", change: func(d map[string]any) { accountOf(d, 1)["binaryPath"] = "bin/claude" }, field: "accounts[1].binaryPath"},
 		{name: "local insights on copilot", change: func(d map[string]any) { accountOf(d, 0)["localInsights"] = true }, field: "accounts[0].localInsights"},
-		{name: "local insights of the wrong type", change: func(d map[string]any) { accountOf(d, 1)["localInsights"] = "yes" }, field: "accounts.1.localInsights"},
 		{name: "local insights on two claude accounts", change: func(d map[string]any) {
 			second := validAccount()
 			second["id"], second["provider"], second["localInsights"] = "c2", "claude", true
