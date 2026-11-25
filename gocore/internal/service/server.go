@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/suppressio/aipermiler/gocore/internal/store"
 )
@@ -24,6 +25,13 @@ type HandlerConfig struct {
 	Store *store.Store
 	Loop  Loop
 	Raw   RawFunc
+	// Now, Location and TipDraw build the pacing snapshot (#326): the request's
+	// clock (nil is time.Now), the local calendar (nil is time.Local, the
+	// refresh loop's default) and the draw in [0, 1) that picks a tip (nil is
+	// a random draw).
+	Now      func() time.Time
+	Location *time.Location
+	TipDraw  func() float64
 }
 
 // NewHandler builds the API. Every request passes three gates before routing:
@@ -64,8 +72,10 @@ func NewHandler(cfg HandlerConfig) http.Handler {
 		}
 		rawSlot := make(chan struct{}, 1)
 		rawSlot <- struct{}{}
-		accountsAPI{store: cfg.Store, loop: loop, raw: cfg.Raw, rawSlot: rawSlot}.register(mux)
+		accounts := accountsAPI{store: cfg.Store, loop: loop, raw: cfg.Raw, rawSlot: rawSlot}
+		accounts.register(mux)
 		settingsAPI{store: cfg.Store, loop: loop}.register(mux)
+		newSnapshotAPI(accounts, cfg).register(mux)
 	}
 	want := sha256.Sum256([]byte(cfg.Token))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
