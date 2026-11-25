@@ -140,8 +140,14 @@ func (a accountsAPI) rawDocument(w http.ResponseWriter, r *http.Request) {
 // enabledAccount finds the path's account; a missing or disabled one is a
 // usage error (404): the service neither reads nor serves it.
 func (a accountsAPI) enabledAccount(w http.ResponseWriter, r *http.Request) (store.Account, bool) {
+	return enabledAccountIn(a.store.Snapshot(), w, r)
+}
+
+// enabledAccountIn is enabledAccount on a store snapshot the caller already
+// holds, for a handler that reads more of the same state.
+func enabledAccountIn(state store.State, w http.ResponseWriter, r *http.Request) (store.Account, bool) {
 	id := r.PathValue("id")
-	if account := a.store.Snapshot().Account(id); account != nil && account.Enabled {
+	if account := state.Account(id); account != nil && account.Enabled {
 		return *account, true
 	}
 	writeUsageError(w, http.StatusNotFound, "No enabled account with id "+id)

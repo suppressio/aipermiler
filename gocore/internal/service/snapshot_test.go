@@ -277,9 +277,10 @@ func TestSnapshotTrend(t *testing.T) {
 	}
 }
 
-// A fresh read is not counted again (the loop recorded it): apart from the
-// trend, its pacing is the one of the same read served as stale, which is
-// never recorded.
+// Re-recording a fresh read the loop already recorded is a no-op: apart from
+// the trend, its pacing is the one of the same read served as stale, which is
+// never recorded. (That re-recording leaves the history itself unchanged is
+// asserted in internal/pacing/snapshot, TestBuildOfAReadAlreadyRecordedKeepsTheHistory.)
 func TestSnapshotFreshReadIsNotRecordedAgain(t *testing.T) {
 	t.Parallel()
 	pacing := func(lastErr error) []map[string]json.RawMessage {
@@ -333,11 +334,15 @@ func TestSnapshotChartDays(t *testing.T) {
 	if week, month, def := weekly("?chartDays=7"), weekly("?chartDays=30"), weekly(""); week != def || month <= week {
 		t.Errorf("chart slots: 7 → %d, 30 → %d, default → %d", week, month, def)
 	}
-	for _, bad := range []string{"?chartDays=14", "?chartDays=x", "?chartDays="} {
+	for _, bad := range []string{"?chartDays=14", "?chartDays=x", "?chartDays=", "?chartDays=7&chartDays=99", "?chartDays=7&chartDays=7"} {
 		w := api.snapshot(t, "a1/snapshot"+bad, nil)
 		if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), `"code":"usage"`) {
 			t.Errorf("%s: status %d body %s", bad, w.Code, w.Body)
 		}
+	}
+	// The account comes first: an unknown one is 404 whatever the query.
+	if w := api.snapshot(t, "nope/snapshot?chartDays=14", nil); w.Code != http.StatusNotFound {
+		t.Errorf("unknown account with a bad chartDays: status %d body %s", w.Code, w.Body)
 	}
 }
 
