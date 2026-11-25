@@ -474,3 +474,61 @@ test('a late service read from yesterday moves the start of a today point alread
     { date: '2026-10-15', used: 50, dayStartUsed: 50 },
   ]);
 });
+
+test('a late service read from yesterday keeps the zero start of a renewal day (#182)', async () => {
+  const account = claudeAccount();
+  account.subscription = { ...account.subscription, renewalRule: { type: 'dayOfMonth', day: 15 } };
+  const monthly = (used: number): QuotaWindow => ({
+    id: 'spend', label: 'Monthly', periodType: 'billing-cycle', periodLength: 1, unit: 'percentage', used, total: 100, resetsAt: null,
+  });
+  const h = harness([account], usage(monthly(80)));
+  const lastEvening = new Date(2026, 9, 14, 23, 50);
+  h.clock.now = lastEvening;
+  await h.core.buildUsageSnapshot('forced');
+
+  // 00:01 on the renewal day: same document, today's point starts at 0 (new period).
+  h.served.fetchedAt = lastEvening.toISOString();
+  h.clock.now = new Date(2026, 9, 15, 0, 1);
+  await h.core.buildUsageSnapshot('forced');
+  const startOf = (date: string): number | undefined => h.history.dailyUsage.find((p) => p.date === date)?.dayStartUsed;
+  assert.equal(startOf('2026-10-15'), 0);
+
+  // 00:03: the service's 23:58 read (90) belongs to the old period; today still starts at 0.
+  h.served.fetchedAt = new Date(2026, 9, 14, 23, 58).toISOString();
+  h.clock.now = new Date(2026, 9, 15, 0, 3);
+  h.answer.next = async () => usage(monthly(90));
+  await h.core.buildUsageSnapshot('forced');
+  assert.equal(h.history.dailyUsage.find((p) => p.date === '2026-10-14')?.used, 90);
+  assert.equal(startOf('2026-10-15'), 0);
+
+  // 10:00: the new period's first value; today's consumption is 5.
+  h.served.fetchedAt = null;
+  h.clock.now = new Date(2026, 9, 15, 10, 0);
+  h.answer.next = async () => usage(monthly(5));
+  const { snapshot } = await h.core.buildUsageSnapshot('forced');
+  assert.equal(startOf('2026-10-15'), 0);
+  assert.equal(at(at(snapshot.accounts, 0).windows, 0).todayBudget?.usedToday, 5);
+});
+
+test('a late service read from yesterday that follows a reset starts today from that value (#182)', async () => {
+  const h = harness([claudeAccount()], usage(weeklyWindow(80)));
+  const lastEvening = new Date(2026, 9, 14, 23, 50);
+  h.clock.now = lastEvening;
+  await h.core.buildUsageSnapshot('forced');
+  h.served.fetchedAt = lastEvening.toISOString();
+  h.clock.now = new Date(2026, 9, 15, 0, 1);
+  await h.core.buildUsageSnapshot('forced');
+
+  // The window reset at 23:55: the service's 23:58 read is 2.
+  h.served.fetchedAt = new Date(2026, 9, 14, 23, 58).toISOString();
+  h.clock.now = new Date(2026, 9, 15, 0, 3);
+  h.answer.next = async () => usage(weeklyWindow(2));
+  await h.core.buildUsageSnapshot('forced');
+  assert.equal(h.history.dailyUsage.find((p) => p.date === '2026-10-15')?.dayStartUsed, 2);
+
+  h.served.fetchedAt = null;
+  h.clock.now = new Date(2026, 9, 15, 10, 0);
+  h.answer.next = async () => usage(weeklyWindow(7));
+  const { snapshot } = await h.core.buildUsageSnapshot('forced');
+  assert.equal(at(at(snapshot.accounts, 0).windows, 0).todayBudget?.usedToday, 5);
+});

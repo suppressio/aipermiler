@@ -238,14 +238,21 @@ export function computeWindowSnapshot(
 ): QuotaWindowSnapshot {
   const { periodStart, periodEnd } = resolvePeriodBounds(window, subscription, providerRenewsAt, now);
   // A fresh value read on an earlier day (a service read at 23:58 picked up at 00:03)
-  // belongs to that day; today's point then starts from it, also when it was already
-  // written this morning from the older value (otherwise the delta counts on both days).
+  // belongs to that day. Today's point, if already written this morning from the older
+  // value, loses its start: the recordDailyUsage below computes it again from the updated
+  // earlier point (budget.updateDailyPoint: that value, or 0 on a renewal day or after a
+  // reset), so the delta does not count on both days.
   const todayKey = budget.localDateKey(now);
   if (fresh && budget.localDateKey(readAt) < todayKey) {
-    const earlier = recordDailyUsage(draft, accountId, window, periodStart, readAt);
+    recordDailyUsage(draft, accountId, window, periodStart, readAt);
     const at = draft.dailyUsage.findIndex((h) => h.date === todayKey && h.accountId === accountId && h.windowId === window.id);
     const today = draft.dailyUsage[at];
-    if (earlier && today) draft.dailyUsage[at] = { ...today, dayStartUsed: earlier.used };
+    if (today) {
+      draft.dailyUsage[at] = {
+        date: today.date, accountId: today.accountId, windowId: today.windowId, used: today.used,
+        ...(today.meta ? { meta: today.meta } : {}),
+      };
+    }
   }
   const todayPoint = recordDailyUsage(draft, accountId, window, periodStart, now);
   // Only a value just read from the provider is a sample: last known data repeated
