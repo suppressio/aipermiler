@@ -47,7 +47,8 @@ test('every shared fixture is read by this client (none left untested)', () => {
   // the settings ones (#284) wait for the Settings window's client (#181), which must read them.
   const service = fs.readdirSync(path.join(FIXTURES, 'service')).filter((f) => f.endsWith('.json')).sort();
   assert.deepEqual(service, [
-    'error-invalid-settings.json', 'error-not-read.json', 'health.json', 'settings.json', 'usage-list.json', 'usage-not-read.json',
+    'error-invalid-settings.json', 'error-not-read.json', 'health.json', 'settings.json', 'snapshot.json', 'usage-list.json',
+    'usage-not-read.json',
   ]);
 });
 

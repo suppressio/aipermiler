@@ -102,12 +102,14 @@ func (s snapshotAPI) snapshot(w http.ResponseWriter, r *http.Request) {
 	writeDocument(w, http.StatusOK, buf.Bytes())
 }
 
-// response is the lastGood (u, read at fetchedAt) as a provider read already
-// recorded: Fresh is false, so the snapshot adds no sample (the loop recorded
-// it, I-12) and the endpoint never writes the store; the returned history is
-// dropped.
+// response is the lastGood (u, read at fetchedAt). It is fresh while the
+// loop's last read of the account succeeded (u is not stale): the snapshot
+// then gives the instant trend (D-3.28, TR-8). Recording it again changes
+// nothing, since history.Record ignores a sample no newer than the last one
+// kept and the loop recorded this one when it read it (I-12); the endpoint
+// drops the returned history anyway and never writes the store.
 func response(u usage.Usage, fetchedAt time.Time) snapshot.Response {
-	out := snapshot.Response{FetchedAt: fetchedAt, Windows: make([]snapshot.Window, 0, len(u.QuotaWindows))}
+	out := snapshot.Response{FetchedAt: fetchedAt, Fresh: u.Stale == nil, Windows: make([]snapshot.Window, 0, len(u.QuotaWindows))}
 	if u.SubscriptionRenewsAt != nil {
 		out.SubscriptionRenewsAt = *u.SubscriptionRenewsAt
 	}
@@ -150,6 +152,7 @@ type windowDoc struct {
 	Summary        *summaryDoc        `json:"summary"`
 	Hourly         *hourlyDoc         `json:"hourly"`
 	InstantPace    *float64           `json:"instantPace"`
+	Trend          *pace.Trend        `json:"trend"`
 	Ceiling        *float64           `json:"ceiling"`
 	Target         *float64           `json:"target"`
 	Gauge          *float64           `json:"gauge"`
@@ -251,6 +254,7 @@ func newWindowDoc(w snapshot.WindowSnapshot, loc *time.Location) windowDoc {
 		TodayBudget: opt(w.TodayBudget, w.HasTodayBudget),
 		PaceAlert:   w.PaceAlert,
 		InstantPace: opt(w.InstantPace, w.HasInstantPace),
+		Trend:       opt(w.Trend, w.HasTrend),
 		Ceiling:     opt(w.Ceiling, w.HasCeiling),
 		Target:      opt(w.Target, w.HasTarget),
 		Gauge:       opt(w.Gauge, w.HasGauge),
