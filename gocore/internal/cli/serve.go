@@ -55,7 +55,8 @@ func runServe(env Env, args []string, logger *slog.Logger) int {
 		Loop: func(st *store.Store) service.Loop {
 			return refresh.New(refresh.Config{Store: st, Fetcher: fetcher, Logger: logger})
 		},
-		Raw: fetcher.Raw,
+		Raw:      fetcher.Raw,
+		Accounts: fetcher,
 	})
 	switch {
 	case err == nil:

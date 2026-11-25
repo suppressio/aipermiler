@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os/exec"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/suppressio/aipermiler/gocore/internal/store"
@@ -47,7 +48,11 @@ type CLIFetcher struct {
 	// RawTimeout is the CLI's --timeout of a raw read (at most 2m, the CLI's
 	// cap); zero means DefaultRawTimeout.
 	RawTimeout time.Duration
-	Margin     time.Duration // zero means DefaultMargin
+	// TokenTimeout and LoginTimeout are the CLI's --timeout of `token` and
+	// `login` (#285); zero means DefaultTokenTimeout and DefaultLoginTimeout.
+	TokenTimeout time.Duration
+	LoginTimeout time.Duration
+	Margin       time.Duration // zero means DefaultMargin
 }
 
 // Fetch returns fresh values, or an error: a *usage.Error for an error
@@ -60,7 +65,7 @@ func (f CLIFetcher) Fetch(ctx context.Context, account store.Account) (usage.Usa
 	if err != nil {
 		return usage.Usage{}, err
 	}
-	out, err := f.run(ctx, args, timeout)
+	out, err := f.run(ctx, args, timeout, "", nil)
 	if err != nil {
 		return usage.Usage{}, err
 	}
@@ -92,7 +97,7 @@ func (f CLIFetcher) Raw(ctx context.Context, account store.Account) ([]byte, usa
 	if err != nil {
 		return nil, "", err
 	}
-	out, err := f.run(ctx, args, timeout)
+	out, err := f.run(ctx, args, timeout, "", nil)
 	if err != nil {
 		return nil, "", err
 	}
@@ -135,10 +140,13 @@ type childOutput struct {
 	exitErr error
 }
 
-// run starts the core CLI with args. The error is set only when there is no
-// output to read: the context ended, the output went over the limit, the child
-// outlived timeout plus the margin, or it did not start.
-func (f CLIFetcher) run(ctx context.Context, args []string, timeout time.Duration) (childOutput, error) {
+// run starts the core CLI with args and stdin (a secret, #285: never an
+// argument; "" gives the child no input). onLine, when set, gets each line of
+// stdout as soon as it is complete, from the goroutine that copies it. The
+// error is set only when there is no output to read: the context ended, the
+// output went over the limit, the child outlived timeout plus the margin, or
+// it did not start.
+func (f CLIFetcher) run(ctx context.Context, args []string, timeout time.Duration, stdin string, onLine func([]byte)) (childOutput, error) {
 	margin := f.Margin
 	if margin <= 0 {
 		margin = DefaultMargin
@@ -146,8 +154,11 @@ func (f CLIFetcher) run(ctx context.Context, args []string, timeout time.Duratio
 	childCtx, cancel := context.WithTimeout(ctx, timeout+margin)
 	defer cancel()
 	cmd := exec.CommandContext(childCtx, f.Binary, args...) //nolint:gosec // the core's own binary, args built here
-	stdout := &limitedBuffer{max: maxOutput, over: cancel}
+	stdout := &limitedBuffer{max: maxOutput, over: cancel, onLine: onLine}
 	cmd.Stdout = stdout
+	if stdin != "" {
+		cmd.Stdin = strings.NewReader(stdin)
+	}
 	cmd.WaitDelay = stopGrace
 	tree := newProcessTree(cmd)
 	if err := cmd.Start(); err != nil {
@@ -221,6 +232,8 @@ type limitedBuffer struct {
 	max      int
 	over     func()
 	exceeded bool
+	onLine   func([]byte) // optional: each complete line, as it arrives
+	scanned  int          // bytes of buf already handed to onLine
 }
 
 func (b *limitedBuffer) Write(p []byte) (int, error) {
@@ -230,6 +243,14 @@ func (b *limitedBuffer) Write(p []byte) (int, error) {
 	}
 	if !b.exceeded {
 		b.buf.Write(p)
+		for b.onLine != nil {
+			i := bytes.IndexByte(b.buf.Bytes()[b.scanned:], '\n')
+			if i < 0 {
+				break
+			}
+			b.onLine(bytes.Clone(b.buf.Bytes()[b.scanned : b.scanned+i+1]))
+			b.scanned += i + 1
+		}
 	}
 	return len(p), nil
 }

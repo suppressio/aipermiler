@@ -90,7 +90,7 @@ aipermiler/
 │       ├── insights/            ← local insights from Claude Code's session JSONL (`aipermiler insights claude`, #298): one count per `requestId`, subagents included, drift detection
 │       ├── github/              ← allowed GitHub hosts (github.com, <tenant>.ghe.com) and JSON client with a 10 s timeout
 │       ├── store/               ← the core's state file `store.json`: settings, accounts, history, lastGood; one writer, crash-safe writes (#295)
-│       ├── service/             ← the always-on service (#31): single-instance lock, loopback API (health, shutdown, account documents, refresh, raw, settings, pacing snapshot: #247, #248, #286, #284, #326), api.json, `service stop`
+│       ├── service/             ← the always-on service (#31): single-instance lock, loopback API (health, shutdown, account documents, refresh, raw, settings, Copilot token and login, pacing snapshot: #247, #248, #286, #284, #285, #326), api.json, `service stop`
 │       ├── secrets/             ← OS keyring (go-keyring): the Copilot token, never in argv or documents
 │       ├── config/              ← OS config directory and development override
 │       ├── logging/             ← stderr text logger and level selection

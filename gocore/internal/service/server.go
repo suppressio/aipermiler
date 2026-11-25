@@ -1,9 +1,11 @@
 package service
 
 import (
+	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -32,6 +34,14 @@ type HandlerConfig struct {
 	Now      func() time.Time
 	Location *time.Location
 	TipDraw  func() float64
+	// Accounts runs the Copilot account actions (#285); nil answers 503.
+	Accounts AccountCommands
+	// Context bounds the work that outlives its request (a login, #285): a
+	// stop cancels it. Nil is context.Background().
+	Context context.Context
+	// Logger gets what a request cannot answer (a removed account's token left
+	// in the keyring). Nil discards.
+	Logger *slog.Logger
 }
 
 // NewHandler builds the API. Every request passes three gates before routing:
@@ -74,7 +84,16 @@ func NewHandler(cfg HandlerConfig) http.Handler {
 		rawSlot <- struct{}{}
 		accounts := accountsAPI{store: cfg.Store, loop: loop, raw: cfg.Raw, rawSlot: rawSlot}
 		accounts.register(mux)
-		settingsAPI{store: cfg.Store, loop: loop}.register(mux)
+		logger := cfg.Logger
+		if logger == nil {
+			logger = slog.New(slog.DiscardHandler)
+		}
+		work := cfg.Context
+		if work == nil {
+			work = context.Background()
+		}
+		settingsAPI{store: cfg.Store, loop: loop, accounts: cfg.Accounts, logger: logger}.register(mux)
+		copilotAPI{store: cfg.Store, loop: loop, commands: cfg.Accounts, work: work, logins: &loginSlot{}}.register(mux)
 		newSnapshotAPI(accounts, cfg).register(mux)
 	}
 	want := sha256.Sum256([]byte(cfg.Token))
