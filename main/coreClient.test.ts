@@ -43,9 +43,12 @@ test('every shared fixture is read by this client (none left untested)', () => {
     'insights-claude.json', 'insights-empty.json', 'login-authorize.json', 'raw.json',
     'usage-claude.json', 'usage-count-window.json', 'usage-ok.json', 'usage-stale.json', 'version.json',
   ]);
-  // The service's own documents (#248), read by main/serviceClient.ts (#182, serviceClient.test.ts).
+  // The service's own documents (#248), read by main/serviceClient.ts (#182, serviceClient.test.ts);
+  // the settings ones (#284) wait for the Settings window's client (#181), which must read them.
   const service = fs.readdirSync(path.join(FIXTURES, 'service')).filter((f) => f.endsWith('.json')).sort();
-  assert.deepEqual(service, ['error-not-read.json', 'health.json', 'usage-list.json', 'usage-not-read.json']);
+  assert.deepEqual(service, [
+    'error-invalid-settings.json', 'error-not-read.json', 'health.json', 'settings.json', 'usage-list.json', 'usage-not-read.json',
+  ]);
 });
 
 test('usage-ok: RawAccountUsage with ISO strings, every window field', () => {
