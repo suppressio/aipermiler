@@ -13,6 +13,7 @@ import type { AddressInfo } from 'node:net';
 import { CoreOutputError, CoreProviderError, CoreTimeoutError } from './coreClient';
 import { ServiceUnusableError } from './serviceClient';
 import {
+  AuthorizeUrlRejectedError,
   createCopilotServiceActions,
   loginThroughService,
   type CopilotLoginStatus,
@@ -188,7 +189,7 @@ test('login cancel: DELETE, the cancelled answer or no login at all both resolve
   });
 });
 
-function fakeActions(statuses: (CopilotLoginStatus | Error)[]): CopilotServiceActions & { cancelled: number } {
+function fakeActions(statuses: (CopilotLoginStatus | Error)[], cancelError?: Error): CopilotServiceActions & { cancelled: number } {
   const fake = {
     cancelled: 0,
     available: () => Promise.resolve(true),
@@ -199,7 +200,7 @@ function fakeActions(statuses: (CopilotLoginStatus | Error)[]): CopilotServiceAc
       const next = statuses.shift() ?? { state: 'waiting', url: AUTHORIZE_URL };
       return next instanceof Error ? Promise.reject(next) : Promise.resolve(next);
     },
-    cancelLogin: () => { fake.cancelled += 1; return Promise.resolve(); },
+    cancelLogin: () => { fake.cancelled += 1; return cancelError ? Promise.reject(cancelError) : Promise.resolve(); },
   };
   return fake;
 }
@@ -218,6 +219,27 @@ test('loginThroughService: an error status (cancelled from Settings, denied, tim
   const cancelled = new CoreProviderError('unavailable', 'The login was cancelled', 'copilot', 'login_cancelled');
   const actions = fakeActions([{ state: 'waiting', url: AUTHORIZE_URL }, cancelled]);
   await assert.rejects(loginThroughService(actions, 'acc-1', LOGIN_REQUEST, { onAuthorize: () => undefined, sleep: () => Promise.resolve() }), cancelled);
+  // The service ended that login itself: nothing to cancel.
+  assert.equal(actions.cancelled, 0);
+});
+
+test('loginThroughService: a status read failing on this side (service gone, bad answer) cancels the login', async () => {
+  const unreachable = new ServiceUnusableError('unreachable', 'Service not reachable');
+  const actions = fakeActions([{ state: 'waiting', url: AUTHORIZE_URL }, unreachable], new Error('cancel failed too'));
+  await assert.rejects(loginThroughService(actions, 'acc-1', LOGIN_REQUEST, { onAuthorize: () => undefined, sleep: () => Promise.resolve() }), unreachable);
+  // Best effort: the cancel's own failure does not hide the first error.
+  assert.equal(actions.cancelled, 1);
+});
+
+test('loginThroughService: an authorize URL rejected by the caller cancels the login at once', async () => {
+  const statuses: CopilotLoginStatus[] = [{ state: 'connected', username: 'octo' }];
+  const actions = fakeActions(statuses);
+  await assert.rejects(loginThroughService(actions, 'acc-1', LOGIN_REQUEST, {
+    onAuthorize: () => { throw new AuthorizeUrlRejectedError(); },
+    sleep: () => Promise.resolve(),
+  }), AuthorizeUrlRejectedError);
+  assert.equal(actions.cancelled, 1);
+  assert.equal(statuses.length, 1, 'no status read after the rejected URL');
 });
 
 test('loginThroughService: a status that never ends is cancelled at the deadline', async () => {

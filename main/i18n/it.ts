@@ -54,6 +54,8 @@ export const it: Record<MainMessageKey, string> = {
   'error.serviceUnknownAccount': 'Il servizio di AIpermiler non conosce ancora questo account: le sue impostazioni non sono arrivate al servizio.',
   'error.copilotLoginInProgress': 'È già in corso un altro accesso a GitHub: completalo o annullalo, poi riprova.',
   'error.copilotLoginCancelled': 'Accesso a GitHub annullato.',
+  'error.copilotLoginTimeout': 'Tempo scaduto per l\'accesso a GitHub: riprova e completalo nel browser.',
+  'error.copilotAuthorizeUrlRejected': 'Accesso a GitHub interrotto: l\'indirizzo di accesso non corrisponde al dominio GitHub dell\'account.',
   'error.copilotTokenRejected': 'GitHub ha rifiutato il token: controlla che sia valido e che abbia i permessi indicati nella guida.',
   'error.coreMissing': 'Il core di AIpermiler non si avvia: reinstalla l\'app (in sviluppo usa `npm start`, che lo compila, o imposta AIPERMILER_CORE_BIN). ({detail})',
   'error.coreTimeout': 'Il core di AIpermiler non ha risposto in tempo; restano gli ultimi valori e il prossimo aggiornamento riprova.',

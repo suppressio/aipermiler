@@ -9,6 +9,7 @@ import { summarizeWorkSchedule } from './schedule.js';
 import { windowLabel } from './windowLabel.js';
 import { renewalFromProvider } from './renewal.js';
 import { usageSourceLine } from './usageSource.js';
+import { isLoginInProgressError } from './copilotLogin.js';
 
 declare global {
   interface Window {
@@ -33,6 +34,9 @@ let expandedAccountId: AccountId | null = null;
 // sign-in, disconnect) go through it and are disabled with a notice without it. null
 // until the main process answered: nothing disabled meanwhile (main refuses anyway).
 let serviceRunning: boolean | null = null;
+// Copilot accounts with an OAuth sign-in pending (or refused as `login_in_progress`):
+// every re-render shows their Cancel button and keeps Connect disabled.
+const pendingOAuth = new Set<AccountId>();
 // Account just created with "Add account" and not saved yet: same detail form,
 // only the title changes ("New … account" instead of "Configure …").
 let newAccountId: AccountId | null = null;
@@ -255,6 +259,12 @@ function applyServiceState(): void {
     }
     const notice = detailElement(account.id)?.querySelector<HTMLElement>('[data-role="service-notice"]');
     if (notice) notice.hidden = !blocked;
+    const pending = pendingOAuth.has(account.id);
+    const cancel = detailElement(account.id)?.querySelector<HTMLButtonElement>('[data-action="cancel-copilot-oauth"]');
+    if (cancel) cancel.hidden = !pending;
+    if (pending) {
+      document.querySelectorAll<HTMLButtonElement>(`button[data-action="connect-copilot-oauth"]${selector}`).forEach((btn) => { btn.disabled = true; });
+    }
   }
 }
 
@@ -481,18 +491,25 @@ async function runAccountAction(action: string, id: AccountId, button: HTMLButto
       }
       setDetailStatus(id, t('settings.accounts.oauthAuthorize'));
       // The sign-in waits for the browser (up to 5 minutes): it can be cancelled.
-      const cancel = detailElement(id)?.querySelector<HTMLButtonElement>('[data-action="cancel-copilot-oauth"]');
-      if (cancel) cancel.hidden = false;
+      pendingOAuth.add(id);
+      applyServiceState();
+      let inProgress = false;
       try {
         const result = await window.aipermiler.connectCopilotOAuth(id, clientId, clientSecret, githubHostInput(id));
         await reloadAfterAccountAction(id);
         showSaveStatus(t('settings.accounts.connectedOauthAs', { name, user: result.username }));
+      } catch (err) {
+        // Another sign-in runs (maybe this account's, from an earlier window): Cancel stays.
+        inProgress = isLoginInProgressError(err);
+        throw err;
       } finally {
-        if (cancel) cancel.hidden = true;
+        if (!inProgress) pendingOAuth.delete(id);
+        applyServiceState();
       }
     } else if (action === 'cancel-copilot-oauth') {
-      // The pending connect ends with the "cancelled" message.
+      // A pending connect ends with the "cancelled" message; nothing to cancel is fine.
       await window.aipermiler.cancelCopilotOAuth(id);
+      pendingOAuth.delete(id);
     } else if (action === 'disconnect') {
       await window.aipermiler.disconnectAccount(id);
       await reloadAfterAccountAction(id);
@@ -508,6 +525,7 @@ async function runAccountAction(action: string, id: AccountId, button: HTMLButto
     setDetailStatus(id, t('settings.operationFailed', { error: errorMessage(err) }));
   } finally {
     if (button.isConnected) button.disabled = false;
+    applyServiceState();
   }
   // A Copilot action may have failed because the service stopped meanwhile.
   if (account.provider === 'copilot') await refreshServiceState();

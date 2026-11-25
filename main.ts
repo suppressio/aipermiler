@@ -26,7 +26,7 @@ import { FormatDriftError, liveSignatures, shapeSignature } from './services/_sh
 import { CoreBinaryError, CoreOutputError, CoreProviderError, CoreTimeoutError } from './main/coreClient';
 import { copilotService, core } from './main/core';
 import { NOT_READ_YET, ServiceUnusableError } from './main/serviceClient';
-import { loginThroughService } from './main/serviceCopilot';
+import { AuthorizeUrlRejectedError, loginThroughService } from './main/serviceCopilot';
 import { usableInsightsCache } from './main/localInsights';
 import { binaryPathChanged, copilotAccountFlags } from './main/coreRequests';
 import { buildFormatDriftIssueUrl, buildReportIssueUrl, shortError } from './diagnostics/githubIssue';
@@ -52,6 +52,7 @@ import type {
   UsageSourceStatus,
   WindowStyle,
 } from './types/index';
+import type { CopilotLoginInProgressErrorName } from './types/ipc';
 
 // New-version check (issue #5): at startup (with a short delay, not to overlap
 // the first usage refresh) and then every 24 hours.
@@ -233,6 +234,7 @@ function friendlyErrorMessage(err: unknown): string {
     if (err.code === 'signed_out') return t('error.copilotSignedOut');
     if (err.reason === 'keyring_unavailable') return t('error.keyringUnavailable', { detail: err.message });
   }
+  if (err instanceof AuthorizeUrlRejectedError) return t('error.copilotAuthorizeUrlRejected');
   if (err instanceof CoreBinaryError) return t('error.coreMissing', { detail: error.message });
   if (err instanceof CoreTimeoutError) return t('error.coreTimeout');
   if (err instanceof CoreOutputError) return t('error.coreBadOutput', { detail: error.message });
@@ -893,14 +895,16 @@ function registerIpcHandlers(): void {
       locale: getLocale(),
     }, {
       onAuthorize: (url) => {
-        if (!url.startsWith(authorizePrefix)) {
-          console.error('[main] the core announced an unexpected sign-in URL; not opened');
-          return;
-        }
+        // Not opened: loginThroughService cancels the login and fails it at once.
+        if (!url.startsWith(authorizePrefix)) throw new AuthorizeUrlRejectedError();
         shell.openExternal(url).catch((err: unknown) => {
           console.error('[main] could not open the GitHub sign-in page:', err);
         });
       },
+    }).catch((err: unknown) => {
+      // The login's own `timeout` (5 min without authorization), not a usage read's.
+      if (err instanceof CoreProviderError && err.code === 'timeout') throw new Error(t('error.copilotLoginTimeout'), { cause: err });
+      throw err;
     }));
     await dropTokenIfAccountRemoved(id);
     updateAccount(id, (a) => (a.provider === 'copilot'
@@ -1081,6 +1085,8 @@ function disconnectAccount(cfg: AccountConfig): Promise<AccountConfig> {
   return cfg.provider === 'copilot' ? copilotAction(() => providers.disconnect(cfg)) : providers.disconnect(cfg);
 }
 
+const LOGIN_IN_PROGRESS_ERROR_NAME: CopilotLoginInProgressErrorName = 'CopilotLoginInProgressError';
+
 // A Copilot account action through the service (#338): its error reaches Settings in
 // the user's language (service not running, login in progress, cancelled, rejected
 // token…). The original error is logged without any secret: the action's request body
@@ -1090,7 +1096,10 @@ async function copilotAction<T>(action: () => Promise<T>): Promise<T> {
     return await action();
   } catch (err) {
     console.error('[main] Copilot account action failed:', err instanceof Error ? err.message : String(err));
-    throw new Error(friendlyErrorMessage(err), { cause: err });
+    const friendly = new Error(friendlyErrorMessage(err), { cause: err });
+    // Settings finds it by name and offers to cancel that sign-in (renderer/copilotLogin.ts).
+    if (err instanceof CoreProviderError && err.reason === 'login_in_progress') friendly.name = LOGIN_IN_PROGRESS_ERROR_NAME;
+    throw friendly;
   }
 }
 

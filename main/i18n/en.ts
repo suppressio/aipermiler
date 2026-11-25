@@ -55,6 +55,8 @@ export const en = {
   'error.serviceUnknownAccount': 'The AIpermiler service does not know this account yet: its settings have not reached the service.',
   'error.copilotLoginInProgress': 'Another GitHub sign-in is already in progress: finish or cancel it, then try again.',
   'error.copilotLoginCancelled': 'GitHub sign-in cancelled.',
+  'error.copilotLoginTimeout': 'GitHub sign-in timed out: try again and finish it in the browser.',
+  'error.copilotAuthorizeUrlRejected': 'GitHub sign-in stopped: the sign-in URL does not match the account\'s GitHub domain.',
   'error.copilotTokenRejected': 'GitHub rejected the token: check that it is valid and has the permissions listed in the help.',
   'error.coreMissing': 'The AIpermiler core cannot be started: reinstall the app (in development run `npm start`, which builds it, or set AIPERMILER_CORE_BIN). ({detail})',
   'error.coreTimeout': 'The AIpermiler core did not answer in time; the last values stay shown and the next refresh retries.',
