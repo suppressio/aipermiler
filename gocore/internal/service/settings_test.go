@@ -25,18 +25,21 @@ func fixtureState(t *testing.T) (store.Settings, []store.Account) {
 		[]store.Account{
 			{
 				ID: "claude", Provider: "claude", Label: "Work", Enabled: true,
-				Schedule:   store.Schedule{Enabled: true, Days: [7]float64{0, 1, 1, 1, 1, 0.5, 0}, HoursPerDay: 8},
-				BinaryPath: strPtr("/opt/claude/bin/claude"),
-				History:    map[string]history.State{"five-hour": {}},
-				LastGood:   lastGood(t, "usage-ok"),
+				Schedule:      store.Schedule{Enabled: true, Days: [7]float64{0, 1, 1, 1, 1, 0.5, 0}, HoursPerDay: 8},
+				BinaryPath:    strPtr("/opt/claude/bin/claude"),
+				LocalInsights: true,
+				History:       map[string]history.State{"five-hour": {}},
+				LastGood:      lastGood(t, "usage-ok"),
 			},
 			{
 				ID: "copilot-1a2b3c4d", Provider: "copilot", Label: "Company", RenewalDay: 15,
 				Schedule: store.Schedule{Days: every, HoursPerDay: 7.5}, Host: "acme.ghe.com", Scope: "organization",
+				AuthMethod: "oauth",
 			},
 			{
 				ID: "copilot", Provider: "copilot", Enabled: true, RenewalDay: 1,
 				Schedule: store.Schedule{Days: every, HoursPerDay: 8}, Scope: "personal", ManualQuota: 300,
+				AuthMethod: "pat",
 			},
 			{ID: "codex", Provider: "codex", Label: "Codex", Enabled: true, Schedule: store.Schedule{Days: every, HoursPerDay: 8}},
 		}
@@ -99,7 +102,8 @@ func TestPutSettingsReplacesAndKeepsHistory(t *testing.T) {
 }
 
 // The loop is told about added, removed, enabled, disabled accounts and those
-// whose reads change; not about a label, schedule or renewal day (#284).
+// whose reads change; not about a label, schedule, renewal day, local insights
+// or Copilot authentication method (#284, #336).
 func TestPutSettingsTellsTheLoopWhichAccountsChanged(t *testing.T) {
 	t.Parallel()
 	schedule := store.Schedule{Days: [7]float64{1, 1, 1, 1, 1, 1, 1}, HoursPerDay: 8}
@@ -113,8 +117,8 @@ func TestPutSettingsTellsTheLoopWhichAccountsChanged(t *testing.T) {
 		acc("gone", "codex", true), acc("same", "codex", true), acc("disable", "codex", true))
 	bin := filepath.Join(t.TempDir(), "codex")
 	body := `{"schemaVersion":1,"settings":{"refreshIntervalMinutes":60,"retentionDays":30,"notificationThresholdPercent":90},"accounts":[` +
-		`{"id":"cop","provider":"copilot","label":"cop","enabled":true,"renewalDay":0,"schedule":{"enabled":false,"days":[1,1,1,1,1,1,1],"hoursPerDay":8},"host":"https://API.Acme.ghe.com/"},` +
-		`{"id":"label","provider":"claude","label":"New","enabled":true,"renewalDay":12,"schedule":{"enabled":true,"days":[0,1,1,1,1,1,0],"hoursPerDay":6}},` +
+		`{"id":"cop","provider":"copilot","label":"cop","enabled":true,"renewalDay":0,"schedule":{"enabled":false,"days":[1,1,1,1,1,1,1],"hoursPerDay":8},"host":"https://API.Acme.ghe.com/","authMethod":"oauth"},` +
+		`{"id":"label","provider":"claude","label":"New","enabled":true,"renewalDay":12,"schedule":{"enabled":true,"days":[0,1,1,1,1,1,0],"hoursPerDay":6},"localInsights":true},` +
 		`{"id":"off","provider":"claude","label":"off","enabled":true,"renewalDay":0,"schedule":{"enabled":false,"days":[1,1,1,1,1,1,1],"hoursPerDay":8}},` +
 		`{"id":"bin","provider":"codex","label":"bin","enabled":true,"renewalDay":0,"schedule":{"enabled":false,"days":[1,1,1,1,1,1,1],"hoursPerDay":8},"binaryPath":` + jsonString(bin) + `},` +
 		`{"id":"same","provider":"codex","label":"same","enabled":true,"renewalDay":0,"schedule":{"enabled":false,"days":[1,1,1,1,1,1,1],"hoursPerDay":8}},` +
@@ -130,6 +134,9 @@ func TestPutSettingsTellsTheLoopWhichAccountsChanged(t *testing.T) {
 	}
 	if got := api.st.Snapshot().Account("cop").Host; got != "acme.ghe.com" {
 		t.Errorf("host stored as %q; want the normalized acme.ghe.com", got)
+	}
+	if snap := api.st.Snapshot(); snap.Account("cop").AuthMethod != "oauth" || !snap.Account("label").LocalInsights {
+		t.Errorf("authMethod %q, localInsights %v; want oauth and true stored", snap.Account("cop").AuthMethod, snap.Account("label").LocalInsights)
 	}
 	// The same document again changes nothing: the loop is not told.
 	api.loop.changed = nil
@@ -214,6 +221,16 @@ func TestPutSettingsRejectsInvalidInput(t *testing.T) {
 		{name: "unknown scope", change: func(d map[string]any) { accountOf(d, 0)["scope"] = "team" }, field: "accounts[0].scope"},
 		{name: "negative quota", change: func(d map[string]any) { accountOf(d, 0)["manualQuota"] = -1 }, field: "accounts[0].manualQuota"},
 		{name: "relative binary", change: func(d map[string]any) { accountOf(d, 1)["binaryPath"] = "bin/claude" }, field: "accounts[1].binaryPath"},
+		{name: "local insights on copilot", change: func(d map[string]any) { accountOf(d, 0)["localInsights"] = true }, field: "accounts[0].localInsights"},
+		{name: "local insights of the wrong type", change: func(d map[string]any) { accountOf(d, 1)["localInsights"] = "yes" }, field: "accounts.1.localInsights"},
+		{name: "local insights on two claude accounts", change: func(d map[string]any) {
+			second := validAccount()
+			second["id"], second["provider"], second["localInsights"] = "c2", "claude", true
+			accountOf(d, 1)["localInsights"] = true
+			d["accounts"] = append(d["accounts"].([]any), second) //nolint:forcetypeassert // built above
+		}, field: "accounts[2].localInsights"},
+		{name: "unknown auth method", change: func(d map[string]any) { accountOf(d, 0)["authMethod"] = "password" }, field: "accounts[0].authMethod"},
+		{name: "auth method on claude", change: func(d map[string]any) { accountOf(d, 1)["authMethod"] = "pat" }, field: "accounts[1].authMethod"},
 		{name: "binary on copilot", change: func(d map[string]any) { accountOf(d, 0)["binaryPath"] = filepath.Join(t.TempDir(), "x") }, field: "accounts[0].binaryPath"},
 	}
 	for _, c := range cases {

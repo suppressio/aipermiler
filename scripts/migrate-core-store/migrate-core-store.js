@@ -239,18 +239,26 @@ function convertAccount(src, accounts, skip) {
       hoursPerDay,
     },
   };
-  // Go omits empty host/scope/manualQuota/binaryPath (omitempty).
+  // Go omits empty host/scope/manualQuota/binaryPath/localInsights/authMethod (omitempty).
   if (src.provider === 'copilot') {
     if (host) account.host = host;
     if (src.accountScope === 'personal' || src.accountScope === 'organization') account.scope = src.accountScope;
     else if (present(src.accountScope) && src.accountScope !== '') changed('scope', 'is not personal or organization, dropped');
     if (isNumber(src.manualQuota) && src.manualQuota > 0) account.manualQuota = src.manualQuota;
     else if (present(src.manualQuota) && src.manualQuota !== 0) changed('manualQuota', 'is not 0 or more, dropped');
+    if (src.authMethod === 'pat' || src.authMethod === 'oauth') account.authMethod = src.authMethod;
+    else if (present(src.authMethod) && src.authMethod !== '') changed('authMethod', 'is not pat or oauth, dropped');
   } else if (str(src.binaryPath) && path.isAbsolute(src.binaryPath)) {
     account.binaryPath = src.binaryPath;
   } else if (present(src.binaryPath) && src.binaryPath !== '') {
     // The core then finds the binary itself.
     changed('binaryPath', 'is not absolute, dropped');
+  }
+  // The service accepts local insights on one Claude account only (#336); the app
+  // already keeps at most one, so a second is only possible in a hand-edited file.
+  if (src.provider === 'claude' && src.localInsights === true) {
+    if (accounts.some((a) => a.localInsights)) changed('localInsights', 'is already on another Claude account, dropped');
+    else account.localInsights = true;
   }
   account.history = {};
   account.lastGood = null;

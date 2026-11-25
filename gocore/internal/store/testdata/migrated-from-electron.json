@@ -26,6 +26,7 @@
         "hoursPerDay": 7.5
       },
       "binaryPath": "/opt/claude/bin/claude",
+      "localInsights": true,
       "history": {
         "five_hour": {
           "dailyUsage": [
@@ -97,6 +98,7 @@
       "host": "acme.ghe.com",
       "scope": "organization",
       "manualQuota": 300,
+      "authMethod": "pat",
       "history": {},
       "lastGood": null
     },
