@@ -6,7 +6,7 @@
 
 ## When you need it
 
-Up to v0.6.x the app keeps accounts, settings and history in its own encrypted file. From v0.7.0 the core keeps them in `store.json`, in its own folder. The old file stays where it is, untouched, so nothing is lost: run the script once and the core gets everything back. Until then, Settings shows a notice linking this guide, also while the core service is stopped; close it with *Dismiss* once you are done.
+Up to v0.6.x the app keeps accounts, settings and history in its own encrypted file. From v0.7.0 the core keeps them in `store.json`, in its own folder. The old file stays where it is, untouched, so nothing is lost: run the script once and the core gets everything back. Until then, Settings shows a notice linking this guide, also while the core service is stopped; it goes away by itself once the core has all your accounts, or close it with *Dismiss* once you are done.
 
 | System | App's file (read only) | Core's store (written) |
 |---|---|---|
