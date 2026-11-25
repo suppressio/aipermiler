@@ -27,7 +27,8 @@ type HandlerConfig struct {
 	Store *store.Store
 	Loop  Loop
 	Raw   RawFunc
-	// Now, Location and TipDraw build the pacing snapshot (#326): the request's
+	// Now, Location and TipDraw build the pacing snapshot (#326), Now and
+	// Location also the history's local days (#339): the request's
 	// clock (nil is time.Now), the local calendar (nil is time.Local, the
 	// refresh loop's default) and the draw in [0, 1) that picks a tip (nil is
 	// a random draw).
@@ -94,7 +95,9 @@ func NewHandler(cfg HandlerConfig) http.Handler {
 		}
 		settingsAPI{store: cfg.Store, loop: loop, accounts: cfg.Accounts, logger: logger}.register(mux)
 		copilotAPI{store: cfg.Store, loop: loop, commands: cfg.Accounts, work: work, logins: &loginSlot{}}.register(mux)
-		newSnapshotAPI(accounts, cfg).register(mux)
+		snapshots := newSnapshotAPI(accounts, cfg)
+		snapshots.register(mux)
+		historyAPI{accounts: accounts, now: snapshots.now, location: snapshots.location}.register(mux)
 	}
 	want := sha256.Sum256([]byte(cfg.Token))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
