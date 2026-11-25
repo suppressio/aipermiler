@@ -28,6 +28,8 @@ import {
   parseSettingsAnswer,
   parseSettingsDocument,
   showUpgradeNotice,
+  settlesUpgradeNotice,
+  mayCopyCoreGlobals,
   toServiceAccount,
   toServiceDocument,
   withConnectionFields,
@@ -314,4 +316,20 @@ test('connectionDocument: the connection fields of one service account, null whe
   assert.deepEqual(out.accounts.filter((_, i) => i !== 1), doc.accounts.filter((_, i) => i !== 1));
   assert.deepEqual(out.settings, doc.settings);
   assert.equal(connectionDocument(doc, 'legacy', { ...defaultAccountFor('codex', 'legacy') }), null);
+});
+
+test('the upgrade notice settles on a fresh install and after a full migration, never with unmigrated accounts', () => {
+  assert.equal(settlesUpgradeNotice([], []), true, 'fresh install, service empty');
+  assert.equal(settlesUpgradeNotice([], [{ id: 'a' }]), true, 'fresh install, accounts added through the service');
+  assert.equal(settlesUpgradeNotice([{ id: 'a' }], [{ id: 'a' }, { id: 'b' }]), true, 'migration done');
+  assert.equal(settlesUpgradeNotice([{ id: 'a' }, { id: 'old' }], [{ id: 'a' }]), false, 'v0.6 account not migrated');
+});
+
+test('a save copies the core globals into Electron only when the old file is no longer the migration source', () => {
+  const local = [{ id: 'a' }, { id: 'old' }];
+  const service = [{ id: 'a' }];
+  assert.equal(mayCopyCoreGlobals({ dismissed: false, local, service }), false, 'unmigrated, notice not dismissed: old file untouched');
+  assert.equal(mayCopyCoreGlobals({ dismissed: true, local, service }), true, 'unmigrated but dismissed: done with the old file');
+  assert.equal(mayCopyCoreGlobals({ dismissed: false, local: [{ id: 'a' }], service }), true, 'migration done');
+  assert.equal(mayCopyCoreGlobals({ dismissed: false, local: [], service: [] }), true, 'fresh install');
 });

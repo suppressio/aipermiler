@@ -245,6 +245,24 @@ export function showUpgradeNotice(input: { dismissed: boolean; local: readonly {
 }
 
 /**
+ * Whether a load with the service up settles the upgrade notice for good: Electron's copy
+ * has no account the service lacks, so nothing is left to migrate (a finished migration,
+ * or a fresh install that never had v0.6.x accounts).
+ */
+export function settlesUpgradeNotice(local: readonly { id: string }[], service: readonly { id: string }[]): boolean {
+  return !hasUnmigratedAccounts(local, service);
+}
+
+/**
+ * Whether a Settings save may copy the core globals into Electron's store (read by the
+ * widget until #341): not while Electron's file is still the migration script's source,
+ * unless the user dismissed the upgrade notice and is done with the old file.
+ */
+export function mayCopyCoreGlobals(input: { dismissed: boolean; local: readonly { id: string }[]; service: readonly { id: string }[] }): boolean {
+  return input.dismissed || !hasUnmigratedAccounts(input.local, input.service);
+}
+
+/**
  * The accounts a Settings save sends: those of the patch the service has now (`known`,
  * from a fresh GET), then the service's accounts missing from the patch. An account of
  * the patch the service lacks (removed by another client, or only in Electron's copy)
