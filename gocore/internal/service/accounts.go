@@ -179,16 +179,21 @@ func (a accountsAPI) document(account store.Account) ([]byte, int) {
 		lastErr = refresh.ErrNotRead
 	}
 	if account.LastGood != nil {
-		u := account.LastGood.Usage()
-		if lastErr != nil {
-			e := classify(lastErr)
-			u.Stale = &usage.StaleInfo{Code: e.Code, Message: e.Message, Reason: e.Reason}
-		}
 		var buf bytes.Buffer
-		_ = usage.WriteSuccess(&buf, account.Provider, u, account.LastGood.UpdatedAt) // a bytes.Buffer does not fail
+		_ = usage.WriteSuccess(&buf, account.Provider, lastGoodUsage(*account.LastGood, lastErr), account.LastGood.UpdatedAt) // a bytes.Buffer does not fail
 		return buf.Bytes(), http.StatusOK
 	}
 	return errorDocument(account.Provider, lastErr), statusOf(lastErr)
+}
+
+// lastGoodUsage is the last good read, stale with lastErr when it is not nil.
+func lastGoodUsage(lg store.LastGood, lastErr error) usage.Usage {
+	u := lg.Usage()
+	if lastErr != nil {
+		e := classify(lastErr)
+		u.Stale = &usage.StaleInfo{Code: e.Code, Message: e.Message, Reason: e.Reason}
+	}
+	return u
 }
 
 // statusOf is the HTTP status of a read error's document: errorStatus of its
