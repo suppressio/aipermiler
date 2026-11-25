@@ -48,6 +48,46 @@ func TestInstantPace(t *testing.T) {
 	}
 }
 
+// D-3.28: the instant trend, from the TR rows of docs/PACING.md.
+func TestInstantTrend(t *testing.T) {
+	t.Parallel()
+
+	var cases []struct {
+		ID, Description, Now, Want string
+		Samples                    [][2]any
+		OK                         bool
+	}
+	readFixture(t, "trend.json", &cases)
+	for _, tc := range cases {
+		t.Run(tc.ID+" "+tc.Description, func(t *testing.T) {
+			t.Parallel()
+
+			now, err := time.Parse(time.RFC3339, tc.Now)
+			if err != nil {
+				t.Fatal(err)
+			}
+			samples := make([]history.Reading, 0, len(tc.Samples))
+			for _, s := range tc.Samples {
+				at, err := time.Parse(time.RFC3339, s[0].(string)) //nolint:forcetypeassert // fixture shape
+				if err != nil {
+					t.Fatal(err)
+				}
+				samples = append(samples, history.Reading{At: at, Used: s[1].(float64)}) //nolint:forcetypeassert // fixture shape
+			}
+			before := append([]history.Reading(nil), samples...)
+			got, ok := pace.InstantTrend(samples, now)
+			if ok != tc.OK || (ok && got != pace.Trend(tc.Want)) {
+				t.Fatalf("InstantTrend = %q, %v; want %q, %v", got, ok, tc.Want, tc.OK)
+			}
+			for i := range samples {
+				if samples[i] != before[i] {
+					t.Fatal("InstantTrend modified its input")
+				}
+			}
+		})
+	}
+}
+
 func TestCeilingTargetGauge(t *testing.T) {
 	t.Parallel()
 

@@ -122,6 +122,9 @@ type WindowSnapshot struct {
 	// InstantPace is v (D-3.11).
 	InstantPace    float64
 	HasInstantPace bool
+	// Trend is the instant trend (D-3.28), only on a fresh read.
+	Trend    pace.Trend
+	HasTrend bool
 	// Ceiling is C (D-3.12), Target is T (D-3.13).
 	Ceiling    float64
 	HasCeiling bool
@@ -190,6 +193,9 @@ func buildWindow(in Input, w Window) (WindowSnapshot, history.State, bool) {
 		snap.UsedToday, snap.HasUsedToday = outlook.UsedToday(x, snap.Baseline), true
 	}
 	snap.InstantPace, snap.HasInstantPace = pace.InstantPace(state.RecentSamples, now)
+	if in.Response.Fresh {
+		snap.Trend, snap.HasTrend = pace.InstantTrend(state.RecentSamples, now)
+	}
 	// Forward-looking values, days to reset included, need a reset still
 	// ahead (I-6, D5, E5): a passed reset is not "today".
 	resetAhead := !period.End.IsZero() && period.End.After(now)

@@ -415,6 +415,43 @@ func TestComposedQuantities(t *testing.T) {
 		}
 		exact(t, "g", w.Gauge, pace.GaugePosition(2.5, w.Target))
 	})
+	// D-3.28: the TR-2 samples, the 11:00 one read by the snapshot itself.
+	trendInput := func(t *testing.T, day int, fresh bool) snapshot.Input {
+		t.Helper()
+		now := at(t, time.October, day, 11, 0)
+		in := scenario(t, now, 20)
+		in.Response.Fresh = fresh
+		in.History["monthly"] = history.State{RecentSamples: []history.Reading{
+			{At: at(t, time.October, day, 9, 30), Used: 10}, {At: at(t, time.October, day, 10, 0), Used: 10},
+			{At: at(t, time.October, day, 10, 30), Used: 11},
+		}}
+		return in
+	}
+	t.Run("D-3.28 TR-2 instant trend from the samples", func(t *testing.T) {
+		t.Parallel()
+		w := build(t, trendInput(t, 20, true))
+		if !w.HasTrend || w.Trend != pace.Accelerating {
+			t.Errorf("trend = %q, %v; want accelerating", w.Trend, w.HasTrend)
+		}
+	})
+	t.Run("D-3.28 TR-8 no trend on a read that is not fresh", func(t *testing.T) {
+		t.Parallel()
+		in := trendInput(t, 20, false)
+		// The last known value, read at 11:00 by an earlier refresh: the
+		// samples alone would give a trend, the failed refresh hides it.
+		state := in.History["monthly"]
+		state.RecentSamples = append(state.RecentSamples, history.Reading{At: in.Now, Used: 20})
+		in.History["monthly"] = state
+		w := build(t, in)
+		absent(t, "trend", w.HasTrend)
+	})
+	t.Run("D-3.28 TR-12 no day-off rule", func(t *testing.T) {
+		t.Parallel()
+		w := build(t, trendInput(t, 24, true))
+		if !w.HasTrend || w.Trend != pace.Accelerating {
+			t.Errorf("trend on a day off = %q, %v; want accelerating", w.Trend, w.HasTrend)
+		}
+	})
 	t.Run("D-3.19 Q-1 ratio", func(t *testing.T) {
 		t.Parallel()
 		in := scenario(t, at(t, time.October, 20, 10, 0), 60)

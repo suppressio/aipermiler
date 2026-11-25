@@ -117,7 +117,7 @@ For billing cycles, D-2.4 to D-2.6 hold for `today` inside the period, `start �
 **D-3.9 Projection** `proj = x + p × R` (pp), **not capped at 100** (227% says how far over the pace leads). No pace → `x`.
 **D-3.10 Autonomy** `a = (100 − x) / p` working units, `0` when `x ≥ 100`, `∞` when `p ≤ 0` or unknown. Compared with the time left `R`.
 
-### 3.6 Instant pace, ceiling, target (the gauge)
+### 3.6 Instant pace and trend, ceiling, target (the gauge)
 
 **D-3.11 Instant pace** `v` (pp/h): from the last sample at or before `now − 1 h` (but not older than `now − 2 h`; otherwise the oldest sample inside the last hour) to the newest, `(x_new − x_old) / hours`. Null with fewer than 2 samples or less than 5 minutes between them; a drop (reset) counts as 0.
 **D-3.12 Ceiling** `C = rem / H` (pp/h) — the fastest pace that does not exhaust the quota before the reset, over the hours that can actually be worked (D-2.7; calendar hours for rolling hours, and when no working time is left). `0` when `rem = 0`.
@@ -139,6 +139,23 @@ For billing cycles, D-2.4 to D-2.6 hold for `today` inside the period, `start �
 | G-11 | S, x = 100 | rem = 0, C = 0, T = 0; gauge: 0 if v = 0, 1 if v > 0 |
 | G-12 | S, x = 66.9, Friday 10-30 17:00 (H = 0.1 h) | C = 331, **T = 0.57** (see §8, #72) |
 | G-13 | g(5, 10) / g(10, 10) / g(20, 10) / g(40, 10) / g(0, 10) / g(0.1, 10) / g(5, 0) | 0.25 / 0.5 / 0.75 / 1 / 0 / 0.02 / 1 |
+
+**D-3.28 Instant trend** (the gauge arrows, #132, approach on #302): `Δ = v(now) − v(now − 30 min)` (pp/h), both instant paces by D-3.11 from the samples as they were at that moment (samples after it are ignored). Each pace spans `h` hours, from its anchor to its newest sample; integer values make each pace uncertain by up to 1 point over its span, so the noise threshold is `θ = 2 × (1/h₁ + 1/h₂)` pp/h (about 4 pp/h with two full hours, one rule for every window). **Accelerating** when `Δ > θ`, **slowing down** when `Δ < −θ`, **steady** otherwise (no arrows), however fast or slow the consumption. **No trend** (null) when either pace is null (fewer than 2 samples or less than 5 minutes: the first 30 minutes after the app starts, or no sample for the last two hours), when the current read is not fresh (a failed refresh shows the last known values), or when a reset falls inside either span (`used` goes down between two of its samples). No day-off rule: the trend is measured from consumption alone. On a slow window (rolling 7 days, monthly) one-point steps stay under `θ`: its hourly trend cannot be measured, and the arrows stay still.
+
+| # | Input (now 11:00) | Expected |
+|---|---|---|
+| TR-1 | samples 09:30 10, 10:00 16, 10:30 22, 11:00 28 | v₁ = 12, v₂ = 12, Δ = 0, θ = 4: **steady** (fast but steady) |
+| TR-2 | samples 09:30 10, 10:00 10, 10:30 11, 11:00 20 | v₁ = 10, v₂ = 1, Δ = 9 > 4: **accelerating** |
+| TR-3 | samples 09:30 0, 10:00 10, 10:30 20, 11:00 21 | v₁ = 11, v₂ = 20, Δ = −9 < −4: **slowing down** |
+| TR-4 | slow window, samples 09:30 40, 10:00 40, 10:30 40, 11:00 41 | v₁ = 1, v₂ = 0, Δ = 1: **steady** (a one-point step is noise) |
+| TR-5 | samples 09:30 10, 10:00 10, 10:30 10, 11:00 14 | Δ = 4 = θ: **steady** (the threshold itself is steady) |
+| TR-6 | samples 10:20 0, 10:30 1, 11:00 10 (just started) | v₁ = 15 over 40 min, v₂ = 6 over 10 min, Δ = 9, θ = 2 × (1.5 + 6) = 15: **steady** |
+| TR-7 | samples 10:35 5, 10:45 6, 11:00 8 (first 30 minutes) | v₂ null: **no trend** |
+| TR-8 | as TR-2, but the read at 11:00 is not fresh (refresh failure) | **no trend** |
+| TR-9 | samples 08:00 10, 09:00 12, none since (refreshes failing) | v₁ null: **no trend** |
+| TR-10 | samples 09:30 50, 10:00 60, 10:30 70, 10:45 2 (reset), 11:00 12 | reset inside v₁'s span: **no trend** |
+| TR-11 | samples 09:30 80, 09:45 1 (reset), 10:00 2, 10:30 5, 11:00 20 | reset inside v₂'s span only: **no trend** |
+| TR-12 | as TR-2 on Saturday 10-24 (day off in S) | **accelerating** (no day-off rule) |
 
 ### 3.7 Today's budget
 
@@ -387,7 +404,7 @@ What is persisted, who writes it, when, at what precision. Everything else in th
 |---|---|---|---|---|---|
 | `history.dailyUsage` | per account and window and local day: `used` (last value of the day), `dayStartUsed` (baseline) | the refresh (`recordDailyUsage`) | the day's point on every **fresh** refresh; `dayStartUsed` set once when the point is created | full precision (exact) | deltas, chart, rating, recent pace, today's budget |
 | `dayStartUsed` rule | previous day's last value if inside the period and not dropped by more than 1 pp; 0 if the period started after it or a reset happened; with no history 0 when the period started today, else the current value | `updateDailyPoint` (pure) through the same writer | at creation of the day's point | full precision (exact) | B, used_today, activity span |
-| `history.recentSamples` | timestamped `used` per account and window | the refresh (`recordRecentSample`) | only a **freshly fetched** value | full precision (exact) | instant pace, activity span |
+| `history.recentSamples` | timestamped `used` per account and window | the refresh (`recordRecentSample`) | only a **freshly fetched** value | full precision (exact) | instant pace and trend, activity span |
 | `history.lastGood` | last successful raw response per account | the fetch path | on a successful fetch | exact | shown as stale when a fetch fails |
 | `meta.notifiedToday` | `<account>:threshold:<day>`, `<account>:pace:<day>` flags | the notification step | when a notification fires | — | the same step; only today's flags are kept |
 | Account settings | schedule, manual renewal day, host, … | Settings (`settings:set`) | on user save | — | every computation |
