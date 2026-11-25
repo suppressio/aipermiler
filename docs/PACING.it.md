@@ -117,7 +117,7 @@ Per i cicli di fatturazione D-2.4-D-2.6 valgono con `oggi` dentro il periodo, `s
 **D-3.9 Proiezione** `proj = x + p × R` (pp), **non limitata a 100** (227% dice di quanto il ritmo porta oltre). Senza ritmo → `x`.
 **D-3.10 Autonomia** `a = (100 − x) / p` unità lavorative, `0` se `x ≥ 100`, `∞` se `p ≤ 0` o ignoto. Si confronta con il tempo rimasto `R`.
 
-### 3.6 Ritmo istantaneo, tetto, target (il misuratore)
+### 3.6 Ritmo e tendenza istantanei, tetto, target (il misuratore)
 
 **D-3.11 Ritmo istantaneo** `v` (pp/h): dall'ultimo campione a o prima di `now − 1 h` (ma non più vecchio di `now − 2 h`; altrimenti il campione più vecchio dell'ultima ora) al più recente, `(x_new − x_old) / ore`. Nullo con meno di 2 campioni o meno di 5 minuti tra loro; un calo (reset) vale 0.
 **D-3.12 Tetto** `C = rem / H` (pp/h) — il ritmo più veloce che non esaurisce la quota prima del reset, sulle ore effettivamente lavorabili (D-2.7; ore di calendario per le ore mobili e quando non resta tempo lavorativo). `0` se `rem = 0`.
@@ -139,6 +139,23 @@ Per i cicli di fatturazione D-2.4-D-2.6 valgono con `oggi` dentro il periodo, `s
 | G-11 | S, x = 100 | rem = 0, C = 0, T = 0; misuratore: 0 se v = 0, 1 se v > 0 |
 | G-12 | S, x = 66,9, venerdì 10-30 17:00 (H = 0,1 h) | C = 331, **T = 0,57** (vedi §8, #72) |
 | G-13 | g(5, 10) / g(10, 10) / g(20, 10) / g(40, 10) / g(0, 10) / g(0,1, 10) / g(5, 0) | 0,25 / 0,5 / 0,75 / 1 / 0 / 0,02 / 1 |
+
+**D-3.28 Tendenza istantanea** (le frecce del misuratore, #132, approccio su #302): `Δ = v(now) − v(now − 30 min)` (pp/h), entrambi ritmi istantanei secondo D-3.11 dai campioni com'erano in quel momento (i campioni successivi sono ignorati). Ogni ritmo copre `h` ore, dalla sua ancora al suo campione più recente; i valori interi rendono ogni ritmo incerto fino a 1 punto sul suo intervallo, quindi la soglia di rumore è `θ = 2 × (1/h₁ + 1/h₂)` pp/h (circa 4 pp/h con due ore piene, una regola per ogni finestra). **In accelerazione** quando `Δ > θ`, **in rallentamento** quando `Δ < −θ`, **stabile** altrimenti (nessuna freccia), per quanto veloce o lento sia il consumo. **Nessuna tendenza** (nulla) quando uno dei due ritmi è nullo (meno di 2 campioni o meno di 5 minuti: i primi 30 minuti dopo l'avvio dell'app, o nessun campione nelle ultime due ore), quando la lettura corrente non è fresca (un aggiornamento fallito mostra gli ultimi valori noti), o quando un reset cade dentro uno dei due intervalli (`used` scende tra due suoi campioni). Nessuna regola per i giorni liberi: la tendenza si misura solo dal consumo. Su una finestra lenta (7 giorni mobili, mensile) i passi di un punto restano sotto `θ`: la sua tendenza oraria non è misurabile, e le frecce restano ferme.
+
+| # | Input (ora 11:00) | Atteso |
+|---|---|---|
+| TR-1 | campioni 09:30 10, 10:00 16, 10:30 22, 11:00 28 | v₁ = 12, v₂ = 12, Δ = 0, θ = 4: **stabile** (veloce ma stabile) |
+| TR-2 | campioni 09:30 10, 10:00 10, 10:30 11, 11:00 20 | v₁ = 10, v₂ = 1, Δ = 9 > 4: **in accelerazione** |
+| TR-3 | campioni 09:30 0, 10:00 10, 10:30 20, 11:00 21 | v₁ = 11, v₂ = 20, Δ = −9 < −4: **in rallentamento** |
+| TR-4 | finestra lenta, campioni 09:30 40, 10:00 40, 10:30 40, 11:00 41 | v₁ = 1, v₂ = 0, Δ = 1: **stabile** (un passo di un punto è rumore) |
+| TR-5 | campioni 09:30 10, 10:00 10, 10:30 10, 11:00 14 | Δ = 4 = θ: **stabile** (la soglia stessa è stabile) |
+| TR-6 | campioni 10:20 0, 10:30 1, 11:00 10 (appena iniziato) | v₁ = 15 su 40 min, v₂ = 6 su 10 min, Δ = 9, θ = 2 × (1,5 + 6) = 15: **stabile** |
+| TR-7 | campioni 10:35 5, 10:45 6, 11:00 8 (primi 30 minuti) | v₂ nullo: **nessuna tendenza** |
+| TR-8 | come TR-2, ma la lettura delle 11:00 non è fresca (aggiornamento fallito) | **nessuna tendenza** |
+| TR-9 | campioni 08:00 10, 09:00 12, nessuno dopo (aggiornamenti falliti) | v₁ nullo: **nessuna tendenza** |
+| TR-10 | campioni 09:30 50, 10:00 60, 10:30 70, 10:45 2 (reset), 11:00 12 | reset dentro l'intervallo di v₁: **nessuna tendenza** |
+| TR-11 | campioni 09:30 80, 09:45 1 (reset), 10:00 2, 10:30 5, 11:00 20 | reset solo dentro l'intervallo di v₂: **nessuna tendenza** |
+| TR-12 | come TR-2 di sabato 10-24 (giorno libero in S) | **in accelerazione** (nessuna regola per i giorni liberi) |
 
 ### 3.7 Budget di oggi
 
@@ -387,7 +404,7 @@ Cosa è persistito, chi lo scrive, quando, con quale precisione. Tutto il resto 
 |---|---|---|---|---|---|
 | `history.dailyUsage` | per account, finestra e giorno locale: `used` (ultimo valore del giorno), `dayStartUsed` (base) | l'aggiornamento (`recordDailyUsage`) | il punto del giorno a ogni aggiornamento **fresco**; `dayStartUsed` fissato una volta alla creazione del punto | precisione piena (esatta) | delta, grafico, valutazione, ritmo recente, budget di oggi |
 | regola di `dayStartUsed` | ultimo valore del giorno prima se dentro il periodo e non sceso di più di 1 pp; 0 se il periodo è iniziato dopo o c'è stato un reset; senza storico 0 se il periodo è iniziato oggi, altrimenti il valore attuale | `updateDailyPoint` (pura) tramite lo stesso scrittore | alla creazione del punto del giorno | precisione piena (esatta) | B, used_today, intervallo di attività |
-| `history.recentSamples` | `used` con timestamp per account e finestra | l'aggiornamento (`recordRecentSample`) | solo un valore **appena letto** | precisione piena (esatta) | ritmo istantaneo, intervallo di attività |
+| `history.recentSamples` | `used` con timestamp per account e finestra | l'aggiornamento (`recordRecentSample`) | solo un valore **appena letto** | precisione piena (esatta) | ritmo e tendenza istantanei, intervallo di attività |
 | `history.lastGood` | ultima risposta grezza riuscita per account | il percorso di lettura | a una lettura riuscita | esatta | mostrata come non aggiornata se una lettura fallisce |
 | `meta.notifiedToday` | flag `<account>:threshold:<day>`, `<account>:pace:<day>` | il passo di notifica | quando una notifica parte | — | lo stesso passo; si tengono solo i flag di oggi |
 | Impostazioni account | orario, giorno di rinnovo manuale, host, … | Impostazioni (`settings:set`) | al salvataggio dell'utente | — | ogni calcolo |

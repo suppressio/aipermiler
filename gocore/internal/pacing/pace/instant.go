@@ -25,6 +25,43 @@ const minInstantSpan = 5 * time.Minute
 // A drop (reset) counts as 0, never as a negative pace. Samples after now are
 // ignored; the input is not modified.
 func InstantPace(samples []history.Reading, now time.Time) (float64, bool) {
+	span, ok := instantSpan(samples, now)
+	if !ok {
+		return 0, false
+	}
+	return span.pace(), true
+}
+
+// instantWindow is what one instant pace spans: the samples up to now, sorted,
+// and the indexes of its anchor and of the newest sample.
+type instantWindow struct {
+	points         []history.Reading
+	anchor, latest int
+}
+
+// hours is the time the pace spans, from the anchor to the newest sample.
+func (w instantWindow) hours() float64 {
+	return w.points[w.latest].At.Sub(w.points[w.anchor].At).Hours()
+}
+
+// pace is v (D-3.11): a drop counts as 0.
+func (w instantWindow) pace() float64 {
+	return math.Max(0, w.points[w.latest].Used-w.points[w.anchor].Used) / w.hours()
+}
+
+// dropped reports whether used goes down between two samples of the span.
+func (w instantWindow) dropped() bool {
+	for i := w.anchor + 1; i <= w.latest; i++ {
+		if w.points[i].Used < w.points[i-1].Used {
+			return true
+		}
+	}
+	return false
+}
+
+// instantSpan finds the span of the instant pace at now (D-3.11), false when
+// the pace cannot be measured.
+func instantSpan(samples []history.Reading, now time.Time) (instantWindow, bool) {
 	points := make([]history.Reading, 0, len(samples))
 	for _, sample := range samples {
 		if !sample.At.After(now) {
@@ -32,7 +69,7 @@ func InstantPace(samples []history.Reading, now time.Time) (float64, bool) {
 		}
 	}
 	if len(points) < 2 {
-		return 0, false
+		return instantWindow{}, false
 	}
 	slices.SortStableFunc(points, func(a, b history.Reading) int { return a.At.Compare(b.At) })
 
@@ -50,11 +87,10 @@ func InstantPace(samples []history.Reading, now time.Time) (float64, bool) {
 		break
 	}
 	if anchor < 0 || anchor == latest {
-		return 0, false
+		return instantWindow{}, false
 	}
-	elapsed := points[latest].At.Sub(points[anchor].At)
-	if elapsed < minInstantSpan {
-		return 0, false
+	if points[latest].At.Sub(points[anchor].At) < minInstantSpan {
+		return instantWindow{}, false
 	}
-	return math.Max(0, points[latest].Used-points[anchor].Used) / elapsed.Hours(), true
+	return instantWindow{points: points, anchor: anchor, latest: latest}, true
 }
