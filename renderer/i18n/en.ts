@@ -225,6 +225,8 @@ export const en = {
   'settings.copilot.oauthHint': 'Useful for personal plans (Free included): with an OAuth token GitHub returns your credit quotas. It needs an OAuth App registered by you, once.',
   'settings.copilot.clientSecretPlaceholder': 'never saved to disk',
   'settings.copilot.oauthConnect': 'Connect with GitHub (OAuth)',
+  'settings.copilot.oauthCancel': 'Cancel sign-in',
+  'settings.copilot.serviceRequired': 'The AIpermiler service is not running: connecting and disconnecting Copilot accounts goes through it. Start it (`aipermiler serve`) and reopen Settings.',
 
   // --- Settings: work schedule ----------------------------------------------------
   'settings.schedule.title': 'Work schedule',

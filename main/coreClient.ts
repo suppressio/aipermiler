@@ -313,7 +313,8 @@ function errorCode(value: unknown): CoreErrorCode {
   return ERROR_CODES.find((code) => code === value) ?? 'unavailable';
 }
 
-function providerError(doc: Record<string, unknown>, provider: string): Error {
+/** The error of a contract v1 error document: FormatDriftError, or CoreProviderError with its code and reason. */
+export function providerError(doc: Record<string, unknown>, provider: string): Error {
   const error = doc.error;
   if (!isRecord(error) || typeof error.message !== 'string') throw new CoreOutputError('Core document: error needs a code and a message');
   const code = errorCode(error.code);

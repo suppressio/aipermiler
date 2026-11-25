@@ -25,6 +25,10 @@ export interface CopilotOAuthPayload {
 // With the source of each enabled account's last usage read (#182): the service or the CLI.
 export type CoreStatus = ({ ok: true; version: string } | { ok: false; error: string }) & { sources: UsageSourceStatus[] };
 
+export interface ServiceStatus {
+  running: boolean;
+}
+
 // A handler with nothing to return (`void` is only allowed as a generic argument).
 type NoResult = Awaited<Promise<void>>;
 
@@ -40,6 +44,8 @@ export interface IpcInvokeChannels {
   'accounts:remove': { args: [id: AccountId]; result: NoResult };
   'accounts:connectCopilot': { args: [id: AccountId, token: string, host: string]; result: { username: string } };
   'accounts:connectCopilotOAuth': { args: [id: AccountId, payload: CopilotOAuthPayload]; result: { username: string } };
+  // Cancels the account's running OAuth sign-in in the core's service (#338).
+  'accounts:cancelCopilotOAuth': { args: [id: AccountId]; result: NoResult };
   'accounts:disconnect': { args: [id: AccountId]; result: NoResult };
   // After a confirmation, saves the report file in Downloads and opens a GitHub issue
   // draft; `created` false when the user cancelled.
@@ -47,6 +53,8 @@ export interface IpcInvokeChannels {
   'app:getVersion': { args: []; result: string };
   // The bundled Go core (#177): its version, or why it cannot run (localized).
   'core:getStatus': { args: []; result: CoreStatus };
+  // Whether the core's always-on service runs: the Copilot account actions need it (#338).
+  'service:getStatus': { args: []; result: ServiceStatus };
   'updates:check': { args: []; result: UpdateSettings };
   'updates:download': { args: []; result: NoResult };
   'updates:openReleaseNotes': { args: []; result: NoResult };
@@ -92,10 +100,12 @@ export interface AipermilerBridge {
   removeAccount(id: AccountId): Promise<void>;
   connectCopilot(id: AccountId, token: string, host: string): Promise<{ username: string }>;
   connectCopilotOAuth(id: AccountId, clientId: string, clientSecret: string, host: string): Promise<{ username: string }>;
+  cancelCopilotOAuth(id: AccountId): Promise<void>;
   disconnectAccount(id: AccountId): Promise<void>;
   createDiagnosticReport(): Promise<{ created: boolean; fileName: string | null }>;
   getAppVersion(): Promise<string>;
   getCoreStatus(): Promise<CoreStatus>;
+  getServiceStatus(): Promise<ServiceStatus>;
   checkForUpdates(): Promise<UpdateSettings>;
   downloadUpdate(): Promise<void>;
   openReleaseNotes(): Promise<void>;

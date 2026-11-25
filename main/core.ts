@@ -3,12 +3,14 @@
 // nothing to start or stop; the service is used when it runs, found through its
 // api.json on every read. The binary and the folder are resolved on every call, so a
 // missing one is an explicit error of that read (shown with the stale data), never a
-// startup failure.
+// startup failure. The Copilot account actions (token, OAuth login) go only through the
+// service (#338): without one they fail, and Settings disables them.
 
 import os from 'node:os';
 import { app } from 'electron';
 import { createCoreClient, resolveCoreBinary } from './coreClient';
 import { coreConfigDir, createServiceClient } from './serviceClient';
+import { createCopilotServiceActions } from './serviceCopilot';
 
 export const core = createCoreClient({
   binary: () => resolveCoreBinary({
@@ -20,6 +22,8 @@ export const core = createCoreClient({
   }),
 });
 
-export const coreService = createServiceClient({
-  configDir: () => coreConfigDir(process.env, process.platform, os.homedir()),
-});
+const configDir = (): string => coreConfigDir(process.env, process.platform, os.homedir());
+
+export const coreService = createServiceClient({ configDir });
+
+export const copilotService = createCopilotServiceActions({ configDir });

@@ -84,7 +84,7 @@ function parseJson(text: string): unknown {
   }
 }
 
-interface ServiceEndpoint {
+export interface ServiceEndpoint {
   baseUrl: string;
   token: string;
 }
@@ -106,18 +106,35 @@ export async function readApiFile(dir: string): Promise<ServiceEndpoint> {
   return { baseUrl: `http://127.0.0.1:${String(info.port)}`, token: info.token };
 }
 
-export type FetchLike = (url: string, init: { headers: Record<string, string>; signal: AbortSignal; redirect: 'error' }) => Promise<Response>;
+export interface FetchInit {
+  method?: string;
+  headers: Record<string, string>;
+  // JSON request body: the only place a secret (Copilot token, client secret) travels.
+  body?: string;
+  signal: AbortSignal;
+  redirect: 'error';
+}
 
-async function get(fetchImpl: FetchLike, endpoint: ServiceEndpoint, route: string, timeoutMs: number): Promise<{ status: number; body: string }> {
+export type FetchLike = (url: string, init: FetchInit) => Promise<Response>;
+
+/** One request to the service: method, route, optional JSON body; never follows a redirect. */
+export async function serviceRequest(fetchImpl: FetchLike, endpoint: ServiceEndpoint, method: string, route: string, timeoutMs: number, body?: unknown): Promise<{ status: number; body: string }> {
+  const init: FetchInit = {
+    method,
+    headers: { Authorization: `Bearer ${endpoint.token}` },
+    signal: AbortSignal.timeout(timeoutMs),
+    // The token never follows a redirect away from the service's port.
+    redirect: 'error',
+  };
+  if (body !== undefined) {
+    init.headers['Content-Type'] = 'application/json';
+    init.body = JSON.stringify(body);
+  }
   try {
-    const response = await fetchImpl(`${endpoint.baseUrl}${route}`, {
-      headers: { Authorization: `Bearer ${endpoint.token}` },
-      signal: AbortSignal.timeout(timeoutMs),
-      // The token never follows a redirect away from the service's port.
-      redirect: 'error',
-    });
+    const response = await fetchImpl(`${endpoint.baseUrl}${route}`, init);
     return { status: response.status, body: await response.text() };
   } catch (err) {
+    // The cause is the fetch error (network, timeout, redirect): it never quotes the body.
     // A leftover api.json of a service that did not stop cleanly, or one that hangs.
     throw new ServiceUnusableError('unreachable', 'Service not reachable', { cause: err });
   }
@@ -130,7 +147,7 @@ export interface ServiceHealth {
 
 /** `/api/v1/health`: the service answers with the token and speaks this client's contract. */
 export async function checkHealth(fetchImpl: FetchLike, endpoint: ServiceEndpoint, timeoutMs = DEFAULT_TIMEOUTS.healthMs): Promise<ServiceHealth> {
-  const { status, body } = await get(fetchImpl, endpoint, '/api/v1/health', timeoutMs);
+  const { status, body } = await serviceRequest(fetchImpl, endpoint, 'GET', '/api/v1/health', timeoutMs);
   if (status === 401) throw new ServiceUnusableError('unauthorized', 'Service refused the token');
   if (status !== 200) throw new ServiceUnusableError('failed', `Service health answered ${String(status)}`);
   const doc = parseJson(body);
@@ -175,6 +192,22 @@ export function parseServiceUsage(status: number, body: string, provider: string
   }
 }
 
+/**
+ * A usable service, found again on every call (a restarted service has a new port and
+ * token): the config folder, api.json, then /health. ServiceUnusableError otherwise.
+ */
+export async function connectService(fetchImpl: FetchLike, configDir: () => string, healthMs = DEFAULT_TIMEOUTS.healthMs): Promise<ServiceEndpoint> {
+  let dir: string;
+  try {
+    dir = configDir();
+  } catch (err) {
+    throw new ServiceUnusableError('not_running', 'Core config folder unknown', { cause: err });
+  }
+  const endpoint = await readApiFile(dir);
+  await checkHealth(fetchImpl, endpoint, healthMs);
+  return endpoint;
+}
+
 export interface ServiceClient {
   /** The account's usage document from the service; ServiceUnusableError when there is no usable one. */
   usage(accountId: string, provider: string): Promise<CoreUsageResult>;
@@ -192,16 +225,8 @@ export function createServiceClient(options: ServiceClientOptions): ServiceClien
   const timeouts = options.timeouts ?? DEFAULT_TIMEOUTS;
   return {
     async usage(accountId, provider) {
-      let dir: string;
-      try {
-        dir = options.configDir();
-      } catch (err) {
-        throw new ServiceUnusableError('not_running', 'Core config folder unknown', { cause: err });
-      }
-      // api.json and /health on every read: a restarted service has a new port and token.
-      const endpoint = await readApiFile(dir);
-      await checkHealth(fetchImpl, endpoint, timeouts.healthMs);
-      const { status, body } = await get(fetchImpl, endpoint, `/api/v1/accounts/${encodeURIComponent(accountId)}/usage`, timeouts.usageMs);
+      const endpoint = await connectService(fetchImpl, options.configDir, timeouts.healthMs);
+      const { status, body } = await serviceRequest(fetchImpl, endpoint, 'GET', `/api/v1/accounts/${encodeURIComponent(accountId)}/usage`, timeouts.usageMs);
       return parseServiceUsage(status, body, provider);
     },
   };

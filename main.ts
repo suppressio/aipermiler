@@ -24,8 +24,9 @@ import { DEFAULT_GITHUB_HOST, githubOAuthBase, normalizeGithubHost } from './ser
 import type { TrayHandle } from './main/tray';
 import { FormatDriftError, liveSignatures, shapeSignature } from './services/_shape';
 import { CoreBinaryError, CoreOutputError, CoreProviderError, CoreTimeoutError } from './main/coreClient';
-import { core } from './main/core';
-import { NOT_READ_YET } from './main/serviceClient';
+import { copilotService, core } from './main/core';
+import { NOT_READ_YET, ServiceUnusableError } from './main/serviceClient';
+import { loginThroughService } from './main/serviceCopilot';
 import { usableInsightsCache } from './main/localInsights';
 import { binaryPathChanged, copilotAccountFlags } from './main/coreRequests';
 import { buildFormatDriftIssueUrl, buildReportIssueUrl, shortError } from './diagnostics/githubIssue';
@@ -220,7 +221,14 @@ function friendlyErrorMessage(err: unknown): string {
   if (error.status === 401 || error.status === 403) {
     return t('error.sessionExpired', { detail: error.message });
   }
+  // Only the Copilot account actions see it (#338): usage reads fall back to the CLI.
+  if (err instanceof ServiceUnusableError) {
+    return err.reason === 'unknown_account' ? t('error.serviceUnknownAccount') : t('error.serviceNotRunning', { reason: err.reason });
+  }
   if (err instanceof CoreProviderError && err.provider === 'copilot') {
+    if (err.reason === 'login_in_progress') return t('error.copilotLoginInProgress');
+    if (err.reason === 'login_cancelled') return t('error.copilotLoginCancelled');
+    if (err.reason === 'token_rejected') return t('error.copilotTokenRejected');
     if (err.reason === 'enterprise_managed_seat') return t('error.copilotEnterpriseManaged');
     if (err.code === 'signed_out') return t('error.copilotSignedOut');
     if (err.reason === 'keyring_unavailable') return t('error.keyringUnavailable', { detail: err.message });
@@ -831,8 +839,9 @@ function registerIpcHandlers(): void {
     const cfg = findAccount(id);
     if (!cfg) return;
     // Full disconnect before removing the row: for Claude it also clears the partition,
-    // otherwise the cookies would stay on disk with no owner.
-    await providers.disconnect(cfg);
+    // otherwise the cookies would stay on disk with no owner; for a connected Copilot
+    // account it deletes the token through the service (#338).
+    await disconnectAccount(cfg);
     store.set('accounts', getAccounts().filter((a) => a.id !== id));
     broadcastSettings();
     runDetached('refresh usage', refreshAndBroadcast('forced'));
@@ -845,11 +854,12 @@ function registerIpcHandlers(): void {
     const host = requireGithubHost(rawHost);
     const cfg = findAccount(id);
     if (!cfg || cfg.provider !== 'copilot') throw new Error(`Copilot account not found: ${id}`);
-    // The core checks the token with GitHub and keeps it in the OS keyring (#179): it
-    // goes on the core's stdin, never in argv, and is not written to the store.
-    const flags = copilotAccountFlags({ ...cfg, host });
-    const username = await core.tokenSet({ provider: 'copilot', flags, token, verify: true });
-    await dropTokenIfAccountRemoved(id, flags);
+    // Through the core's service (#338): its CLI child checks the token with GitHub and
+    // keeps it in the OS keyring (#179). The token travels only in the request body,
+    // never in a log or the store. The service reads the account with the host of its
+    // own store (the same once Settings go through the service, #337).
+    const username = await copilotAction(() => copilotService.setToken(id, token));
+    await dropTokenIfAccountRemoved(id);
     updateAccount(id, (a) => (a.provider === 'copilot'
       ? { ...a, enabled: true, authMethod: 'pat', host, credentials: { token: null, username } }
       : a));
@@ -871,14 +881,17 @@ function registerIpcHandlers(): void {
     };
     const cfg = findAccount(id);
     if (!cfg || cfg.provider !== 'copilot') throw new Error(`Copilot account not found: ${id}`);
-    // The core runs the PKCE loopback and keeps the token in the OS keyring (#179); the
-    // app only opens the authorization URL it announces, checked against the host.
+    // Through the core's service (#338): it runs the PKCE loopback in a CLI child and
+    // keeps the token in the OS keyring (#179); the app opens the authorization URL it
+    // announces, checked against the host, then polls the login until it ends. The
+    // client secret travels only in the request body. One login at a time: another one
+    // running is `login_in_progress`; Settings can cancel (accounts:cancelCopilotOAuth).
     const authorizePrefix = `${githubOAuthBase(payload.host)}/authorize?`;
-    const accountFlags = copilotAccountFlags({ ...cfg, host: payload.host });
-    const username = await core.login({
-      provider: 'copilot',
-      flags: [...accountFlags, '--client-id', payload.clientId, '--locale', getLocale()],
+    const username = await copilotAction(() => loginThroughService(copilotService, id, {
+      clientId: payload.clientId,
       clientSecret: payload.clientSecret,
+      locale: getLocale(),
+    }, {
       onAuthorize: (url) => {
         if (!url.startsWith(authorizePrefix)) {
           console.error('[main] the core announced an unexpected sign-in URL; not opened');
@@ -888,8 +901,8 @@ function registerIpcHandlers(): void {
           console.error('[main] could not open the GitHub sign-in page:', err);
         });
       },
-    });
-    await dropTokenIfAccountRemoved(id, accountFlags);
+    }));
+    await dropTokenIfAccountRemoved(id);
     updateAccount(id, (a) => (a.provider === 'copilot'
       ? { ...a, enabled: true, authMethod: 'oauth', host: payload.host, credentials: { token: null, username }, oauthApp: { clientId: payload.clientId } }
       : a));
@@ -897,6 +910,17 @@ function registerIpcHandlers(): void {
     runDetached('refresh usage', refreshAndBroadcast('forced'));
     return { username };
   });
+
+  // Cancels the account's running OAuth sign-in in the service: the pending
+  // accounts:connectCopilotOAuth then ends with `login_cancelled`.
+  handle('accounts:cancelCopilotOAuth', async (_event, rawId: unknown) => {
+    const id = requireString(rawId, 'Account');
+    await copilotAction(() => copilotService.cancelLogin(id));
+  });
+
+  // Whether the core's service runs: Settings disables the Copilot account actions
+  // without it (#338, owner decision D1 on #181: a message, no CLI fallback).
+  handle('service:getStatus', async () => ({ running: await copilotService.available() }));
 
   handle('app:getVersion', () => app.getVersion());
 
@@ -1011,7 +1035,7 @@ function registerIpcHandlers(): void {
     const id = requireString(rawId, 'Account');
     const cfg = findAccount(id);
     if (!cfg) return;
-    const cleared = await providers.disconnect(cfg);
+    const cleared = await disconnectAccount(cfg);
     updateAccount(id, () => cleared);
     broadcastSettings();
     runDetached('refresh usage', refreshAndBroadcast('forced'));
@@ -1046,10 +1070,28 @@ async function purgeStoredCodexSessions(): Promise<void> {
 // The account can be removed while its sign-in is still open in the browser (or a token
 // check is running): the core has just stored a token nobody could delete any more.
 // Remove it and fail the connection.
-async function dropTokenIfAccountRemoved(id: AccountId, flags: string[]): Promise<void> {
+async function dropTokenIfAccountRemoved(id: AccountId): Promise<void> {
   if (findAccount(id)?.provider === 'copilot') return;
-  await core.tokenDelete({ provider: 'copilot', flags });
+  await copilotAction(() => copilotService.deleteToken(id));
   throw new Error(t('error.accountRemovedDuringSignIn'));
+}
+
+// Copilot's disconnect is a service action: its errors are shown like the others.
+function disconnectAccount(cfg: AccountConfig): Promise<AccountConfig> {
+  return cfg.provider === 'copilot' ? copilotAction(() => providers.disconnect(cfg)) : providers.disconnect(cfg);
+}
+
+// A Copilot account action through the service (#338): its error reaches Settings in
+// the user's language (service not running, login in progress, cancelled, rejected
+// token…). The original error is logged without any secret: the action's request body
+// is never part of an error (main/serviceCopilot.ts).
+async function copilotAction<T>(action: () => Promise<T>): Promise<T> {
+  try {
+    return await action();
+  } catch (err) {
+    console.error('[main] Copilot account action failed:', err instanceof Error ? err.message : String(err));
+    throw new Error(friendlyErrorMessage(err), { cause: err });
+  }
 }
 
 // #179: the Copilot token of an earlier version, kept in the encrypted store, is handed

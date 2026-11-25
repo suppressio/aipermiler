@@ -138,6 +138,7 @@
             <option value="oauth" data-i18n="settings.copilot.authOauth">GitHub OAuth (experimental)</option>
           </select>
         </label>
+        <p class="warning" data-role="service-notice" data-i18n="settings.copilot.serviceRequired" hidden></p>
 
         <div data-role="pat-panel">
           <label>
@@ -186,6 +187,7 @@
           </div>
           <div class="field-row connect-row">
             <button type="button" class="btn-secondary" data-action="connect-copilot-oauth" data-i18n="settings.copilot.oauthConnect">Connect with GitHub (OAuth)</button>
+            <button type="button" class="btn-secondary" data-action="cancel-copilot-oauth" data-i18n="settings.copilot.oauthCancel" hidden>Cancel sign-in</button>
           </div>
         </div>
         <div data-role="schedule-slot"></div>
