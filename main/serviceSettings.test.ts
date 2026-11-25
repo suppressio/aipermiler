@@ -16,14 +16,18 @@ import { ServiceUnusableError } from './serviceClient';
 import {
   ServiceSettingsInvalidError,
   accountsFromService,
+  accountsToSave,
+  connectionDocument,
   createServiceSettingsClient,
   fieldOfInvalidSettings,
   fromServiceAccount,
+  hasUnmigratedAccounts,
   invalidSettingsPath,
   keepNoRenewalDay,
   mirrorAccounts,
   parseSettingsAnswer,
   parseSettingsDocument,
+  showUpgradeNotice,
   toServiceAccount,
   toServiceDocument,
   withConnectionFields,
@@ -266,4 +270,48 @@ test('withConnectionFields: enabled, Copilot authentication and host from Electr
   assert.equal(out.label, 'Company', 'other fields stay the service\'s');
   const codex = at(doc.accounts, 3);
   assert.deepEqual(withConnectionFields(codex, { ...defaultAccountFor('codex', 'codex'), enabled: false }), { ...codex, enabled: false });
+});
+
+test('hasUnmigratedAccounts: Electron\'s copy has an account the service lacks', () => {
+  const doc = parseSettingsDocument(SETTINGS);
+  const local = accountsFromService(doc, []);
+  assert.equal(hasUnmigratedAccounts(local, doc.accounts), false);
+  assert.equal(hasUnmigratedAccounts([], doc.accounts), false);
+  assert.equal(hasUnmigratedAccounts([...local, defaultAccountFor('codex', 'legacy')], doc.accounts), true);
+});
+
+test('showUpgradeNotice: unmigrated accounts with the service up, any account with it down, never once dismissed', () => {
+  const doc = parseSettingsDocument(SETTINGS);
+  const local = accountsFromService(doc, []);
+  const legacy = [...local, defaultAccountFor('codex', 'legacy')];
+  assert.equal(showUpgradeNotice({ dismissed: false, local: legacy, service: doc.accounts }), true);
+  assert.equal(showUpgradeNotice({ dismissed: false, local, service: doc.accounts }), false);
+  // Service down (the migration script needs it stopped): Electron's accounts are enough.
+  assert.equal(showUpgradeNotice({ dismissed: false, local, service: null }), true);
+  assert.equal(showUpgradeNotice({ dismissed: false, local: [], service: null }), false);
+  assert.equal(showUpgradeNotice({ dismissed: true, local: legacy, service: doc.accounts }), false);
+  assert.equal(showUpgradeNotice({ dismissed: true, local, service: null }), false);
+});
+
+test('accountsToSave: only accounts the service has now, the ones missing from the patch kept', () => {
+  const doc = parseSettingsDocument(SETTINGS);
+  const known = accountsFromService(doc, []);
+  const edited = { ...at(known, 0), label: 'Edited' };
+  // Removed from the service by another client, or only in Electron's copy (not migrated).
+  const gone = defaultAccountFor('codex', 'gone');
+  const out = accountsToSave([gone, edited], known);
+  assert.deepEqual(out.map((a) => a.id), known.map((a) => a.id));
+  assert.equal(out[0]?.label, 'Edited');
+});
+
+test('connectionDocument: the connection fields of one service account, null when the service lacks it', () => {
+  const doc = parseSettingsDocument(SETTINGS);
+  const company = at(doc.accounts, 1);
+  const cfg = { ...copilot(defaultAccountFor('copilot', company.id)), enabled: true, authMethod: 'pat' as const, host: 'github.com' };
+  const out = connectionDocument(doc, company.id, cfg);
+  assert.ok(out);
+  assert.deepEqual(out.accounts[1], withConnectionFields(company, cfg));
+  assert.deepEqual(out.accounts.filter((_, i) => i !== 1), doc.accounts.filter((_, i) => i !== 1));
+  assert.deepEqual(out.settings, doc.settings);
+  assert.equal(connectionDocument(doc, 'legacy', { ...defaultAccountFor('codex', 'legacy') }), null);
 });

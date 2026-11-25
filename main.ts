@@ -40,11 +40,14 @@ import { randomUUID } from 'crypto';
 import {
   ServiceSettingsInvalidError,
   accountsFromService,
+  accountsToSave,
+  connectionDocument,
   fieldOfInvalidSettings,
+  hasUnmigratedAccounts,
   keepNoRenewalDay,
   mirrorAccounts,
+  showUpgradeNotice,
   toServiceDocument,
-  withConnectionFields,
   type ServiceSettingsDocument,
 } from './main/serviceSettings';
 import type { CoreSettingsSaveResult, SettingsLoad } from './types/ipc';
@@ -728,11 +731,13 @@ async function loadSettings(): Promise<SettingsLoad> {
     doc = await settingsService.get();
   } catch (err) {
     if (!(err instanceof ServiceUnusableError)) throw err;
-    return { settings: redactSecretsForRenderer(store.store), service: { available: false, reason: err.reason }, upgradeNotice: false };
+    // The migration script needs the service stopped: the notice shows then too.
+    const upgradeNotice = showUpgradeNotice({ dismissed: store.get('meta').upgradeNoticeDismissed === true, local: getAccounts(), service: null });
+    return { settings: redactSecretsForRenderer(store.store), service: { available: false, reason: err.reason }, upgradeNotice };
   }
   // An account only Electron's file has is v0.6.x data the migration script would move
   // (docs/UPGRADE-TO-0.7.md): the notice links the guide until dismissed.
-  const upgradeNotice = store.get('meta').upgradeNoticeDismissed !== true && getAccounts().some((a) => !doc.accounts.some((s) => s.id === a.id));
+  const upgradeNotice = showUpgradeNotice({ dismissed: store.get('meta').upgradeNoticeDismissed === true, local: getAccounts(), service: doc.accounts });
   const accounts = adoptServiceAccounts(doc);
   return { settings: settingsView(doc, accounts), service: { available: true }, upgradeNotice };
 }
@@ -742,19 +747,14 @@ async function saveCoreSettings(rawPatch: unknown): Promise<CoreSettingsSaveResu
   const refreshIntervalMinutes = requireNumber(rawPatch.refreshIntervalMinutes, 'Refresh interval');
   const notificationThresholdPercent = requireNumber(rawPatch.notificationThresholdPercent, 'Alert threshold');
   const before = await throughService(() => settingsService.get());
-  // Electron's copy now has every account of the service: an account the patch invents
-  // is dropped (accounts are created only by accounts:add).
+  // Only the accounts the service has now (this fresh GET) are sent: one the patch has
+  // and the service lacks (removed by another client, or not migrated yet) is dropped.
   const known = adoptServiceAccounts(before);
   const current = getAccounts();
-  const merged = keepNoRenewalDay(rawPatch.accounts, normalizeAccounts(rawPatch.accounts))
+  const patched = keepNoRenewalDay(rawPatch.accounts, normalizeAccounts(rawPatch.accounts))
     .map((incoming) => providers.preserveSecrets(incoming, current.find((c) => c.id === incoming.id)))
     .filter((a): a is AccountConfig => a !== null);
-  // An account missing from the patch is not removed here: removal goes only through
-  // accounts:remove (which also clears the partition).
-  for (const a of known) {
-    if (!merged.some((m) => m.id === a.id)) merged.push(a);
-  }
-  const accounts = enforceSingleSignInAccounts(enforceSingleLocalInsights(merged));
+  const accounts = enforceSingleSignInAccounts(enforceSingleLocalInsights(accountsToSave(patched, known)));
   let saved: ServiceSettingsDocument;
   try {
     saved = await throughService(() => settingsService.put(toServiceDocument({
@@ -766,10 +766,14 @@ async function saveCoreSettings(rawPatch: unknown): Promise<CoreSettingsSaveResu
     throw err;
   }
   const view = adoptServiceAccounts(saved, accounts);
-  // The widget's timers and notifications still read Electron's copy until #341.
-  store.set('ui.refreshIntervalMinutes', saved.settings.refreshIntervalMinutes);
-  store.set('ui.notificationThresholdPercent', saved.settings.notificationThresholdPercent);
-  store.set('history.retentionDays', saved.settings.retentionDays);
+  // The widget's timers and notifications still read Electron's copy until #341. Not
+  // while Electron's copy has accounts the service lacks: its file is then the migration
+  // script's source and stays untouched (docs/UPGRADE-TO-0.7.md).
+  if (!hasUnmigratedAccounts(getAccounts(), saved.accounts)) {
+    store.set('ui.refreshIntervalMinutes', saved.settings.refreshIntervalMinutes);
+    store.set('ui.notificationThresholdPercent', saved.settings.notificationThresholdPercent);
+    store.set('history.retentionDays', saved.settings.retentionDays);
+  }
   broadcastView();
   scheduleRefreshLoop();
   if (binaryPathChanged(current, getAccounts())) runDetached('refresh usage', refreshAndBroadcast('forced'));
@@ -777,19 +781,21 @@ async function saveCoreSettings(rawPatch: unknown): Promise<CoreSettingsSaveResu
   return { ok: true, settings: settingsView(saved, view) };
 }
 
+// Connect and disconnect need the service, like Add and Remove (owner decision D3 on
+// #181): without one nothing changes, since a change in Electron's copy only would be
+// undone by the next load from the service.
+async function requireService(): Promise<void> {
+  await throughService(() => settingsService.get());
+}
+
 // After a connect or disconnect (enabled, Copilot authentication and host changed in
-// Electron's copy): the same fields in the service, when one runs. Without one the
-// change stays in Electron's copy only (#337: no CLI fallback writes store.json).
+// Electron's copy): the same fields in the service, read fresh (a sign-in can take
+// minutes). An account the service lacks has nothing to update.
 async function saveConnectionToService(id: AccountId): Promise<void> {
   const cfg = findAccount(id);
   if (!cfg) return;
-  try {
-    const doc = await settingsService.get();
-    if (!doc.accounts.some((a) => a.id === id)) return;
-    await settingsService.put({ ...doc, accounts: doc.accounts.map((a) => (a.id === id ? withConnectionFields(a, cfg) : a)) });
-  } catch (err) {
-    console.warn('[main] the connection of an account was not saved to the service:', err instanceof Error ? err.message : String(err));
-  }
+  const doc = connectionDocument(await throughService(() => settingsService.get()), id, cfg);
+  if (doc) await throughService(() => settingsService.put(doc));
 }
 
 // ---------------------------------------------------------------------------
@@ -985,6 +991,7 @@ function registerIpcHandlers(): void {
     const host = requireGithubHost(rawHost);
     const cfg = findAccount(id);
     if (!cfg || cfg.provider !== 'copilot') throw new Error(`Copilot account not found: ${id}`);
+    await requireService();
     // Through the core's service (#338): its CLI child checks the token with GitHub and
     // keeps it in the OS keyring (#179). The token travels only in the request body,
     // never in a log or the store. The service reads the account with the host of its
@@ -1013,6 +1020,7 @@ function registerIpcHandlers(): void {
     };
     const cfg = findAccount(id);
     if (!cfg || cfg.provider !== 'copilot') throw new Error(`Copilot account not found: ${id}`);
+    await requireService();
     // Through the core's service (#338): it runs the PKCE loopback in a CLI child and
     // keeps the token in the OS keyring (#179); the app opens the authorization URL it
     // announces, checked against the host, then polls the login until it ends. The
@@ -1170,6 +1178,7 @@ function registerIpcHandlers(): void {
     const id = requireString(rawId, 'Account');
     const cfg = findAccount(id);
     if (!cfg) return;
+    await requireService();
     const cleared = await disconnectAccount(cfg);
     updateAccount(id, () => cleared);
     await saveConnectionToService(id);

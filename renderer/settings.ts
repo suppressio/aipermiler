@@ -320,18 +320,25 @@ function populateForm(): void {
 }
 
 // Without the service the accounts and the core settings cannot be saved (Electron never
-// writes the core's store.json, #337): their inputs, Add and Remove are disabled. The
-// details can still be opened to read them.
+// writes the core's store.json, #337): their inputs, Add, Remove, Connect and Disconnect
+// are disabled. The details can still be opened to read them. The account rows are
+// rebuilt on every populateForm, so only the fields outside them are re-enabled when the
+// service is back.
+const ACCOUNT_ACTIONS = ['remove', 'disconnect', 'connect-copilot-pat', 'connect-copilot-oauth'];
+
 function lockCoreFields(): void {
-  if (serviceAvailable) return;
-  document.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-field^="accounts."]').forEach((el) => { el.disabled = true; });
+  const locked = !serviceAvailable;
   for (const field of CORE_UI_FIELDS) {
     const el = document.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-field="${field}"]`);
-    if (el) el.disabled = true;
+    if (el) el.disabled = locked;
   }
-  document.querySelectorAll<HTMLButtonElement>('button[data-action="remove"]').forEach((el) => { el.disabled = true; });
-  byId('btn-add-account', HTMLButtonElement).disabled = true;
-  byId('add-account-provider', HTMLSelectElement).disabled = true;
+  byId('btn-add-account', HTMLButtonElement).disabled = locked;
+  byId('add-account-provider', HTMLSelectElement).disabled = locked;
+  if (!locked) return;
+  document.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-field^="accounts."]').forEach((el) => { el.disabled = true; });
+  for (const action of ACCOUNT_ACTIONS) {
+    document.querySelectorAll<HTMLButtonElement>(`button[data-action="${action}"]`).forEach((el) => { el.disabled = true; });
+  }
 }
 
 function applyLoad(loaded: SettingsLoad): void {
