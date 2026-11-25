@@ -75,6 +75,10 @@ label:has(> input[type="checkbox"]:disabled) { color: #9ca3af; cursor: not-allow
 
 .hint { font-size: 11px; color: #6b7280; }
 .warning { font-size: 11px; color: #92400e; background: #fef3c7; border-radius: 5px; padding: 6px 8px; }
+/* Settings through the service (#337): the v0.7 upgrade notice and a refused field. */
+.notice { display: flex; gap: 12px; align-items: center; justify-content: space-between; font-size: 12px; color: #1e3a8a; background: #dbeafe; border-radius: 5px; padding: 6px 8px; margin-bottom: 12px; }
+.notice p { margin: 0; }
+[aria-invalid="true"] { outline: 2px solid #dc2626; outline-offset: 1px; }
 
 .btn-secondary {
   font-size: 12px;

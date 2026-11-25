@@ -14,6 +14,7 @@ import type {
   WindowStyle,
   TrayViewState,
   UsageSourceStatus,
+  UsageSourceReason,
 } from './index';
 
 export interface CopilotOAuthPayload {
@@ -34,6 +35,36 @@ export interface ServiceStatus {
   running: boolean;
 }
 
+// Settings window (#337): the accounts and core settings come from the core's service;
+// without a usable one they are shown read-only with the reason (owner decision on #181).
+export type CoreSettingsSource = { available: true } | { available: false; reason: UsageSourceReason };
+
+export interface SettingsLoad {
+  settings: AppSettings;
+  service: CoreSettingsSource;
+  // Electron's own store still holds the accounts of v0.6.x: the dismissable notice
+  // linking docs/UPGRADE-TO-0.7 (migration script #311, decision on #310).
+  upgradeNotice: boolean;
+}
+
+/** The core's part of the Settings form, written through the service. */
+export interface CoreSettingsPatch {
+  accounts: AppSettings['accounts'];
+  refreshIntervalMinutes: number;
+  notificationThresholdPercent: number;
+}
+
+/**
+ * A field the service refused, by its JSON path: `field` names the Settings input
+ * (`path` under the account with that id, or a global path), null when no input matches.
+ */
+export interface CoreSettingsFieldError {
+  field: { accountId: string | null; path: string } | null;
+  message: string;
+}
+
+export type CoreSettingsSaveResult = { ok: true; settings: AppSettings } | ({ ok: false } & CoreSettingsFieldError);
+
 // A handler with nothing to return (`void` is only allowed as a generic argument).
 type NoResult = Awaited<Promise<void>>;
 
@@ -42,6 +73,12 @@ export interface IpcInvokeChannels {
   'view:get': { args: []; result: TrayViewState };
   'settings:get': { args: []; result: AppSettings };
   'settings:set': { args: [patch: Partial<AppSettings>]; result: AppSettings };
+  // Settings window (#337): accounts and core settings read from and written to the service.
+  'settings:load': { args: []; result: SettingsLoad };
+  'settings:saveCore': { args: [patch: CoreSettingsPatch]; result: CoreSettingsSaveResult };
+  'settings:dismissUpgradeNotice': { args: []; result: NoResult };
+  // Opens docs/UPGRADE-TO-0.7 in the browser; the URL is fixed in main.
+  'settings:openUpgradeGuide': { args: []; result: NoResult };
   'window:setAlwaysOnTop': { args: [value: boolean]; result: boolean };
   'window:setCompact': { args: [value: boolean]; result: boolean };
   'window:setStyle': { args: [style: WindowStyle]; result: WindowStyle };
@@ -90,6 +127,10 @@ export interface AipermilerBridge {
   onViewUpdate(callback: (state: TrayViewState) => void): () => void;
   getSettings(): Promise<AppSettings>;
   setSettings(patch: Partial<AppSettings>): Promise<AppSettings>;
+  loadSettings(): Promise<SettingsLoad>;
+  saveCoreSettings(patch: CoreSettingsPatch): Promise<CoreSettingsSaveResult>;
+  dismissUpgradeNotice(): Promise<void>;
+  openUpgradeGuide(): Promise<void>;
   onUsageUpdate(callback: (snapshot: UsageSnapshot) => void): () => void;
   onUsageRefreshing(callback: (refreshing: boolean) => void): () => void;
   onSettingsUpdate(callback: (settings: AppSettings) => void): () => void;

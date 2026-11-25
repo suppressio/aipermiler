@@ -3,7 +3,7 @@
 
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { compareVersions, fetchLatestUpdate, guideUrl, pickDownloadAsset, pickLatestRelease, RELEASES_API_URL, TRUSTED_DOWNLOAD_PREFIX } from './updates';
+import { compareVersions, fetchLatestUpdate, guideUrl, pickDownloadAsset, upgradeGuideUrl, pickLatestRelease, RELEASES_API_URL, TRUSTED_DOWNLOAD_PREFIX } from './updates';
 import type { GithubRelease, GithubReleaseAsset } from './updates';
 
 const originalFetch = globalThis.fetch;
@@ -123,4 +123,10 @@ test('guideUrl: the README of the repository in the interface language', () => {
   assert.equal(guideUrl('en'), 'https://github.com/suppressio/aipermiler/blob/main/README.md');
   assert.equal(guideUrl('it'), 'https://github.com/suppressio/aipermiler/blob/main/README.it.md');
   assert.ok(guideUrl('it').startsWith(TRUSTED_DOWNLOAD_PREFIX));
+});
+
+test('upgradeGuideUrl: the v0.7 migration guide in the interface language (#337)', () => {
+  assert.equal(upgradeGuideUrl('en'), 'https://github.com/suppressio/aipermiler/blob/main/docs/UPGRADE-TO-0.7.md');
+  assert.equal(upgradeGuideUrl('it'), 'https://github.com/suppressio/aipermiler/blob/main/docs/UPGRADE-TO-0.7.it.md');
+  assert.ok(upgradeGuideUrl('en').startsWith(TRUSTED_DOWNLOAD_PREFIX));
 });

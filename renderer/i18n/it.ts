@@ -138,6 +138,12 @@ export const it: Record<MessageKey, string> = {
   'settings.saved': 'Impostazioni salvate ✓',
   'settings.cancelled': 'Modifiche annullate',
   'settings.operationFailed': 'Operazione non riuscita: {error}',
+  // Impostazioni attraverso il servizio del core (#337).
+  'settings.service.unavailable': 'Il servizio di AIpermiler non è avviato ({reason}): account, intervallo di aggiornamento e soglia di avviso sono in sola lettura finché non parte. Avvialo (`aipermiler serve`) e riapri le Impostazioni. Le impostazioni di aspetto, aggiornamenti e diagnostica si salvano comunque.',
+  'settings.service.invalidField': 'Non salvato: {error}',
+  'settings.upgrade.notice': 'Account o storico spariti dopo l\'aggiornamento? Le impostazioni e lo storico della versione precedente si spostano una volta nel servizio di AIpermiler, con uno script.',
+  'settings.upgrade.link': 'Come spostarli',
+  'settings.upgrade.dismiss': 'Chiudi',
 
   'settings.accounts.title': 'Account',
   'settings.accounts.colName': 'Nome',

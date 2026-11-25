@@ -11,6 +11,7 @@ import { app } from 'electron';
 import { createCoreClient, resolveCoreBinary } from './coreClient';
 import { coreConfigDir, createServiceClient } from './serviceClient';
 import { createCopilotServiceActions } from './serviceCopilot';
+import { createServiceSettingsClient } from './serviceSettings';
 
 export const core = createCoreClient({
   binary: () => resolveCoreBinary({
@@ -27,3 +28,6 @@ const configDir = (): string => coreConfigDir(process.env, process.platform, os.
 export const coreService = createServiceClient({ configDir });
 
 export const copilotService = createCopilotServiceActions({ configDir });
+
+// Settings through the service (#337): the only writer of the core's store.json.
+export const settingsService = createServiceSettingsClient({ configDir });

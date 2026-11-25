@@ -508,6 +508,8 @@ export interface AppSettings {
     // One-off removal of the chatgpt.com cookies stored before Codex moved to the core
     // (#178, main.ts purgeStoredCodexSessions).
     codexSessionsPurged?: boolean;
+    // The Settings notice linking the v0.7 migration guide was dismissed (#337).
+    upgradeNoticeDismissed?: boolean;
   };
   diagnostics: DiagnosticsSettings;
   updates: UpdateSettings;

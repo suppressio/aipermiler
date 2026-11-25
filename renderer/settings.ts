@@ -2,8 +2,9 @@
 // Every visible string goes through t() or data-i18n attributes (renderer/i18n).
 
 import type { AccountConfig, AccountId, AppSettings, ProviderId, UpdateSettings, TrayViewState } from '../types/index';
-import type { AipermilerBridge } from '../types/ipc';
+import type { AipermilerBridge, CoreSettingsFieldError, SettingsLoad } from '../types/ipc';
 import { byId } from './dom.js';
+import { dataFieldOf, withoutJsonPath } from './fieldError.js';
 import { applyTranslations, formatDate, formatDateTime, formatTime, resolveLocale, setLocale, t, type MessageKey } from './i18n/index.js';
 import { summarizeWorkSchedule } from './schedule.js';
 import { windowLabel } from './windowLabel.js';
@@ -40,6 +41,12 @@ const pendingOAuth = new Set<AccountId>();
 // Account just created with "Add account" and not saved yet: same detail form,
 // only the title changes ("New … account" instead of "Configure …").
 let newAccountId: AccountId | null = null;
+// The core's service runs (#337): accounts and the core settings are read from it and
+// saved through it. Without it they are shown read-only, with a message.
+let serviceAvailable = false;
+
+// Fields saved through the service besides the accounts (the rest of `ui` stays in Electron).
+const CORE_UI_FIELDS = ['ui.refreshIntervalMinutes', 'ui.notificationThresholdPercent'];
 
 // Provider names are proper names: not translated.
 const PROVIDER_LABELS: Record<ProviderId, string> = { claude: 'Claude', copilot: 'GitHub Copilot', codex: 'Codex (ChatGPT)' };
@@ -309,6 +316,60 @@ function populateForm(): void {
     }
   });
   accounts().forEach((_account, index) => { applyAccountDetailState(index); });
+  lockCoreFields();
+}
+
+// Without the service the accounts and the core settings cannot be saved (Electron never
+// writes the core's store.json, #337): their inputs, Add and Remove are disabled. The
+// details can still be opened to read them.
+function lockCoreFields(): void {
+  if (serviceAvailable) return;
+  document.querySelectorAll<HTMLInputElement | HTMLSelectElement>('[data-field^="accounts."]').forEach((el) => { el.disabled = true; });
+  for (const field of CORE_UI_FIELDS) {
+    const el = document.querySelector<HTMLInputElement | HTMLSelectElement>(`[data-field="${field}"]`);
+    if (el) el.disabled = true;
+  }
+  document.querySelectorAll<HTMLButtonElement>('button[data-action="remove"]').forEach((el) => { el.disabled = true; });
+  byId('btn-add-account', HTMLButtonElement).disabled = true;
+  byId('add-account-provider', HTMLSelectElement).disabled = true;
+}
+
+function applyLoad(loaded: SettingsLoad): void {
+  settings = loaded.settings;
+  serviceAvailable = loaded.service.available;
+  const notice = byId('service-notice', HTMLElement);
+  notice.hidden = loaded.service.available;
+  notice.textContent = loaded.service.available ? '' : t('settings.service.unavailable', { reason: loaded.service.reason });
+  byId('upgrade-notice', HTMLElement).hidden = !loaded.upgradeNotice;
+}
+
+function clearFieldError(): void {
+  byId('save-error', HTMLElement).hidden = true;
+  document.querySelectorAll('[aria-invalid="true"]').forEach((el) => { el.removeAttribute('aria-invalid'); });
+}
+
+// The service refused a value: nothing was saved. The message is shown above the save
+// bar and the field it names is marked (its account detail opened first).
+function showFieldError(error: CoreSettingsFieldError): void {
+  const accountId = error.field?.accountId ?? null;
+  if (accountId !== null && expandedAccountId !== accountId) {
+    expandedAccountId = accountId;
+    populateForm();
+  }
+  const dataField = dataFieldOf(error.field, accounts().map((a) => a.id));
+  const el = dataField === null ? null : document.querySelector<HTMLElement>(`[data-field="${CSS.escape(dataField)}"]`);
+  // On a marked field the JSON path adds nothing: only the reason is shown.
+  const message = t('settings.service.invalidField', { error: el ? withoutJsonPath(error.message) : error.message });
+  const box = byId('save-error', HTMLElement);
+  box.textContent = message;
+  box.hidden = false;
+  if (el) {
+    el.setAttribute('aria-invalid', 'true');
+    el.focus();
+  }
+  // Also at the bottom of the open account detail, next to the field.
+  const status = accountId === null ? null : detailElement(accountId)?.querySelector<HTMLElement>('[data-role="detail-status"]');
+  if (status) status.textContent = message;
 }
 
 // When an account's work schedule is disabled (e.g. a personal account with no fixed
@@ -432,8 +493,10 @@ function enforceSingleSignInDraft(keepIndex: number): void {
 // changes on OTHER accounts and sections must not be lost (the form used to be
 // reloaded from scratch, discarding them).
 async function reloadAfterAccountAction(actedOn: AccountId | null): Promise<void> {
-  const fresh = await window.aipermiler.getSettings();
   const draft = settings;
+  const loaded = await window.aipermiler.loadSettings();
+  applyLoad(loaded);
+  const fresh = loaded.settings;
   savedSettings = structuredClone(fresh);
   if (draft) {
     const draftAccounts = new Map(accounts().map((a) => [a.id, a]));
@@ -694,14 +757,27 @@ function bindEvents(): void {
     // Explicitly re-reads every field (even those without a 'change' event yet,
     // e.g. a focused number input) and saves everything at once.
     const touchedKeys = captureDraftFromForm();
-    for (const key of touchedKeys) {
-      const stored = await persist(key);
+    clearFieldError();
+    // Accounts and the core settings first, through the service (#337), all or nothing:
+    // a refused value stops the whole save, so the form never looks half saved.
+    if (serviceAvailable && settings) {
+      const result = await window.aipermiler.saveCoreSettings({
+        accounts: settings.accounts,
+        refreshIntervalMinutes: settings.ui.refreshIntervalMinutes,
+        notificationThresholdPercent: settings.ui.notificationThresholdPercent,
+      });
+      if (!result.ok) {
+        showFieldError(result);
+        return;
+      }
       // The main process normalizes the accounts (e.g. one enabled Codex account): the
       // form shows what was really saved, not the draft.
-      if (key === 'accounts' && settings) {
-        settings.accounts = structuredClone(stored.accounts);
-        populateForm();
-      }
+      settings.accounts = structuredClone(result.settings.accounts);
+      populateForm();
+    }
+    // Electron's own sections (display, updates, diagnostics).
+    for (const key of touchedKeys) {
+      if (key !== 'accounts') await persist(key);
     }
 
     // Side effects that need a dedicated main-process action: applied only now
@@ -734,6 +810,14 @@ function bindEvents(): void {
     showSaveStatus(t('settings.saved'));
   }));
 
+  // v0.7 upgrade notice (#337, decision on #310): only a link to the migration guide,
+  // nothing is run from here.
+  byId('btn-upgrade-guide').addEventListener('click', guarded(() => window.aipermiler.openUpgradeGuide()));
+  byId('btn-upgrade-dismiss').addEventListener('click', guarded(async () => {
+    await window.aipermiler.dismissUpgradeNotice();
+    byId('upgrade-notice', HTMLElement).hidden = true;
+  }));
+
   byId('btn-check-updates').addEventListener('click', guarded(async () => {
     const btn = byId('btn-check-updates', HTMLButtonElement);
     const status = byId('updates-status', HTMLElement);
@@ -762,8 +846,9 @@ function bindEvents(): void {
 
   byId('btn-cancel').addEventListener('click', guarded(async () => {
     // Discards unsaved changes: reloads the persisted state and repopulates the form.
-    settings = await window.aipermiler.getSettings();
+    applyLoad(await window.aipermiler.loadSettings());
     savedSettings = structuredClone(settings);
+    clearFieldError();
     populateForm();
     showSaveStatus(t('settings.cancelled'));
   }));
@@ -773,7 +858,9 @@ async function init(): Promise<void> {
   // The loading placeholders (settings.html) in the system language right away: the
   // saved language is known only once the main process answers.
   applyLanguage('auto');
-  settings = await window.aipermiler.getSettings();
+  const loaded = await window.aipermiler.loadSettings();
+  applyLoad(loaded);
+  settings = loaded.settings;
   savedSettings = structuredClone(settings);
   window.aipermiler.onViewUpdate((updated) => {
     const clean = JSON.stringify(settings?.ui.trayBadge) === JSON.stringify(savedSettings?.ui.trayBadge);
@@ -804,6 +891,7 @@ async function init(): Promise<void> {
   renderUpdatesCard(settings.updates);
   // Disabled in the markup until the settings are loaded and the handlers bound.
   for (const id of ['btn-add-account', 'btn-cancel', 'btn-save', 'btn-report-responses']) byId(id, HTMLButtonElement).disabled = false;
+  lockCoreFields();
   // Only the updates state (owned by the main process): the rest of the form stays
   // a draft, a full repopulation would discard unsaved changes.
   window.aipermiler.onSettingsUpdate((updated) => {

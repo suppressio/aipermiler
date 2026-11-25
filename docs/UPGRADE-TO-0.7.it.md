@@ -6,7 +6,7 @@
 
 ## Quando serve
 
-Fino alla v0.6.x l'app tiene account, impostazioni e storico nel proprio file cifrato. Dalla v0.7.0 li tiene il core, in `store.json`, nella sua cartella. Il vecchio file resta dov'è, intatto, quindi non si perde niente: lanci lo script una volta e il core ritrova tutto.
+Fino alla v0.6.x l'app tiene account, impostazioni e storico nel proprio file cifrato. Dalla v0.7.0 li tiene il core, in `store.json`, nella sua cartella. Il vecchio file resta dov'è, intatto, quindi non si perde niente: lanci lo script una volta e il core ritrova tutto. Fino ad allora le Impostazioni mostrano un avviso con il link a questa guida; chiudilo con *Chiudi* quando hai finito.
 
 | Sistema | File dell'app (solo letto) | Store del core (scritto) |
 |---|---|---|

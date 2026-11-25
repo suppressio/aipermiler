@@ -25,6 +25,11 @@ const bridge: AipermilerBridge = {
   onViewUpdate: (callback) => subscribe('view:update', callback),
   getSettings: () => invoke('settings:get'),
   setSettings: (patch) => invoke('settings:set', patch),
+  // Settings window (#337): accounts and core settings through the core's service.
+  loadSettings: () => invoke('settings:load'),
+  saveCoreSettings: (patch) => invoke('settings:saveCore', patch),
+  dismissUpgradeNotice: () => invoke('settings:dismissUpgradeNotice'),
+  openUpgradeGuide: () => invoke('settings:openUpgradeGuide'),
 
   onUsageUpdate: (callback) => subscribe('usage:update', callback),
   onUsageRefreshing: (callback) => subscribe('usage:refreshing', callback),

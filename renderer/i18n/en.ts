@@ -149,6 +149,12 @@ export const en = {
   'settings.saved': 'Settings saved ✓',
   'settings.cancelled': 'Changes discarded',
   'settings.operationFailed': 'Operation failed: {error}',
+  // Settings through the core's service (#337).
+  'settings.service.unavailable': 'The AIpermiler service is not running ({reason}): accounts, refresh interval and alert threshold are read-only until it runs. Start it (`aipermiler serve`) and reopen Settings. Display, update and diagnostics settings still save.',
+  'settings.service.invalidField': 'Not saved: {error}',
+  'settings.upgrade.notice': 'Lost your accounts or history after the upgrade? The settings and history of the previous version can be moved to the AIpermiler service once, with a script.',
+  'settings.upgrade.link': 'How to move them',
+  'settings.upgrade.dismiss': 'Dismiss',
 
   // --- Settings: accounts table ----------------------------------------------
   'settings.accounts.title': 'Accounts',
