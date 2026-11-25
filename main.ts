@@ -43,7 +43,8 @@ import {
   accountsToSave,
   connectionDocument,
   fieldOfInvalidSettings,
-  hasUnmigratedAccounts,
+  mayCopyCoreGlobals,
+  settlesUpgradeNotice,
   keepNoRenewalDay,
   mirrorAccounts,
   showUpgradeNotice,
@@ -739,7 +740,7 @@ async function loadSettings(): Promise<SettingsLoad> {
   // (docs/UPGRADE-TO-0.7.md): the notice links the guide until dismissed.
   // Electron and the service agreeing means nothing is left to migrate (or nothing ever
   // was, on a fresh install): the notice is settled for good, also while the service is down.
-  if (!hasUnmigratedAccounts(getAccounts(), doc.accounts) && store.get('meta').upgradeNoticeDismissed !== true) {
+  if (settlesUpgradeNotice(getAccounts(), doc.accounts) && store.get('meta').upgradeNoticeDismissed !== true) {
     store.set('meta', { ...store.get('meta'), upgradeNoticeDismissed: true });
   }
   const upgradeNotice = showUpgradeNotice({ dismissed: store.get('meta').upgradeNoticeDismissed === true, local: getAccounts(), service: doc.accounts });
@@ -775,7 +776,7 @@ async function saveCoreSettings(rawPatch: unknown): Promise<CoreSettingsSaveResu
   // while Electron's copy has accounts the service lacks: its file is then the migration
   // script's source and stays untouched (docs/UPGRADE-TO-0.7.md), unless the user
   // dismissed the upgrade notice: then they are done with the old file.
-  if (store.get('meta').upgradeNoticeDismissed === true || !hasUnmigratedAccounts(getAccounts(), saved.accounts)) {
+  if (mayCopyCoreGlobals({ dismissed: store.get('meta').upgradeNoticeDismissed === true, local: getAccounts(), service: saved.accounts })) {
     store.set('ui.refreshIntervalMinutes', saved.settings.refreshIntervalMinutes);
     store.set('ui.notificationThresholdPercent', saved.settings.notificationThresholdPercent);
     store.set('history.retentionDays', saved.settings.retentionDays);
