@@ -19,12 +19,12 @@ import { defaultAccountFor, enforceSingleLocalInsights, enforceSingleSignInAccou
 import * as budget from './budget';
 import { createUsageCore, refreshIntervalMs } from './core/usage';
 import path from 'path';
-import { fetchLatestUpdate, guideUrl, TRUSTED_DOWNLOAD_PREFIX } from './services/updates';
+import { fetchLatestUpdate, guideUrl, TRUSTED_DOWNLOAD_PREFIX, upgradeGuideUrl } from './services/updates';
 import { DEFAULT_GITHUB_HOST, githubOAuthBase, normalizeGithubHost } from './services/githubHost';
 import type { TrayHandle } from './main/tray';
 import { FormatDriftError, liveSignatures, shapeSignature } from './services/_shape';
 import { CoreBinaryError, CoreOutputError, CoreProviderError, CoreTimeoutError } from './main/coreClient';
-import { copilotService, core } from './main/core';
+import { copilotService, core, settingsService } from './main/core';
 import { NOT_READ_YET, ServiceUnusableError } from './main/serviceClient';
 import { AuthorizeUrlRejectedError, loginThroughService } from './main/serviceCopilot';
 import { usableInsightsCache } from './main/localInsights';
@@ -37,6 +37,17 @@ import os from 'os';
 import { writeFile } from 'fs/promises';
 import { formatNumber, getLocale, resolveLocale, setLocale, t } from './main/i18n/index';
 import { randomUUID } from 'crypto';
+import {
+  ServiceSettingsInvalidError,
+  accountsFromService,
+  fieldOfInvalidSettings,
+  keepNoRenewalDay,
+  mirrorAccounts,
+  toServiceDocument,
+  withConnectionFields,
+  type ServiceSettingsDocument,
+} from './main/serviceSettings';
+import type { CoreSettingsSaveResult, SettingsLoad } from './types/ipc';
 import { handle, listen, sendToRenderer } from './main/ipc';
 import type {
   AccountConfig,
@@ -613,6 +624,11 @@ function requireString(value: unknown, what: string): string {
   return value;
 }
 
+function requireNumber(value: unknown, what: string): number {
+  if (typeof value !== 'number' || !Number.isFinite(value)) throw new Error(`${what}: invalid value`);
+  return value;
+}
+
 function requireBoolean(value: unknown, what: string): boolean {
   if (typeof value !== 'boolean') throw new Error(`${what}: invalid value`);
   return value;
@@ -637,7 +653,8 @@ function requireGithubHost(value: unknown): string {
 
 // Sections the Settings window may write via settings:set: history, meta, caches
 // and the like are owned by the main process only (schema validation: Day 3 backlog).
-const RENDERER_EDITABLE_KEYS = new Set<string>(['accounts', 'ui', 'diagnostics', 'updates']);
+// Accounts and the core's settings go through the service (settings:saveCore, #337).
+const RENDERER_EDITABLE_KEYS = new Set<string>(['ui', 'diagnostics', 'updates']);
 
 function preserveRealSecretsOnWrite(key: string, value: unknown): unknown {
   // `updates` is owned by the main process (check results): from the renderer only
@@ -657,21 +674,122 @@ function preserveRealSecretsOnWrite(key: string, value: unknown): unknown {
   // the draft was opened with (compact flag lost, 260×132 then saved as the full size).
   if (key === 'ui') {
     const incoming = isPlainRecord(value) ? value : {};
-    const { bounds, compact } = store.get('ui');
-    return { ...incoming, bounds, compact };
+    // The refresh interval and the alert threshold are the core's settings: written
+    // through the service (settings:saveCore, #337), never from this section.
+    const { bounds, compact, refreshIntervalMinutes, notificationThresholdPercent } = store.get('ui');
+    return { ...incoming, bounds, compact, refreshIntervalMinutes, notificationThresholdPercent };
   }
-  if (key !== 'accounts' || !Array.isArray(value)) return value;
+  return value;
+}
+
+// ---------------------------------------------------------------------------
+// Settings through the core's service (#337, owner decisions on #181): the service is
+// the only writer of store.json, Electron never writes it. Accounts and the core's
+// settings are read and written with GET/PUT /api/v1/settings; without a usable service
+// Settings shows them read-only with a message (no CLI fallback, no start button).
+// Electron keeps its own copy of the accounts (mirrorAccounts) for the widget and its
+// timers until they read the service (#341), plus the fields only it knows (Copilot
+// OAuth clientId and username).
+// ---------------------------------------------------------------------------
+
+// A service call of a Settings action: without a usable service, the reason in the user's language.
+async function throughService<T>(call: () => Promise<T>): Promise<T> {
+  try {
+    return await call();
+  } catch (err) {
+    if (err instanceof ServiceUnusableError) throw new Error(t('error.settingsServiceDown', { reason: err.reason }), { cause: err });
+    throw err;
+  }
+}
+
+// The service's accounts with Electron's own fields (from `local`, by id); Electron's copy follows them.
+function adoptServiceAccounts(doc: ServiceSettingsDocument, local: AccountConfig[] = getAccounts()): AccountConfig[] {
+  const accounts = accountsFromService(doc, local);
+  const before = getAccounts();
+  const mirrored = mirrorAccounts(before, accounts);
+  // The encrypted store rewrites the whole file on every set: only when something changed.
+  if (JSON.stringify(mirrored) !== JSON.stringify(before)) store.set('accounts', mirrored);
+  return accounts;
+}
+
+// What Settings shows: Electron's settings with the service's accounts and core settings.
+function settingsView(doc: ServiceSettingsDocument, accounts: AccountConfig[]): AppSettings {
+  const current = store.store;
+  return redactSecretsForRenderer({
+    ...current,
+    accounts,
+    ui: { ...current.ui, refreshIntervalMinutes: doc.settings.refreshIntervalMinutes, notificationThresholdPercent: doc.settings.notificationThresholdPercent },
+  });
+}
+
+async function loadSettings(): Promise<SettingsLoad> {
+  let doc: ServiceSettingsDocument;
+  try {
+    doc = await settingsService.get();
+  } catch (err) {
+    if (!(err instanceof ServiceUnusableError)) throw err;
+    return { settings: redactSecretsForRenderer(store.store), service: { available: false, reason: err.reason }, upgradeNotice: false };
+  }
+  // An account only Electron's file has is v0.6.x data the migration script would move
+  // (docs/UPGRADE-TO-0.7.md): the notice links the guide until dismissed.
+  const upgradeNotice = store.get('meta').upgradeNoticeDismissed !== true && getAccounts().some((a) => !doc.accounts.some((s) => s.id === a.id));
+  const accounts = adoptServiceAccounts(doc);
+  return { settings: settingsView(doc, accounts), service: { available: true }, upgradeNotice };
+}
+
+async function saveCoreSettings(rawPatch: unknown): Promise<CoreSettingsSaveResult> {
+  if (!isPlainRecord(rawPatch) || !Array.isArray(rawPatch.accounts)) throw new Error('Settings: invalid patch');
+  const refreshIntervalMinutes = requireNumber(rawPatch.refreshIntervalMinutes, 'Refresh interval');
+  const notificationThresholdPercent = requireNumber(rawPatch.notificationThresholdPercent, 'Alert threshold');
+  const before = await throughService(() => settingsService.get());
+  // Electron's copy now has every account of the service: an account the patch invents
+  // is dropped (accounts are created only by accounts:add).
+  const known = adoptServiceAccounts(before);
   const current = getAccounts();
-  // Validated before being touched: the renderer may send any value.
-  const merged = normalizeAccounts(value)
+  const merged = keepNoRenewalDay(rawPatch.accounts, normalizeAccounts(rawPatch.accounts))
     .map((incoming) => providers.preserveSecrets(incoming, current.find((c) => c.id === incoming.id)))
     .filter((a): a is AccountConfig => a !== null);
-  // An account present in the store but missing from the patch is not removed here:
-  // removal goes only through accounts:remove (which also clears the partition).
-  for (const cur of current) {
-    if (!merged.some((m) => m.id === cur.id)) merged.push(cur);
+  // An account missing from the patch is not removed here: removal goes only through
+  // accounts:remove (which also clears the partition).
+  for (const a of known) {
+    if (!merged.some((m) => m.id === a.id)) merged.push(a);
   }
-  return enforceSingleSignInAccounts(enforceSingleLocalInsights(merged));
+  const accounts = enforceSingleSignInAccounts(enforceSingleLocalInsights(merged));
+  let saved: ServiceSettingsDocument;
+  try {
+    saved = await throughService(() => settingsService.put(toServiceDocument({
+      accounts, refreshIntervalMinutes, notificationThresholdPercent, retentionDays: before.settings.retentionDays,
+    })));
+  } catch (err) {
+    // Nothing written: the form shows the message on the field it names.
+    if (err instanceof ServiceSettingsInvalidError) return { ok: false, field: fieldOfInvalidSettings(err.path, accounts), message: err.message };
+    throw err;
+  }
+  const view = adoptServiceAccounts(saved, accounts);
+  // The widget's timers and notifications still read Electron's copy until #341.
+  store.set('ui.refreshIntervalMinutes', saved.settings.refreshIntervalMinutes);
+  store.set('ui.notificationThresholdPercent', saved.settings.notificationThresholdPercent);
+  store.set('history.retentionDays', saved.settings.retentionDays);
+  broadcastView();
+  scheduleRefreshLoop();
+  if (binaryPathChanged(current, getAccounts())) runDetached('refresh usage', refreshAndBroadcast('forced'));
+  if (mainWindow && !mainWindow.isDestroyed()) sendToRenderer(mainWindow, 'settings:update', redactSecretsForRenderer(store.store));
+  return { ok: true, settings: settingsView(saved, view) };
+}
+
+// After a connect or disconnect (enabled, Copilot authentication and host changed in
+// Electron's copy): the same fields in the service, when one runs. Without one the
+// change stays in Electron's copy only (#337: no CLI fallback writes store.json).
+async function saveConnectionToService(id: AccountId): Promise<void> {
+  const cfg = findAccount(id);
+  if (!cfg) return;
+  try {
+    const doc = await settingsService.get();
+    if (!doc.accounts.some((a) => a.id === id)) return;
+    await settingsService.put({ ...doc, accounts: doc.accounts.map((a) => (a.id === id ? withConnectionFields(a, cfg) : a)) });
+  } catch (err) {
+    console.warn('[main] the connection of an account was not saved to the service:', err instanceof Error ? err.message : String(err));
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -752,10 +870,16 @@ function registerIpcHandlers(): void {
   handle('view:get', () => getTrayViewState());
   handle('settings:get', () => redactSecretsForRenderer(store.store));
 
+  handle('settings:load', () => loadSettings());
+  handle('settings:saveCore', (_event, patch: unknown) => saveCoreSettings(patch));
+  handle('settings:dismissUpgradeNotice', () => {
+    store.set('meta', { ...store.get('meta'), upgradeNoticeDismissed: true });
+  });
+  handle('settings:openUpgradeGuide', () => shell.openExternal(upgradeGuideUrl(getLocale())));
+
   handle('settings:set', (_event, patch: unknown) => {
     if (!isPlainRecord(patch)) throw new Error('Settings: invalid patch');
     let next: AppSettings = store.store;
-    const accountsBefore = next.accounts;
     for (const [key, value] of Object.entries(patch)) {
       if (!RENDERER_EDITABLE_KEYS.has(key)) throw new Error(`Settings: section not editable from the renderer: ${key}`);
       next = { ...next, [key]: preserveRealSecretsOnWrite(key, value) };
@@ -766,7 +890,6 @@ function registerIpcHandlers(): void {
     applyMainLocale();
     broadcastView();
     scheduleRefreshLoop();
-    if (binaryPathChanged(accountsBefore, store.store.accounts)) runDetached('refresh usage', refreshAndBroadcast('forced'));
     const redacted = redactSecretsForRenderer(store.store);
     // Propagates the change to the widget if open: some fields (e.g. accent color) have
     // no dedicated IPC like ui.windowStyle/ui.alwaysOnTop and would otherwise apply only
@@ -822,14 +945,17 @@ function registerIpcHandlers(): void {
     if (mainWindow && !mainWindow.isDestroyed()) mainWindow.hide();
   });
 
-  handle('accounts:add', (_event, rawProvider: unknown) => {
+  handle('accounts:add', async (_event, rawProvider: unknown) => {
     const provider = requireOneOf(rawProvider, PROVIDER_IDS, 'Provider');
-    const accounts = getAccounts();
+    // Added in the service (#337): without one, nothing is added.
+    const doc = await throughService(() => settingsService.get());
+    const accounts = adoptServiceAccounts(doc);
     const id = `${provider}-${randomUUID().slice(0, 8)}`;
-    accounts.push(defaultAccountFor(provider, id, nextAccountLabel(provider, accounts)));
     // A new Codex or Claude account starts enabled unless another one of the same
     // provider already is (#178, #180).
-    store.set('accounts', enforceSingleSignInAccounts(accounts));
+    const added = enforceSingleSignInAccounts([...accounts, defaultAccountFor(provider, id, nextAccountLabel(provider, accounts))]);
+    const saved = await throughService(() => settingsService.put(toServiceDocument({ ...doc.settings, accounts: added })));
+    adoptServiceAccounts(saved, added);
     broadcastSettings();
     // Codex and Claude have no Connect step that would trigger the first read: refresh now.
     runDetached('refresh usage', refreshAndBroadcast('forced'));
@@ -840,10 +966,13 @@ function registerIpcHandlers(): void {
     const id = requireString(rawId, 'Account');
     const cfg = findAccount(id);
     if (!cfg) return;
+    // Removed in the service too (#337): without one, nothing is removed.
+    const doc = await throughService(() => settingsService.get());
     // Full disconnect before removing the row: for Claude it also clears the partition,
     // otherwise the cookies would stay on disk with no owner; for a connected Copilot
     // account it deletes the token through the service (#338).
     await disconnectAccount(cfg);
+    await throughService(() => settingsService.put({ ...doc, accounts: doc.accounts.filter((a) => a.id !== id) }));
     store.set('accounts', getAccounts().filter((a) => a.id !== id));
     broadcastSettings();
     runDetached('refresh usage', refreshAndBroadcast('forced'));
@@ -865,6 +994,7 @@ function registerIpcHandlers(): void {
     updateAccount(id, (a) => (a.provider === 'copilot'
       ? { ...a, enabled: true, authMethod: 'pat', host, credentials: { token: null, username } }
       : a));
+    await saveConnectionToService(id);
     broadcastSettings();
     runDetached('refresh usage', refreshAndBroadcast('forced'));
     return { username };
@@ -910,6 +1040,7 @@ function registerIpcHandlers(): void {
     updateAccount(id, (a) => (a.provider === 'copilot'
       ? { ...a, enabled: true, authMethod: 'oauth', host: payload.host, credentials: { token: null, username }, oauthApp: { clientId: payload.clientId } }
       : a));
+    await saveConnectionToService(id);
     broadcastSettings();
     runDetached('refresh usage', refreshAndBroadcast('forced'));
     return { username };
@@ -1041,6 +1172,7 @@ function registerIpcHandlers(): void {
     if (!cfg) return;
     const cleared = await disconnectAccount(cfg);
     updateAccount(id, () => cleared);
+    await saveConnectionToService(id);
     broadcastSettings();
     runDetached('refresh usage', refreshAndBroadcast('forced'));
   });

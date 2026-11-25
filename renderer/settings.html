@@ -15,6 +15,14 @@
   <main id="settings-app">
     <h1 data-i18n="settings.title">Settings</h1>
 
+    <!-- Settings through the core's service (#337): shown by settings.ts. -->
+    <p class="warning" id="service-notice" role="status" hidden></p>
+    <div class="notice" id="upgrade-notice" hidden>
+      <p><span data-i18n="settings.upgrade.notice">Lost your accounts or history after the upgrade?</span>
+        <button type="button" class="btn-link" id="btn-upgrade-guide" data-i18n="settings.upgrade.link">How to move them</button></p>
+      <button type="button" class="btn-secondary btn-small" id="btn-upgrade-dismiss" data-i18n="settings.upgrade.dismiss">Dismiss</button>
+    </div>
+
     <section class="card">
       <h2 class="label-row"><span data-i18n="settings.accounts.title">Accounts</span> <button type="button" class="info-icon" aria-label="More information" data-i18n-aria-label="settings.infoAria">ⓘ<span class="tooltip" role="tooltip" data-i18n="settings.accounts.hint"></span></button></h2>
       <table class="accounts-table">
@@ -284,6 +292,8 @@
       <p class="hint" id="usage-source-row" hidden><span data-i18n="settings.diagnostics.source">Usage read from:</span> <span id="usage-source"></span></p>
     </section>
 
+    <!-- A field the service refused (#337): the message, the field itself is marked. -->
+    <p class="warning" id="save-error" role="alert" hidden></p>
     <div class="save-bar">
       <button type="button" id="btn-cancel" class="btn-secondary" data-i18n="settings.cancel" disabled>Cancel</button>
       <button type="button" id="btn-save" class="btn-primary" data-i18n="settings.save" disabled>Save settings</button>

@@ -29,6 +29,11 @@ export function guideUrl(locale: 'en' | 'it'): string {
   return `${TRUSTED_DOWNLOAD_PREFIX}blob/main/${locale === 'it' ? 'README.it.md' : 'README.md'}`;
 }
 
+// The v0.7 migration guide (docs/UPGRADE-TO-0.7.md, #311): the Settings notice links it.
+export function upgradeGuideUrl(locale: 'en' | 'it'): string {
+  return `${TRUSTED_DOWNLOAD_PREFIX}blob/main/docs/${locale === 'it' ? 'UPGRADE-TO-0.7.it.md' : 'UPGRADE-TO-0.7.md'}`;
+}
+
 export interface GithubReleaseAsset {
   name: string;
   browser_download_url: string;

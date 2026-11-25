@@ -80,7 +80,7 @@ aipermiler/
 ├── preload.ts                   ← contextBridge renderer ↔ main
 ├── gocore/                      ← Go core module (#145), strict lint + depguard; CI job `go-checks`
 │   ├── cmd/aipermiler/          ← one binary, subcommand entry point
-│   ├── contract/v1/             ← shared normative JSON fixtures (Go + TypeScript client); service/ = the service's own documents (#248, #284), the usage ones read by main/serviceClient.ts (#182), the settings ones not yet read by the TypeScript client (#181)
+│   ├── contract/v1/             ← shared normative JSON fixtures (Go + TypeScript client); service/ = the service's own documents (#248, #284), the usage ones read by main/serviceClient.ts (#182), the settings ones by main/serviceSettings.ts (#337)
 │   └── internal/
 │       ├── buildinfo/           ← binary name and build-time version
 │       ├── cli/                 ← command dispatch and exit codes
@@ -110,6 +110,7 @@ aipermiler/
 │   ├── localInsights.ts         ← which cached Claude local insights may still be shown: only those counted by the core (#299) (+ test)
 │   ├── serviceCopilot.ts        ← Copilot token set/delete and OAuth login (start, status polling, cancel) through the service only, secrets in the request body only (#338) (+ test)
 │   ├── serviceClient.ts         ← reads usage from the core's always-on service when it runs (api.json, /health, contract version), CLI fallback with the reason (#182) (+ test)
+│   ├── serviceSettings.ts       ← Settings' accounts and core settings through the service (GET/PUT /api/v1/settings, #337): mapping, validation errors by JSON path, Electron's copy of the accounts (+ test)
 │   ├── coreClient.ts            ← runs the bundled core CLI (execFile, no shell, timeout, --json, secrets on stdin) and parses contract v1 against gocore/contract/v1 (+ test)
 │   ├── windows.ts               ← main window (skins filled/filled-dark/transparent-digital) and Settings window
 │   ├── tray.ts                  ← cross-platform tray; createTray returns { tray, refreshMenu }
@@ -129,6 +130,7 @@ aipermiler/
 │   ├── accountStatus.ts         ← the widget's status line: stale, error, notice, service "refreshing" (+ test)
 │   ├── usageSource.ts           ← Settings → Diagnostics: service or CLI per account (+ test)
 │   ├── copilotLogin.ts          ← Settings: a Copilot sign-in refused because another one runs, found by error name (+ test)
+│   ├── fieldError.ts            ← Settings: the input a service validation error names (#337) (+ test)
 │   ├── windowLabel.ts           ← localized quota-window labels, including Codex limits (+ test)
 │   ├── gauge.ts                 ← log-scale position of the instant pace against its target (+ test)
 │   ├── visibility.ts            ← which indicators are shown (autonomy, peak/average, streak) (+ test)
@@ -174,7 +176,7 @@ aipermiler/
 - The renderer never has direct access to Node.js: everything goes through `preload.ts` via `contextBridge`.
 - No provider secret in the app: the Copilot token lives in the OS keyring, owned by the Go core (#179; it reaches the core on stdin, never argv), Codex keeps nothing secret (#178). The Copilot OAuth client secret is typed in Settings and goes to the core's service in the request body (then the core's stdin), never saved; the Copilot account actions go through the service only (#338, `main/serviceCopilot.ts`). Whatever secret is still in the store (a Copilot token of an earlier version, until moved) stays in the main process — never in the renderer, never in localStorage. `settings:get`/`settings:set` redact secrets towards the renderer (`providers.redactSecrets`) and preserve the real values on write (`providers.preserveSecrets`).
 - IPC channels and payload types are declared once in `types/ipc.ts`; main registers through `main/ipc.ts` (`handle`/`listen`/`sendToRenderer`), the preload through typed helpers on the same maps. A new channel = one entry there. The renderer tsconfig has `rootDir: "."` so it can import `types/`; those files must stay runtime-free (the renderer build re-emits them as ES modules over the CommonJS ones).
-- Every value coming from the renderer through IPC is `unknown` and is validated in the handler (`requireString`/`requireBoolean`/`requireOneOf` in `main.ts`). `settings:set` accepts only renderer-editable sections (`accounts`, `ui`, `diagnostics`, `updates`) and normalizes the patch before writing.
+- Every value coming from the renderer through IPC is `unknown` and is validated in the handler (`requireString`/`requireBoolean`/`requireOneOf` in `main.ts`). `settings:set` accepts only Electron's own renderer-editable sections (`ui`, `diagnostics`, `updates`; the refresh interval and alert threshold in `ui` are kept) and normalizes the patch before writing. Accounts and the core settings go to the core's service (`settings:saveCore`, `main/serviceSettings.ts`, #337): the service is the only writer of `store.json`, Electron never writes it, and without a service Settings shows them read-only (no CLI fallback).
 - URLs opened with `shell.openExternal` come from the main process (store/constants), never from the renderer; update URLs must start with the project repository prefix.
 
 ### Cross-platform
