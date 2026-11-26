@@ -74,10 +74,7 @@ jobs:
       - name: go test -race
         run: go test -race ./...
 
-      # Fails today: #166 has not covered every id of docs/PACING.md yet.
-      # Drop continue-on-error when it has (#276).
       - name: pacing coverage (every PACING.md id has a test)
-        continue-on-error: true
         run: go run ./cmd/pacingcheck
 
       - name: cross-compile

@@ -1,0 +1,157 @@
+{
+  "timeZone": "Europe/Rome",
+  "fresh": true,
+  "chartDays": 7,
+  "renewalDay": 1,
+  "name": "first-local-session-extends-the-day",
+  "now": "2026-10-21T11:00:00+02:00",
+  "schedule": {
+    "enabled": true,
+    "days": {
+      "mon": 1,
+      "tue": 1,
+      "wed": 1,
+      "thu": 1,
+      "fri": 1,
+      "sat": 0,
+      "sun": 0
+    },
+    "hoursPerDay": 8
+  },
+  "firstSession": "2026-10-21T07:30:00+02:00",
+  "windows": [
+    {
+      "id": "monthly",
+      "periodType": "billing-cycle",
+      "periodLength": 1,
+      "unit": "percentage",
+      "used": 38.5,
+      "total": 0,
+      "resetsAt": "2026-11-01T00:00:00+01:00"
+    }
+  ],
+  "history": {
+    "monthly": {
+      "daily": [
+        {
+          "date": "2026-10-01",
+          "used": 2.5,
+          "dayStartUsed": 0
+        },
+        {
+          "date": "2026-10-02",
+          "used": 5.5,
+          "dayStartUsed": 2.5
+        },
+        {
+          "date": "2026-10-03",
+          "used": 7.5,
+          "dayStartUsed": 5.5
+        },
+        {
+          "date": "2026-10-04",
+          "used": 7.5,
+          "dayStartUsed": 7.5
+        },
+        {
+          "date": "2026-10-05",
+          "used": 7.5,
+          "dayStartUsed": 7.5
+        },
+        {
+          "date": "2026-10-06",
+          "used": 11,
+          "dayStartUsed": 7.5
+        },
+        {
+          "date": "2026-10-07",
+          "used": 13.5,
+          "dayStartUsed": 11
+        },
+        {
+          "date": "2026-10-08",
+          "used": 16.5,
+          "dayStartUsed": 13.5
+        },
+        {
+          "date": "2026-10-09",
+          "used": 18.5,
+          "dayStartUsed": 16.5
+        },
+        {
+          "date": "2026-10-10",
+          "used": 18.5,
+          "dayStartUsed": 18.5
+        },
+        {
+          "date": "2026-10-11",
+          "used": 18.5,
+          "dayStartUsed": 18.5
+        },
+        {
+          "date": "2026-10-12",
+          "used": 22,
+          "dayStartUsed": 18.5
+        },
+        {
+          "date": "2026-10-13",
+          "used": 24.5,
+          "dayStartUsed": 22
+        },
+        {
+          "date": "2026-10-14",
+          "used": 27.5,
+          "dayStartUsed": 24.5
+        },
+        {
+          "date": "2026-10-15",
+          "used": 29.5,
+          "dayStartUsed": 27.5
+        },
+        {
+          "date": "2026-10-16",
+          "used": 29.5,
+          "dayStartUsed": 29.5
+        },
+        {
+          "date": "2026-10-17",
+          "used": 29.5,
+          "dayStartUsed": 29.5
+        },
+        {
+          "date": "2026-10-18",
+          "used": 33,
+          "dayStartUsed": 29.5
+        },
+        {
+          "date": "2026-10-19",
+          "used": 35.5,
+          "dayStartUsed": 33
+        },
+        {
+          "date": "2026-10-20",
+          "used": 38.5,
+          "dayStartUsed": 35.5
+        }
+      ],
+      "samples": [
+        {
+          "at": "2026-10-21T09:00:00+02:00",
+          "used": 37
+        },
+        {
+          "at": "2026-10-21T10:00:00+02:00",
+          "used": 38
+        }
+      ]
+    }
+  },
+  "expectedDifferences": [
+    {
+      "paths": [
+        "windows[0].rating.avgRatio"
+      ],
+      "ref": "§9.13"
+    }
+  ]
+}

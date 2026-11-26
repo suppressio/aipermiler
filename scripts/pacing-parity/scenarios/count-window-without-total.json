@@ -1,0 +1,43 @@
+{
+  "timeZone": "Europe/Rome",
+  "fresh": true,
+  "chartDays": 7,
+  "renewalDay": 1,
+  "name": "count-window-without-total",
+  "now": "2026-10-21T11:00:00+02:00",
+  "schedule": {
+    "enabled": true,
+    "days": {
+      "mon": 1,
+      "tue": 1,
+      "wed": 1,
+      "thu": 1,
+      "fri": 1,
+      "sat": 0,
+      "sun": 0
+    },
+    "hoursPerDay": 8
+  },
+  "windows": [
+    {
+      "id": "credits",
+      "periodType": "billing-cycle",
+      "periodLength": 1,
+      "unit": "count",
+      "used": 180,
+      "total": 0,
+      "resetsAt": "2026-11-01T00:00:00+01:00"
+    }
+  ],
+  "history": {},
+  "expectedDifferences": [
+    {
+      "paths": [
+        "windows[0].daysUntilReset",
+        "windows[0].workingDaysUntilReset",
+        "windows[0].chart"
+      ],
+      "ref": "porting-error: days to reset and an empty chart are undefined without a utilization (E14)"
+    }
+  ]
+}
