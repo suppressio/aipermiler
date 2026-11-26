@@ -1,0 +1,139 @@
+{
+  "timeZone": "Europe/Rome",
+  "fresh": true,
+  "chartDays": 7,
+  "renewalDay": 1,
+  "name": "count-window-with-total",
+  "now": "2026-10-21T11:00:00+02:00",
+  "schedule": {
+    "enabled": true,
+    "days": {
+      "mon": 1,
+      "tue": 1,
+      "wed": 1,
+      "thu": 1,
+      "fri": 1,
+      "sat": 0,
+      "sun": 0
+    },
+    "hoursPerDay": 8
+  },
+  "windows": [
+    {
+      "id": "credits",
+      "periodType": "billing-cycle",
+      "periodLength": 1,
+      "unit": "count",
+      "used": 180,
+      "total": 300,
+      "resetsAt": "2026-11-01T00:00:00+01:00"
+    }
+  ],
+  "history": {
+    "credits": {
+      "daily": [
+        {
+          "date": "2026-10-01",
+          "used": 9,
+          "dayStartUsed": 0
+        },
+        {
+          "date": "2026-10-02",
+          "used": 17,
+          "dayStartUsed": 9
+        },
+        {
+          "date": "2026-10-03",
+          "used": 27,
+          "dayStartUsed": 17
+        },
+        {
+          "date": "2026-10-04",
+          "used": 27,
+          "dayStartUsed": 27
+        },
+        {
+          "date": "2026-10-05",
+          "used": 27,
+          "dayStartUsed": 27
+        },
+        {
+          "date": "2026-10-06",
+          "used": 36,
+          "dayStartUsed": 27
+        },
+        {
+          "date": "2026-10-07",
+          "used": 44,
+          "dayStartUsed": 36
+        },
+        {
+          "date": "2026-10-08",
+          "used": 54,
+          "dayStartUsed": 44
+        },
+        {
+          "date": "2026-10-09",
+          "used": 54,
+          "dayStartUsed": 54
+        },
+        {
+          "date": "2026-10-10",
+          "used": 54,
+          "dayStartUsed": 54
+        },
+        {
+          "date": "2026-10-11",
+          "used": 63,
+          "dayStartUsed": 54
+        },
+        {
+          "date": "2026-10-12",
+          "used": 71,
+          "dayStartUsed": 63
+        },
+        {
+          "date": "2026-10-13",
+          "used": 81,
+          "dayStartUsed": 71
+        },
+        {
+          "date": "2026-10-14",
+          "used": 81,
+          "dayStartUsed": 81
+        },
+        {
+          "date": "2026-10-15",
+          "used": 81,
+          "dayStartUsed": 81
+        },
+        {
+          "date": "2026-10-16",
+          "used": 90,
+          "dayStartUsed": 81
+        },
+        {
+          "date": "2026-10-17",
+          "used": 98,
+          "dayStartUsed": 90
+        },
+        {
+          "date": "2026-10-18",
+          "used": 108,
+          "dayStartUsed": 98
+        },
+        {
+          "date": "2026-10-19",
+          "used": 108,
+          "dayStartUsed": 108
+        },
+        {
+          "date": "2026-10-20",
+          "used": 108,
+          "dayStartUsed": 108
+        }
+      ],
+      "samples": []
+    }
+  }
+}

@@ -1,0 +1,167 @@
+{
+  "timeZone": "Europe/Rome",
+  "fresh": true,
+  "chartDays": 30,
+  "renewalDay": 1,
+  "name": "schedule-half-saturday-30-day-chart",
+  "now": "2026-10-24T15:00:00+02:00",
+  "schedule": {
+    "enabled": true,
+    "days": {
+      "mon": 1,
+      "tue": 1,
+      "wed": 1,
+      "thu": 1,
+      "fri": 1,
+      "sat": 0.5,
+      "sun": 0
+    },
+    "hoursPerDay": 6
+  },
+  "windows": [
+    {
+      "id": "monthly",
+      "periodType": "billing-cycle",
+      "periodLength": 1,
+      "unit": "percentage",
+      "used": 61,
+      "total": 0,
+      "resetsAt": "2026-11-01T00:00:00+01:00"
+    }
+  ],
+  "history": {
+    "monthly": {
+      "daily": [
+        {
+          "date": "2026-10-01",
+          "used": 3,
+          "dayStartUsed": 0
+        },
+        {
+          "date": "2026-10-02",
+          "used": 5.5,
+          "dayStartUsed": 3
+        },
+        {
+          "date": "2026-10-03",
+          "used": 9.5,
+          "dayStartUsed": 5.5
+        },
+        {
+          "date": "2026-10-04",
+          "used": 10.5,
+          "dayStartUsed": 9.5
+        },
+        {
+          "date": "2026-10-05",
+          "used": 14,
+          "dayStartUsed": 10.5
+        },
+        {
+          "date": "2026-10-06",
+          "used": 16,
+          "dayStartUsed": 14
+        },
+        {
+          "date": "2026-10-07",
+          "used": 19,
+          "dayStartUsed": 16
+        },
+        {
+          "date": "2026-10-08",
+          "used": 21.5,
+          "dayStartUsed": 19
+        },
+        {
+          "date": "2026-10-09",
+          "used": 25.5,
+          "dayStartUsed": 21.5
+        },
+        {
+          "date": "2026-10-10",
+          "used": 26.5,
+          "dayStartUsed": 25.5
+        },
+        {
+          "date": "2026-10-11",
+          "used": 30,
+          "dayStartUsed": 26.5
+        },
+        {
+          "date": "2026-10-12",
+          "used": 32,
+          "dayStartUsed": 30
+        },
+        {
+          "date": "2026-10-13",
+          "used": 35,
+          "dayStartUsed": 32
+        },
+        {
+          "date": "2026-10-14",
+          "used": 37.5,
+          "dayStartUsed": 35
+        },
+        {
+          "date": "2026-10-15",
+          "used": 41.5,
+          "dayStartUsed": 37.5
+        },
+        {
+          "date": "2026-10-16",
+          "used": 42.5,
+          "dayStartUsed": 41.5
+        },
+        {
+          "date": "2026-10-17",
+          "used": 46,
+          "dayStartUsed": 42.5
+        },
+        {
+          "date": "2026-10-18",
+          "used": 48,
+          "dayStartUsed": 46
+        },
+        {
+          "date": "2026-10-19",
+          "used": 51,
+          "dayStartUsed": 48
+        },
+        {
+          "date": "2026-10-20",
+          "used": 53.5,
+          "dayStartUsed": 51
+        },
+        {
+          "date": "2026-10-21",
+          "used": 57.5,
+          "dayStartUsed": 53.5
+        },
+        {
+          "date": "2026-10-22",
+          "used": 58.5,
+          "dayStartUsed": 57.5
+        },
+        {
+          "date": "2026-10-23",
+          "used": 62,
+          "dayStartUsed": 58.5
+        }
+      ],
+      "samples": [
+        {
+          "at": "2026-10-24T12:00:00+02:00",
+          "used": 59.7
+        },
+        {
+          "at": "2026-10-24T13:00:00+02:00",
+          "used": 60.4
+        },
+        {
+          "at": "2026-10-24T14:30:00+02:00",
+          "used": 61.1
+        }
+      ]
+    }
+  }
+}

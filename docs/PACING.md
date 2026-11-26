@@ -444,6 +444,8 @@ Found while writing the model; each becomes a failing case and an item of the re
 9. ~~**`resolveRenewalDate` with day 29-31** overflowed into the following month~~ — fixed (#111, N-6..N-9).
 10. **`budget.ts` mixes** day-based pacing, hour-based gauge, history bookkeeping, chart, insights and tips in one file; the model suggests the split used by this document (§2 time, §3.2-3.8 pacing, §3.6/3.9 hourly, §3.11-3.12 history, §3.14-3.15 advice). — fixed (#75): the Go packages `quotaperiod`, `history`, `pace`, `outlook` and `advice`, composed by `snapshot` (#322), and `insights` (#324).
 11. **Schedule disabled on a daylight saving day**: `todayElapsedUnits` divides the time since midnight by 24 hours, so on a 25-hour day `e` passes 1 in the last hour and `E + R` no longer equals `N` (I-8); on a 23-hour day the day never reaches 1. Found by the snapshot's invariant sweep (#322). — fixed (#322): the Go `quotaperiod` divides by that day's real length, for today's calendar fraction (D-2.3) and for the overlap of rolling days (D-2.2); TypeScript integration remains part of HYP#75.
+12. **Peak and average with one completed day**: `deltaStats` shows them from a single day, C-8 hides them (one day says nothing more than its own value). Found by the parity comparison (#325). — intended: the Go `advice.Summarize` follows C-8; the TypeScript path goes away with the port (#75).
+13. **Rating from rounded values**: `efficiencyRating` takes the daily deltas and shares rounded to 0.01 (`dailyDeltas`), then averages their ratios (I-4): `avgRatio` differs in the second decimal and a star can flip at an edge. Found by the parity comparison (#325). — intended: the Go `advice.Rate` works on exact values; the TypeScript path goes away with the port (#75).
 
 ---
 

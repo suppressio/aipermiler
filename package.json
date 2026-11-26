@@ -19,6 +19,7 @@
     "test": "npm run build && cd dist && node --env-file-if-exists=../.env.test --test",
     "lint": "eslint .",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.renderer.json --noEmit && tsc -p tsconfig.renderer.test.json --noEmit",
+    "parity:pacing": "node scripts/pacing-parity.js",
     "coverage": "npm run build && cd dist && node --test --experimental-test-coverage --test-coverage-exclude=\"**/*.test.js\" --test-coverage-exclude=\"tests/**\"",
     "package": "npm run build && npm run build:core && electron-builder",
     "package:test": "node scripts/test-build.js"

@@ -73,6 +73,7 @@ aipermiler/
 │   ├── measure-resources.js     ← measures the app's memory/CPU footprint (tray-only, #27)
 │   ├── probe-copilot-shape.js   ← prints the structure (never values) of a Copilot usage response
 │   ├── migrate-legacy/          ← user scripts (sh, PowerShell) that move IA Hypermiler v0.4.x settings to AIpermiler after skipping v0.5.0 (#260, docs/UPGRADE-FROM-0.4.md)
+│   ├── pacing-parity.js         ← `npm run parity:pacing` (#325): budget.ts and the Go pacing packages on the same scenarios, outputs compared, every difference mapped to a §9/§8 item of docs/PACING.md; pacing-parity/scenarios/ = synthetic scenarios
 │   ├── migrate-core-store/      ← user script (plain JS, Node built-ins only, run by node or the app with ELECTRON_RUN_AS_NODE) that copies Electron's store into the core's store.json for v0.7.0 (#311, docs/UPGRADE-TO-0.7.md); testdata/ = files written by the real conf
 │   └── spikes/                  ← throwaway research code for the Claude/Codex reads: claude-usage-pty.py, claude-usage-pty-go/ (own Go module), codex-rate-limits.js
 ├── build/                       ← electron-builder resources (icons) — TRACKED, not an output (packages go to release/)
@@ -95,6 +96,7 @@ aipermiler/
 │       ├── config/              ← OS config directory and development override
 │       ├── logging/             ← stderr text logger and level selection
 │       ├── pacing/              ← pure pacing model
+│       ├── pacingparity/        ← `cmd/pacingparity` logic (#325): the Go side of the parity comparison with budget.ts (scenario JSON in, normalized readings out)
 │       ├── pacingcheck/         ← `cmd/pacingcheck` logic (#276): every id of docs/PACING.md has a test or fixture in internal/pacing, §9 items fixed or intended; allowlist `gocore/pacing-allowlist.txt`
 │       ├── pathlist/            ← PATH splitting for a given OS (shared by the binary discoveries)
 │       ├── provider/            ← provider interface and per-run registry factories

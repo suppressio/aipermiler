@@ -1,0 +1,81 @@
+{
+  "timeZone": "Europe/Rome",
+  "fresh": true,
+  "chartDays": 7,
+  "renewalDay": 1,
+  "name": "rolling-days-weekly",
+  "now": "2026-10-22T10:00:00+02:00",
+  "schedule": {
+    "enabled": true,
+    "days": {
+      "mon": 1,
+      "tue": 1,
+      "wed": 1,
+      "thu": 1,
+      "fri": 1,
+      "sat": 0,
+      "sun": 0
+    },
+    "hoursPerDay": 8
+  },
+  "windows": [
+    {
+      "id": "weekly",
+      "periodType": "rolling-days",
+      "periodLength": 7,
+      "unit": "percentage",
+      "used": 44,
+      "total": 0,
+      "resetsAt": "2026-10-26T08:00:00+01:00"
+    }
+  ],
+  "history": {
+    "weekly": {
+      "daily": [
+        {
+          "date": "2026-10-19",
+          "used": 12,
+          "dayStartUsed": 0
+        },
+        {
+          "date": "2026-10-20",
+          "used": 21,
+          "dayStartUsed": 12
+        },
+        {
+          "date": "2026-10-21",
+          "used": 27,
+          "dayStartUsed": 21
+        }
+      ],
+      "samples": [
+        {
+          "at": "2026-10-22T09:00:00+02:00",
+          "used": 43
+        },
+        {
+          "at": "2026-10-22T09:40:00+02:00",
+          "used": 44
+        }
+      ]
+    }
+  },
+  "expectedDifferences": [
+    {
+      "paths": [
+        "windows[0].efficiencyIndex",
+        "windows[0].projectedUsage",
+        "windows[0].daysUntilReset",
+        "windows[0].workingDaysUntilReset",
+        "windows[0].autonomyWorkingDays",
+        "windows[0].todayBudget",
+        "windows[0].redistribution",
+        "windows[0].sustainableRate",
+        "windows[0].rating",
+        "windows[0].chart",
+        "windows[0].stats"
+      ],
+      "ref": "§9.8"
+    }
+  ]
+}
