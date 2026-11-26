@@ -35,6 +35,9 @@ type HandlerConfig struct {
 	Now      func() time.Time
 	Location *time.Location
 	TipDraw  func() float64
+	// LocalInsights counts this machine's Claude Code sessions for the
+	// snapshot's local insights (#340); nil leaves them out.
+	LocalInsights LocalInsightsFunc
 	// Accounts runs the Copilot account actions (#285); nil answers 503.
 	Accounts AccountCommands
 	// Context bounds the work that outlives its request (a login, #285): a

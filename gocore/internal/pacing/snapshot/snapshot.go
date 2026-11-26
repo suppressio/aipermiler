@@ -2,7 +2,7 @@
 // stored history, the provider response, the settings and now, and returns the
 // history update to persist (docs/PACING.md §7, #75). It is composition only:
 // every quantity comes from the pacing packages (quotaperiod, history, pace,
-// outlook, advice); nothing here computes pacing of its own.
+// outlook, advice, insights); nothing here computes pacing of its own.
 //
 // Values are exact (I-4): nothing is rounded here, the client rounds when it
 // shows a value. Undefined values are reported with an explicit flag or a nil
@@ -17,6 +17,7 @@ import (
 
 	"github.com/suppressio/aipermiler/gocore/internal/pacing/advice"
 	"github.com/suppressio/aipermiler/gocore/internal/pacing/history"
+	"github.com/suppressio/aipermiler/gocore/internal/pacing/insights"
 	"github.com/suppressio/aipermiler/gocore/internal/pacing/outlook"
 	"github.com/suppressio/aipermiler/gocore/internal/pacing/pace"
 	"github.com/suppressio/aipermiler/gocore/internal/pacing/quotaperiod"
@@ -61,6 +62,10 @@ type Settings struct {
 	// FirstSession is the start of today's first local Claude Code session,
 	// zero when unknown (D-3.3).
 	FirstSession time.Time
+	// LocalTokens are the local Claude Code output tokens per local day, for
+	// the local insights (§3.15); nil when the account does not count them
+	// (opt-in): no yield and no cause then.
+	LocalTokens []insights.Tokens
 	// TipDraw in [0, 1) picks one tip among the candidates (§3.14).
 	TipDraw float64
 }
@@ -138,6 +143,10 @@ type WindowSnapshot struct {
 	Stats     advice.Stats
 	Rating    *advice.Rating
 	Tip       *advice.Tip
+	// Yield (D-3.26) and Cause (D-3.27) are the local insights of a day-based
+	// window, nil without local tokens or below their thresholds (I-5).
+	Yield *insights.Yield
+	Cause *insights.Cause
 }
 
 // defaultRetentionDays matches the store's default (internal/store).
@@ -245,8 +254,28 @@ func buildWindow(in Input, w Window) (WindowSnapshot, history.State, bool) {
 			snap.Rating = &rating
 		}
 	}
+	if set.LocalTokens != nil {
+		localInsights(&snap, state, set, totalUnits)
+	}
 	snap.Tip = tip(snap, set.TipDraw)
 	return snap, state, true
+}
+
+// localInsights crosses the window's daily deltas with the local tokens
+// (§3.15). Rolling-hours windows never get here: a "daily" delta there spans
+// several resets and measures nothing.
+func localInsights(snap *WindowSnapshot, state history.State, set Settings, totalUnits float64) {
+	daily := advice.Deltas(state.DailyUsage, set.Schedule, totalUnits, set.Location)
+	deltas := make([]insights.Delta, 0, len(daily))
+	for _, d := range daily {
+		deltas = append(deltas, insights.Delta{Date: d.Day.In(set.Location).Format(time.DateOnly), Delta: d.Delta, Known: d.HasDelta})
+	}
+	if y, ok := insights.TokenYield(set.LocalTokens, deltas); ok {
+		snap.Yield = &y
+	}
+	if c, ok := insights.ConsumptionCause(set.LocalTokens, deltas); ok {
+		snap.Cause = &c
+	}
 }
 
 // rollingHours fills the reading in hours of a rolling-hours window (§3.9).
@@ -298,6 +327,9 @@ func tip(snap WindowSnapshot, draw float64) *advice.Tip {
 	in := advice.TipInput{Used: snap.Used, Rating: snap.Rating, DaysToReset: snap.DaysToReset, HasDaysToReset: snap.HasDaysToReset}
 	if s := snap.Summary; s != nil {
 		in.Preliminary, in.Autonomy, in.HasAutonomy, in.WorkingUnitsToReset = s.Preliminary, s.Autonomy, s.HasAutonomy, s.WorkingUnitsToReset
+	}
+	if c := snap.Cause; c != nil {
+		in.Cause = &advice.Cause{HighPercent: float64(c.HighDaysHighContextPercent), LowPercent: float64(c.LowDaysHighContextPercent), Days: c.DaysCompared}
 	}
 	picked, ok := advice.PickTip(advice.TipCandidates(in), draw)
 	if !ok {
