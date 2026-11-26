@@ -2,17 +2,21 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"math/rand/v2"
 	"net/http"
 	"time"
 
 	"github.com/suppressio/aipermiler/gocore/internal/pacing/advice"
+	pacinginsights "github.com/suppressio/aipermiler/gocore/internal/pacing/insights"
 	"github.com/suppressio/aipermiler/gocore/internal/pacing/outlook"
 	"github.com/suppressio/aipermiler/gocore/internal/pacing/pace"
 	"github.com/suppressio/aipermiler/gocore/internal/pacing/quotaperiod"
 	"github.com/suppressio/aipermiler/gocore/internal/pacing/snapshot"
+	"github.com/suppressio/aipermiler/gocore/internal/store"
 	"github.com/suppressio/aipermiler/gocore/internal/usage"
 )
 
@@ -24,10 +28,21 @@ type snapshotAPI struct {
 	now      func() time.Time
 	location *time.Location
 	tipDraw  func() float64
+	// insights is nil when the service counts no local sessions.
+	insights *localInsightsCache
 }
 
 func newSnapshotAPI(accounts accountsAPI, cfg HandlerConfig) snapshotAPI {
 	s := snapshotAPI{accounts: accounts, now: cfg.Now, location: cfg.Location, tipDraw: cfg.TipDraw}
+	logger := cfg.Logger
+	if logger == nil {
+		logger = slog.New(slog.DiscardHandler)
+	}
+	ctx := cfg.Context
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	s.insights = newLocalInsightsCache(ctx, cfg.LocalInsights, logger)
 	if s.now == nil {
 		s.now = time.Now
 	}
@@ -71,6 +86,8 @@ func (s snapshotAPI) snapshot(w http.ResponseWriter, r *http.Request) {
 		Stale:     u.Stale != nil, StaleReason: u.Stale, Usage: u,
 	}
 	settings := state.Settings
+	now := s.now()
+	local, firstSession := s.localInsights(r.Context(), account, chartDays, now)
 	result := snapshot.Build(snapshot.Input{
 		History:  account.History,
 		Response: response(u, lg.UpdatedAt),
@@ -80,9 +97,11 @@ func (s snapshotAPI) snapshot(w http.ResponseWriter, r *http.Request) {
 			Renewal:       quotaperiod.RenewalRule{Type: "dayOfMonth", Day: account.RenewalDay},
 			RetentionDays: settings.RetentionDays,
 			ChartDays:     chartDays,
+			FirstSession:  firstSession,
+			LocalTokens:   local,
 			TipDraw:       s.tipDraw(),
 		},
-		Now: s.now(),
+		Now: now,
 	})
 	var buf bytes.Buffer
 	encoder := json.NewEncoder(&buf)
@@ -96,6 +115,31 @@ func (s snapshotAPI) snapshot(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeDocument(w, http.StatusOK, buf.Bytes())
+}
+
+// localInsights are the local tokens per day and today's first session start
+// for the one Claude account that counts this machine's sessions (#336), over
+// the chart's span plus one day, as Electron's analysis window (§3.15, D-3.3).
+// nil tokens: no local insights.
+func (s snapshotAPI) localInsights(ctx context.Context, account store.Account, chartDays int, now time.Time) ([]pacinginsights.Tokens, time.Time) {
+	if account.Provider != "claude" || !account.LocalInsights {
+		return nil, time.Time{}
+	}
+	result := s.insights.get(ctx, chartDays+1, now)
+	if result == nil {
+		return nil, time.Time{}
+	}
+	tokens := make([]pacinginsights.Tokens, 0, len(result.Daily))
+	for _, d := range result.Daily {
+		tokens = append(tokens, pacinginsights.Tokens{Date: d.Date, OutputTokens: d.OutputTokens, HighContextOutputTokens: d.HighContextOutputTokens})
+	}
+	var first time.Time
+	if start, ok := result.FirstSessionStartByDay[now.In(s.location).Format(time.DateOnly)]; ok {
+		if t, err := time.Parse(time.RFC3339Nano, start); err == nil {
+			first = t
+		}
+	}
+	return tokens, first
 }
 
 // chartDaysOf reads the optional chartDays parameter: 7 (the default) or 30,
@@ -176,6 +220,22 @@ type windowDoc struct {
 	Stats          statsDoc           `json:"stats"`
 	Rating         *ratingDoc         `json:"rating"`
 	Tip            *tipDoc            `json:"tip"`
+	// TokenYield and ConsumptionCause are the local insights (§3.15, #340),
+	// named as Electron's snapshot names them.
+	TokenYield       *tokenYieldDoc       `json:"tokenYield"`
+	ConsumptionCause *consumptionCauseDoc `json:"consumptionCause"`
+}
+
+type tokenYieldDoc struct {
+	TokensPerPercent int64    `json:"tokensPerPercent"`
+	TrendPercent     *float64 `json:"trendPercent"`
+	DaysCompared     int      `json:"daysCompared"`
+}
+
+type consumptionCauseDoc struct {
+	HighDaysHighContextPercent int `json:"highDaysHighContextPercent"`
+	LowDaysHighContextPercent  int `json:"lowDaysHighContextPercent"`
+	DaysCompared               int `json:"daysCompared"`
 }
 
 // periodDoc has a null bound where it is unknown (a billing cycle of unknown
@@ -314,6 +374,12 @@ func newWindowDoc(w snapshot.WindowSnapshot, loc *time.Location) windowDoc {
 	}
 	if t := w.Tip; t != nil {
 		d.Tip = &tipDoc{t.Key, t.Params}
+	}
+	if y := w.Yield; y != nil {
+		d.TokenYield = &tokenYieldDoc{y.TokensPerPercent, opt(y.TrendPercent, y.TrendKnown), y.DaysCompared}
+	}
+	if c := w.Cause; c != nil {
+		d.ConsumptionCause = &consumptionCauseDoc{c.HighDaysHighContextPercent, c.LowDaysHighContextPercent, c.DaysCompared}
 	}
 	return d
 }

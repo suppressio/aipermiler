@@ -8,9 +8,11 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	"time"
 
 	"github.com/suppressio/aipermiler/gocore/internal/buildinfo"
 	"github.com/suppressio/aipermiler/gocore/internal/config"
+	"github.com/suppressio/aipermiler/gocore/internal/insights"
 	"github.com/suppressio/aipermiler/gocore/internal/refresh"
 	"github.com/suppressio/aipermiler/gocore/internal/service"
 	"github.com/suppressio/aipermiler/gocore/internal/store"
@@ -55,8 +57,9 @@ func runServe(env Env, args []string, logger *slog.Logger) int {
 		Loop: func(st *store.Store) service.Loop {
 			return refresh.New(refresh.Config{Store: st, Fetcher: fetcher, Logger: logger})
 		},
-		Raw:      fetcher.Raw,
-		Accounts: fetcher,
+		Raw:           fetcher.Raw,
+		Accounts:      fetcher,
+		LocalInsights: localInsights(env, logger),
 	})
 	switch {
 	case err == nil:
@@ -67,5 +70,22 @@ func runServe(env Env, args []string, logger *slog.Logger) int {
 	default:
 		_, _ = fmt.Fprintln(env.Stderr, oneLine(err.Error()))
 		return ExitProviderError
+	}
+}
+
+// localInsights counts this machine's Claude Code sessions for the snapshot
+// (#340) as `insights claude` does: the same folder, the probe sessions
+// skipped, the same 2 minute deadline, in the service's calendar (time.Local).
+func localInsights(env Env, logger *slog.Logger) service.LocalInsightsFunc {
+	return func(ctx context.Context, windowDays int, now time.Time) (*insights.Result, error) {
+		root, err := claudeRoot(env)
+		if err != nil {
+			return nil, err
+		}
+		ctx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+		defer cancel()
+		return insights.Compute(ctx, insights.Options{
+			Root: root, WindowDays: windowDays, ProbeDir: probeDir(env, logger), Now: now, Location: time.Local, Logger: logger,
+		})
 	}
 }

@@ -134,6 +134,7 @@ linters:
             - github.com/suppressio/aipermiler/gocore/internal/pacing/pace
             - github.com/suppressio/aipermiler/gocore/internal/pacing/outlook
             - github.com/suppressio/aipermiler/gocore/internal/pacing/advice
+            - github.com/suppressio/aipermiler/gocore/internal/pacing/insights
           deny:
             - pkg: os
               desc: snapshot is pure, no I/O
