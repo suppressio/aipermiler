@@ -215,18 +215,36 @@ func TestSnapshotLocalInsightsSharesTheRunningCount(t *testing.T) {
 	now := snapshotNow
 	h := insightsHandler(api, f, &now)
 	var wg sync.WaitGroup
-	results := make([]insightsDoc, 3)
-	for i := range results {
-		wg.Go(func() { results[i] = getInsights(t, h, "") })
+	bodies := make([][]byte, 3)
+	for i := range bodies {
+		wg.Go(func() {
+			// No t.Fatal off the test's goroutine: the body is checked below.
+			r := httptest.NewRequest(http.MethodGet, "http://"+testHost+"/api/v1/accounts/a1/snapshot", nil)
+			r.Header.Set("Authorization", "Bearer "+testToken)
+			w := httptest.NewRecorder()
+			h.ServeHTTP(w, r)
+			bodies[i] = w.Body.Bytes()
+		})
 	}
 	for f.count() == 0 {
 		time.Sleep(time.Millisecond)
 	}
 	time.Sleep(20 * time.Millisecond) // let the other requests arrive
+	// The gate is still closed: requests that computed on their own would all
+	// be counted by now.
+	if n := f.count(); n != 1 {
+		t.Errorf("%d computations running for 3 requests, want 1", n)
+	}
 	close(f.gate)
 	wg.Wait()
 	if f.count() != 1 {
 		t.Errorf("%d computations for 3 requests, want 1", f.count())
+	}
+	results := make([]insightsDoc, len(bodies))
+	for i, body := range bodies {
+		if err := json.Unmarshal(body, &results[i]); err != nil {
+			t.Fatalf("request %d: %v: %s", i, err, body)
+		}
 	}
 	for i, doc := range results {
 		if doc.Pacing.Windows[1].TokenYield == nil {
