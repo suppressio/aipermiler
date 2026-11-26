@@ -155,8 +155,9 @@
     {
       "paths": [
         "windows[0].todayBudget",
-        "windows[0].chart[6]",
-        "windows[0].history.daily"
+        "windows[0].chart[6].delta",
+        "windows[0].chart[6].budget",
+        "windows[0].history.daily.length"
       ],
       "ref": "§9.5"
     }

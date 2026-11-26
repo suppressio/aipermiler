@@ -187,6 +187,26 @@ func Parse(data []byte) (Scenario, error) {
 	if s.Name == "" || s.Now.IsZero() || s.TimeZone == "" {
 		return Scenario{}, fmt.Errorf("scenario needs name, now and timeZone")
 	}
+	// What follows keeps the two sides reading the scenario the same way
+	// (scripts/pacing-parity.js runs the Go side first, so these checks hold
+	// for both).
+	if s.RenewalDay == 0 {
+		s.RenewalDay = 1 // as the TypeScript side
+	}
+	if s.RenewalDay < 1 || s.RenewalDay > 31 {
+		return Scenario{}, fmt.Errorf("%s: renewalDay %d is not 1-31", s.Name, s.RenewalDay)
+	}
+	for day, weight := range s.Schedule.Days {
+		if !slices.Contains(weekdays[:], day) {
+			return Scenario{}, fmt.Errorf("%s: unknown day %q (mon..sun)", s.Name, day)
+		}
+		if weight != 0 && weight != 0.5 && weight != 1 {
+			return Scenario{}, fmt.Errorf("%s: %s weighs %v: TypeScript knows only 1, 0.5 and 0", s.Name, day, weight)
+		}
+	}
+	if s.ReadAt != nil && s.ReadAt.After(s.Now) {
+		return Scenario{}, fmt.Errorf("%s: readAt is after now", s.Name)
+	}
 	return s, nil
 }
 
@@ -230,7 +250,7 @@ func input(s Scenario, loc *time.Location) (snapshot.Input, error) {
 	}
 	resp := snapshot.Response{FetchedAt: s.Now, Fresh: s.Fresh}
 	if s.ReadAt != nil && s.Fresh {
-		resp.FetchedAt = minTime(*s.ReadAt, s.Now)
+		resp.FetchedAt = *s.ReadAt
 	}
 	if s.SubscriptionRenewsAt != nil {
 		resp.SubscriptionRenewsAt = *s.SubscriptionRenewsAt
@@ -262,13 +282,6 @@ func input(s Scenario, loc *time.Location) (snapshot.Input, error) {
 		hist[id] = st
 	}
 	return snapshot.Input{History: hist, Response: resp, Settings: set, Now: s.Now}, nil
-}
-
-func minTime(a, b time.Time) time.Time {
-	if a.Before(b) {
-		return a
-	}
-	return b
 }
 
 func windowOut(w snapshot.WindowSnapshot, h history.State, loc *time.Location) WindowOut {

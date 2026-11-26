@@ -72,12 +72,7 @@
         "windows[1].daysUntilReset",
         "windows[1].workingDaysUntilReset",
         "windows[1].autonomyWorkingDays",
-        "windows[1].todayBudget",
-        "windows[1].redistribution",
-        "windows[1].sustainableRate",
-        "windows[1].rating",
-        "windows[1].chart",
-        "windows[1].stats"
+        "windows[1].sustainableRate"
       ],
       "ref": "§9.8"
     }

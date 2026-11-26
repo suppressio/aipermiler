@@ -35,7 +35,7 @@
       "paths": [
         "windows[0].daysUntilReset",
         "windows[0].workingDaysUntilReset",
-        "windows[0].chart"
+        "windows[0].chart.length"
       ],
       "ref": "porting-error: days to reset and an empty chart are undefined without a utilization (E14)"
     }
