@@ -37,7 +37,7 @@
         "windows[0].workingDaysUntilReset",
         "windows[0].chart.length"
       ],
-      "ref": "porting-error: days to reset and an empty chart are undefined without a utilization (E14)"
+      "ref": "porting-error: days to reset and an empty chart are undefined without a utilization (HYP#349)"
     }
   ]
 }
