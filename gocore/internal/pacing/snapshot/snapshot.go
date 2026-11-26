@@ -268,7 +268,11 @@ func buildWindow(in Input, w Window) (WindowSnapshot, history.State, bool) {
 // measures nothing.
 func localInsights(snap *WindowSnapshot, state history.State, set Settings, totalUnits float64) {
 	points := slices.SortedStableFunc(slices.Values(state.DailyUsage), func(a, b history.DailyPoint) int { return a.Day.Compare(b.Day) })
-	if keep := set.ChartDays + 1; len(points) > keep {
+	span := set.ChartDays
+	if span <= 0 {
+		span = 7 // the service's default chart
+	}
+	if keep := span + 1; len(points) > keep {
 		points = points[len(points)-keep:]
 	}
 	daily := advice.Deltas(points, set.Schedule, totalUnits, set.Location)
