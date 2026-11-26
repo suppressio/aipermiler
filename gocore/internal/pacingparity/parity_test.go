@@ -64,7 +64,7 @@ func TestParseNeedsNameNowAndTimeZone(t *testing.T) {
 
 func TestUnknownTimeZoneIsAnError(t *testing.T) {
 	t.Parallel()
-	s, err := pacingparity.Parse([]byte(`{"name":"x","now":"2026-10-21T11:00:00Z","timeZone":"Nowhere/Land"}`))
+	s, err := pacingparity.Parse([]byte(`{"name":"x","now":"2026-10-21T11:00:00Z","timeZone":"Nowhere/Land","schedule":{"enabled":false,"days":{},"hoursPerDay":8}}`))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,12 +79,16 @@ func TestUnknownTimeZoneIsAnError(t *testing.T) {
 func TestParseRejectsWhatTheTwoSidesReadDifferently(t *testing.T) {
 	t.Parallel()
 	base := `"name":"x","now":"2026-10-21T11:00:00Z","timeZone":"UTC"`
+	sched := `,"schedule":{"enabled":true,"days":{"mon":1},"hoursPerDay":8}`
 	for name, body := range map[string]string{
 		"weight 0.75":      `{` + base + `,"schedule":{"enabled":true,"days":{"sat":0.75},"hoursPerDay":8}}`,
 		"unknown day":      `{` + base + `,"schedule":{"enabled":true,"days":{"saturday":1},"hoursPerDay":8}}`,
-		"renewal day 32":   `{` + base + `,"renewalDay":32}`,
-		"read after now":   `{` + base + `,"fresh":true,"readAt":"2026-10-21T11:00:01Z"}`,
-		"negative renewal": `{` + base + `,"renewalDay":-1}`,
+		"renewal day 32":   `{` + base + sched + `,"renewalDay":32}`,
+		"read after now":   `{` + base + sched + `,"fresh":true,"readAt":"2026-10-21T11:00:01Z"}`,
+		"negative renewal": `{` + base + sched + `,"renewalDay":-1}`,
+		"chart days 14":    `{` + base + sched + `,"chartDays":14}`,
+		"no hours per day": `{` + base + `,"schedule":{"enabled":true,"days":{"mon":1}}}`,
+		"no schedule":      `{` + base + `}`,
 	} {
 		if _, err := pacingparity.Parse([]byte(body)); err == nil {
 			t.Errorf("%s: parsed", name)
@@ -94,7 +98,7 @@ func TestParseRejectsWhatTheTwoSidesReadDifferently(t *testing.T) {
 
 func TestParseDefaultsTheRenewalDayToOneAsTypeScript(t *testing.T) {
 	t.Parallel()
-	s, err := pacingparity.Parse([]byte(`{"name":"x","now":"2026-10-21T11:00:00Z","timeZone":"UTC"}`))
+	s, err := pacingparity.Parse([]byte(`{"name":"x","now":"2026-10-21T11:00:00Z","timeZone":"UTC","schedule":{"enabled":false,"days":{},"hoursPerDay":8}}`))
 	if err != nil {
 		t.Fatal(err)
 	}

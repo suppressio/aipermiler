@@ -204,6 +204,15 @@ func Parse(data []byte) (Scenario, error) {
 			return Scenario{}, fmt.Errorf("%s: %s weighs %v: TypeScript knows only 1, 0.5 and 0", s.Name, day, weight)
 		}
 	}
+	if !(s.Schedule.HoursPerDay > 0) {
+		return Scenario{}, fmt.Errorf("%s: schedule.hoursPerDay is missing or not positive", s.Name)
+	}
+	if s.ChartDays == 0 {
+		s.ChartDays = 7 // as the TypeScript side
+	}
+	if s.ChartDays != 7 && s.ChartDays != 30 {
+		return Scenario{}, fmt.Errorf("%s: chartDays %d is not 7 or 30", s.Name, s.ChartDays)
+	}
 	if s.ReadAt != nil && s.ReadAt.After(s.Now) {
 		return Scenario{}, fmt.Errorf("%s: readAt is after now", s.Name)
 	}
