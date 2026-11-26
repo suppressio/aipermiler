@@ -68,12 +68,20 @@
         "windows[0].daysUntilReset",
         "windows[0].workingDaysUntilReset",
         "windows[0].autonomyWorkingDays",
-        "windows[0].todayBudget",
-        "windows[0].redistribution",
+        "windows[0].todayBudget.budget",
+        "windows[0].redistribution.perUnit",
+        "windows[0].redistribution.idealPerUnit",
+        "windows[0].redistribution.unitsLeft",
         "windows[0].sustainableRate",
-        "windows[0].rating",
-        "windows[0].chart",
-        "windows[0].stats"
+        "windows[0].rating.avgRatio",
+        "windows[0].chart[3].fullShare",
+        "windows[0].chart[4].fullShare",
+        "windows[0].chart[5].fullShare",
+        "windows[0].chart[6].fullShare",
+        "windows[0].chart[6].budget",
+        "windows[0].chart[7].fullShare",
+        "windows[0].chart[7].budget",
+        "windows[0].chart[8].fullShare"
       ],
       "ref": "§9.8"
     }

@@ -7,16 +7,25 @@
 // Default: scripts/pacing-parity/scenarios/. Needs Go. Real histories (#323) are scenario
 // files of the same format kept outside the repo (it is public): pass their folder.
 // Every difference must be listed in the scenario's "expectedDifferences" ({paths, ref})
-// with the §9 deviation or §8 row of docs/PACING.md that explains it. A difference not
-// listed is a porting error until proven otherwise: it fails the run (exit 1), and gets an
-// issue of its own; once opened, list it with a ref "porting-error: <issue>" to keep it
-// visible without failing. A listed path that no longer differs fails too (drop it).
+// with the §9 deviation or §8 row of docs/PACING.md that explains it; paths are leaf
+// fields, matched exactly. A difference not listed is a porting error until proven
+// otherwise: it fails the run (exit 1), and gets an item of its own; meanwhile list it
+// with a ref "porting-error: <what> (<item>)" to keep it visible without failing. A
+// listed path that no longer differs fails too (drop it).
 const { spawnSync } = require('node:child_process');
 const fs = require('node:fs');
 const path = require('node:path');
 
 const root = path.join(__dirname, '..');
 const EPSILON = 1e-9;
+// Decimals the TypeScript path rounds each field to (budget.ts round1/round2, the history
+// stored at 0.01 by core/usage.ts); a field not listed is compared exactly.
+const PRECISION = {
+  efficiencyIndex: 2, projectedUsage: 1, workingDaysUntilReset: 1, autonomyWorkingDays: 1,
+  budget: 2, usedToday: 2, perUnit: 2, idealPerUnit: 2, unitsLeft: 1,
+  hoursLeft: 2, projectedAtReset: 1, autonomyHours: 1, instantRate: 2, sustainableRate: 2,
+  avgRatio: 2, delta: 2, fullShare: 2, peak: 2, avg: 2, used: 2, dayStartUsed: 2,
+};
 const DAY_NAMES = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
 function scenarioFiles(args) {
@@ -104,21 +113,23 @@ function runTypeScript(budget, usage, s) {
   };
 }
 
-// The TypeScript path rounds what it stores or hands to the widget (to 0.1 or 0.01), the Go
-// packages keep every value exact (I-4, docs/PACING.md §6): a TS value is the same number
-// when it is the Go value rounded to one or two decimals.
-function sameNumber(ts, go) {
-  const slack = EPSILON * Math.max(1, Math.abs(ts), Math.abs(go));
-  if (Math.abs(ts - go) <= slack) return true;
-  const decimals = (v) => (Math.abs(v * 10 - Math.round(v * 10)) < EPSILON ? 1 : Math.abs(v * 100 - Math.round(v * 100)) < EPSILON ? 2 : null);
-  const d = decimals(ts);
-  return d !== null && Math.abs(ts - go) <= 0.5 * 10 ** -d + slack;
+// The TypeScript path rounds what it stores or hands to the widget, the Go packages keep
+// every value exact (I-4, docs/PACING.md §6): a TS value is the same number when it is the
+// Go value rounded as TypeScript rounds that field (PRECISION).
+function sameNumber(ts, go, field) {
+  const close = (a, b) => Math.abs(a - b) <= EPSILON * Math.max(1, Math.abs(a), Math.abs(b));
+  if (close(ts, go)) return true;
+  const d = PRECISION[field];
+  return d !== undefined && close(ts, Math.round(go * 10 ** d) / 10 ** d);
 }
+
+// The field name of a path: its last key, without indices.
+const fieldOf = (p) => p.replace(/\[\d+\]/g, '').split('.').pop();
 
 // Field paths of every difference between two normalized outputs.
 function diff(a, b, at, out) {
   if (typeof a === 'number' && typeof b === 'number') {
-    if (!sameNumber(a, b)) out.push({ path: at, ts: a, go: b });
+    if (!sameNumber(a, b, fieldOf(at))) out.push({ path: at, ts: a, go: b });
   } else if (Array.isArray(a) && Array.isArray(b)) {
     if (a.length !== b.length) out.push({ path: `${at}.length`, ts: a.length, go: b.length });
     for (let i = 0; i < Math.min(a.length, b.length); i++) diff(a[i], b[i], `${at}[${i}]`, out);
@@ -129,11 +140,25 @@ function diff(a, b, at, out) {
   }
 }
 
-// A listed path covers itself and everything under it.
-const covers = (listed, p) => p === listed || p.startsWith(`${listed}.`) || p.startsWith(`${listed}[`);
+// Differences of one scenario against its list: unexplained, tracked, stale paths.
+function compare(s, ts, go) {
+  const diffs = [];
+  diff(ts, go, '', diffs);
+  const expected = (s.expectedDifferences ?? []).flatMap((e) => e.paths.map((p) => ({ path: p, ref: e.ref })));
+  const find = (d) => expected.find((e) => e.path === d.path);
+  const unexplained = diffs.filter((d) => !find(d));
+  // Each listed path on its own: one that no longer differs would excuse a future error.
+  const stale = expected.filter((e) => !diffs.some((d) => d.path === e.path));
+  const tracked = diffs.filter((d) => find(d)?.ref.startsWith('porting-error'));
+  return { diffs, find, unexplained, stale, tracked };
+}
 
 function main() {
   const files = scenarioFiles(process.argv.slice(2));
+  if (files.length === 0) {
+    console.error('No scenario (*.json) found in the given folders.');
+    process.exit(2);
+  }
   const scenarios = files.map((f) => JSON.parse(fs.readFileSync(f, 'utf8')));
   const go = spawnSync('go', ['run', './cmd/pacingparity', ...files.map((f) => path.resolve(f))], {
     cwd: path.join(root, 'gocore'), encoding: 'utf8', maxBuffer: 256 * 1024 * 1024,
@@ -150,16 +175,7 @@ function main() {
   let trackedTotal = 0;
   scenarios.forEach((s, i) => {
     const ts = runTypeScript(budget, usage, s);
-    const diffs = [];
-    diff(ts, goOutputs[i], '', diffs);
-    const expected = (s.expectedDifferences ?? []).flatMap((e) => e.paths.map((p) => ({ path: p, ref: e.ref })));
-    const find = (d) => expected.find((e) => covers(e.path, d.path));
-    const unexplained = diffs.filter((d) => !find(d));
-    // An entry is stale when none of its paths differs any more.
-    const stale = (s.expectedDifferences ?? [])
-      .filter((e) => !e.paths.some((p) => diffs.some((d) => covers(p, d.path))))
-      .map((e) => ({ path: e.paths.join(', '), ref: e.ref }));
-    const tracked = diffs.filter((d) => find(d)?.ref.startsWith('porting-error'));
+    const { diffs, find, unexplained, stale, tracked } = compare(s, ts, goOutputs[i]);
     const status = unexplained.length === 0 && stale.length === 0 ? (tracked.length > 0 ? 'warn' : 'ok  ') : 'FAIL';
     console.log(`${status} ${s.name} (${diffs.length} differences, ${diffs.length - unexplained.length - tracked.length} explained, ${tracked.length} tracked porting errors)`);
     for (const d of diffs) {
@@ -174,4 +190,6 @@ function main() {
   process.exit(failed === 0 ? 0 : 1);
 }
 
-main();
+if (require.main === module) main();
+
+module.exports = { compare, diff, sameNumber, runTypeScript, scenarioFiles };
