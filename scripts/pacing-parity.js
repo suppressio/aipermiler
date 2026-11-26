@@ -58,14 +58,14 @@ function runTypeScript(budget, usage, s) {
   });
   const cfg = {
     id: accountId, provider: 'claude', label: 'parity', enabled: true,
-    subscription: { renewalRule: { type: 'dayOfMonth', day: s.renewalDay ?? 1 } },
+    subscription: { renewalRule: { type: 'dayOfMonth', day: s.renewalDay || 1 } },
     workSchedule: { enabled: s.schedule.enabled, days, hoursPerDay: s.schedule.hoursPerDay },
   };
   const quotaWindows = s.windows.map((w) => ({
     id: w.id, label: w.id, periodType: w.periodType, periodLength: w.periodLength || null,
     unit: w.unit, used: w.used, total: w.total || null, resetsAt: w.resetsAt ?? null,
   }));
-  const draft = { dailyUsage: [], recentSamples: [], chartDays: s.chartDays ?? 7 };
+  const draft = { dailyUsage: [], recentSamples: [], chartDays: s.chartDays || 7 };
   for (const [windowId, h] of Object.entries(s.history ?? {})) {
     for (const d of h.daily ?? []) {
       draft.dailyUsage.push({ date: d.date, accountId, windowId, used: d.used, ...(d.dayStartUsed == null ? {} : { dayStartUsed: d.dayStartUsed }) });

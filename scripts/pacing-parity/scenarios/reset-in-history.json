@@ -58,7 +58,6 @@
         "windows[0].redistribution.perUnit",
         "windows[0].redistribution.idealPerUnit",
         "windows[0].sustainableRate",
-        "windows[0].rating.avgRatio",
         "windows[0].chart[6].fullShare",
         "windows[0].chart[6].budget",
         "windows[0].chart[7].fullShare",
@@ -67,6 +66,12 @@
         "windows[0].chart[8].budget"
       ],
       "ref": "§9.8"
+    },
+    {
+      "paths": [
+        "windows[0].rating.avgRatio"
+      ],
+      "ref": "§9.8, §9.13"
     }
   ]
 }
