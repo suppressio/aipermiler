@@ -262,10 +262,16 @@ func buildWindow(in Input, w Window) (WindowSnapshot, history.State, bool) {
 }
 
 // localInsights crosses the window's daily deltas with the local tokens
-// (§3.15). Rolling-hours windows never get here: a "daily" delta there spans
-// several resets and measures nothing.
+// (§3.15), over the last ChartDays+1 daily points as Electron's analysis
+// window: an older day would meet a partial token count. Rolling-hours
+// windows never get here: a "daily" delta there spans several resets and
+// measures nothing.
 func localInsights(snap *WindowSnapshot, state history.State, set Settings, totalUnits float64) {
-	daily := advice.Deltas(state.DailyUsage, set.Schedule, totalUnits, set.Location)
+	points := slices.SortedStableFunc(slices.Values(state.DailyUsage), func(a, b history.DailyPoint) int { return a.Day.Compare(b.Day) })
+	if keep := set.ChartDays + 1; len(points) > keep {
+		points = points[len(points)-keep:]
+	}
+	daily := advice.Deltas(points, set.Schedule, totalUnits, set.Location)
 	deltas := make([]insights.Delta, 0, len(daily))
 	for _, d := range daily {
 		deltas = append(deltas, insights.Delta{Date: d.Day.In(set.Location).Format(time.DateOnly), Delta: d.Delta, Known: d.HasDelta})

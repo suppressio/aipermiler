@@ -35,6 +35,10 @@ type insightsEntry struct {
 	result  *insights.Result
 	at      time.Time
 	running bool
+	// done is closed when the running count ends: a request without a
+	// result waits for it instead of scanning the files again, as Electron
+	// shares its running count.
+	done chan struct{}
 }
 
 func newLocalInsightsCache(ctx context.Context, compute LocalInsightsFunc, logger *slog.Logger) *localInsightsCache {
@@ -58,29 +62,49 @@ func (c *localInsightsCache) get(ctx context.Context, windowDays int, now time.T
 	if entry.result != nil {
 		fresh := now.Sub(entry.at) < localInsightsTTL && !now.Before(entry.at)
 		if !fresh && !entry.running {
-			entry.running = true
-			go c.run(c.ctx, windowDays, now)
+			c.start(entry, windowDays, now)
 		}
 		result := entry.result
 		c.mu.Unlock()
 		return result
 	}
+	// No count yet: the request waits for one, as Electron's refresh does,
+	// sharing the one already running.
+	if !entry.running {
+		c.start(entry, windowDays, now)
+	}
+	done := entry.done
 	c.mu.Unlock()
-	// No count yet: the request waits for one, as Electron's refresh does.
-	// Concurrent first requests may each compute: rare, and only once.
-	return c.run(ctx, windowDays, now)
-}
-
-func (c *localInsightsCache) run(ctx context.Context, windowDays int, now time.Time) *insights.Result {
-	result, err := c.compute(ctx, windowDays, now)
+	select {
+	case <-done:
+	case <-ctx.Done():
+		return nil
+	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	entry := c.entries[windowDays]
+	return entry.result
+}
+
+// start runs a count in the background, bound to the service's context (a
+// stop cancels it), never to a request's. Called with c.mu held.
+func (c *localInsightsCache) start(entry *insightsEntry, windowDays int, now time.Time) {
+	entry.running, entry.done = true, make(chan struct{})
+	go c.run(entry, windowDays, now)
+}
+
+func (c *localInsightsCache) run(entry *insightsEntry, windowDays int, now time.Time) {
+	result, err := c.compute(c.ctx, windowDays, now)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	defer close(entry.done)
 	entry.running = false
-	if err != nil || result == nil {
+	switch {
+	case err != nil:
 		c.logger.Warn("Cannot count the local Claude Code sessions", "error", err)
-		return entry.result
+	case result == nil:
+		// No output tokens in the window: nothing to keep, counted again next
+		// time (Electron keeps no empty count either).
+	default:
+		entry.result, entry.at = result, now
 	}
-	entry.result, entry.at = result, now
-	return result
 }

@@ -42,12 +42,16 @@ type fakeInsights struct {
 	result *insights.Result
 	err    error
 	done   chan struct{} // receives after every computation, when not nil
+	gate   chan struct{} // when not nil, a computation waits for it
 }
 
 func (f *fakeInsights) compute(_ context.Context, windowDays int, _ time.Time) (*insights.Result, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, windowDays)
 	f.mu.Unlock()
+	if f.gate != nil {
+		<-f.gate
+	}
 	if f.done != nil {
 		defer func() { f.done <- struct{}{} }()
 	}
@@ -192,8 +196,42 @@ func TestSnapshotLocalInsightsCache(t *testing.T) {
 	if f.count() != 3 {
 		t.Fatalf("%d computations, want 3 (the expired one recomputed)", f.count())
 	}
-	if doc := getInsights(t, h, ""); doc.Pacing.Windows[1].TokenYield != nil {
-		t.Error("the recomputed result is not used")
+	// The computation has returned; its result is stored just after.
+	deadline := time.Now().Add(5 * time.Second)
+	for getInsights(t, h, "").Pacing.Windows[1].TokenYield != nil {
+		if time.Now().After(deadline) {
+			t.Fatal("the recomputed result is not used")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// Requests that arrive while the first count runs wait for it instead of
+// scanning the session files again.
+func TestSnapshotLocalInsightsSharesTheRunningCount(t *testing.T) {
+	t.Parallel()
+	api := newAPI(t, insightsAccount())
+	f := &fakeInsights{result: localTokens(), gate: make(chan struct{})}
+	now := snapshotNow
+	h := insightsHandler(api, f, &now)
+	var wg sync.WaitGroup
+	results := make([]insightsDoc, 3)
+	for i := range results {
+		wg.Go(func() { results[i] = getInsights(t, h, "") })
+	}
+	for f.count() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+	time.Sleep(20 * time.Millisecond) // let the other requests arrive
+	close(f.gate)
+	wg.Wait()
+	if f.count() != 1 {
+		t.Errorf("%d computations for 3 requests, want 1", f.count())
+	}
+	for i, doc := range results {
+		if doc.Pacing.Windows[1].TokenYield == nil {
+			t.Errorf("request %d: no tokenYield", i)
+		}
 	}
 }
 
