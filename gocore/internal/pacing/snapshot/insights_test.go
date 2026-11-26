@@ -96,6 +96,25 @@ func TestLocalInsights(t *testing.T) {
 		}
 	})
 
+	t.Run("only the chart's span plus one day of history, as Electron's analysis window", func(t *testing.T) {
+		t.Parallel()
+		in := withY4(t)
+		// Four older points: with the five of Y-4, nine; the last eight are kept,
+		// so the 6th, the only older one with tokens, is not compared.
+		state := in.History["monthly"]
+		var older []history.DailyPoint
+		for _, d := range []int{6, 7, 8, 9} {
+			older = append(older, history.DailyPoint{Day: at(t, time.October, d, 0, 0), DayStartUsed: 0, Used: 1})
+		}
+		state.DailyUsage = append(older, state.DailyUsage...)
+		in.History["monthly"] = state
+		in.Settings.LocalTokens = append(in.Settings.LocalTokens, insights.Tokens{Date: "2026-10-06", OutputTokens: 1000})
+		w := build(t, in)
+		if w.Yield == nil || w.Yield.DaysCompared != 5 {
+			t.Errorf("yield = %+v, want 5 days compared (the 6th is outside the span)", w.Yield)
+		}
+	})
+
 	t.Run("a rolling-hours window has no daily deltas, so no insights", func(t *testing.T) {
 		t.Parallel()
 		in := withY4(t)
