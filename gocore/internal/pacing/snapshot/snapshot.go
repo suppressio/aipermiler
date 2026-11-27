@@ -369,7 +369,7 @@ func rollingHours(snap *WindowSnapshot, period quotaperiod.Period, length int, n
 // reset still ahead (§3.2 to §3.8, §3.13).
 func dayBased(snap *WindowSnapshot, state history.State, units quotaperiod.WorkingUnits, period quotaperiod.Period, set Settings, now time.Time) {
 	loc := set.Location
-	recent, hasRecent := pace.RecentPace(state.DailyUsage, set.Schedule, now, loc)
+	recent, hasRecent := pace.RecentPace(state.DailyUsage, set.Schedule, period, now, loc)
 	summary := outlook.Summarize(snap.Used, units.Elapsed, units.Remaining, recent, hasRecent)
 	snap.Summary = &summary
 	if r, ok := outlook.Redistribute(snap.Remaining, units.FromToday, units.Total); ok {

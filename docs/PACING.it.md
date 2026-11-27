@@ -109,7 +109,12 @@ Per i cicli di fatturazione D-2.4-D-2.6 valgono con `oggi` dentro il periodo, `s
 
 ### 3.4 Ritmo recente e ritmo misto
 
-**D-3.7 Ritmo recente** `p_r` (pp/unit): sugli ultimi 3 giorni lavorativi **completati** dello storico (oggi escluso, giorni liberi e di reset saltati): `Σ delta / Σ u`. Nullo con meno di 2 giorni utilizzabili.
+**D-3.7 Ritmo recente** `p_r` (pp/unit): sugli ultimi 3 giorni lavorativi **completati** dello storico (oggi escluso, giorni liberi e di reset saltati): `Σ delta / Σ u`. Nullo con meno di 2 giorni utilizzabili. Su una finestra di giorni mobili la `u` di un giorno è solo la sua parte dentro la finestra, `Wᵣ(max(start, d), d + 1)` (D-2.2): il giorno in cui la finestra è iniziata pesa le ore rimaste dopo l'inizio, un giorno prima dell'inizio pesa 0 ed è saltato (HYP#78). I cicli di fatturazione mantengono giorni interi, come senza un inizio noto.
+| # | Input | Atteso |
+|---|---|---|
+| RP-1 | finestra T-15 [mer 14/10 23:00, mer 21/10 23:00), ora sab 17/10 18:38, orario disattivato; delta giornalieri 14/10 0, 15/10 12, 16/10 9 | u(14/10) = 1/24: `p_r` = 21 / (1/24 + 2) = 504/49 ≈ 10,29 (a giorni interi 21 / 3 = 7) |
+| RP-2 | stessa finestra; delta 13/10 5, 14/10 0, 16/10 9 (nessun punto il 15/10) | il 13/10 è prima dell'inizio, saltato: `p_r` = 9 / (1/24 + 1) = 216/25 = 8,64 (a giorni interi 14 / 3 ≈ 4,67) |
+
 **D-3.8 Ritmo misto** `p = (x / E + p_r) / 2` (solo `x / E` se `p_r` è nullo; solo `p_r` se `E = 0`; nullo se nessuno dei due esiste). È l'unico ritmo usato da proiezione, autonomia e verdetto.
 
 ### 3.5 Proiezione al reset e autonomia
@@ -446,6 +451,8 @@ Emersi scrivendo il modello; ognuno diventa un caso che fallisce e una voce del 
 11. **Orario disattivato in un giorno di cambio dell’ora legale**: `todayElapsedUnits` divide il tempo dalla mezzanotte per 24 ore, così in un giorno di 25 ore `e` supera 1 nell’ultima ora e `E + R` non è più uguale a `N` (I-8); in un giorno di 23 ore il giorno non arriva mai a 1. Trovato dalla verifica a tappeto degli invarianti dello snapshot (#322). — risolto (#322): in Go `quotaperiod` divide per la durata reale di quel giorno, sia per la frazione di calendario di oggi (D-2.3) sia per la sovrapposizione dei giorni mobili (D-2.2); l’integrazione TypeScript rimane parte di HYP#75.
 12. **Picco e media con un solo giorno completato**: `deltaStats` li mostra da un solo giorno, C-8 li nasconde (un giorno non dice più del proprio valore). Trovato dal confronto di parità (#325). — fixed (#165): il `advice.Summarize` Go segue C-8; l'integrazione TypeScript resta parte di HYP#75.
 13. **Valutazione da valori arrotondati**: `efficiencyRating` prende i delta e le quote giornaliere arrotondati a 0,01 (`dailyDeltas`) e poi ne media i rapporti (I-4): `avgRatio` differisce alla seconda cifra e una stella può cambiare al limite. Trovato dal confronto di parità (#325). — fixed (#165): il `advice.Rate` Go lavora sui valori esatti; l'integrazione TypeScript resta parte di HYP#75.
+
+14. **Ritmo recente su giorni locali interi nelle finestre mobili**: `recentPacePerUnit` dà un'unità intera al giorno in cui la finestra mobile è iniziata e conta anche i giorni prima del suo inizio, così un'ora del primo giorno senza consumo abbassa il ritmo recente (HYP#78: RP-1 dà 7 invece di 10,29, RP-2 4,67 invece di 8,64). Implementato nel package Go `pace` (D-3.7); `budget.ts` resta com'è fino a #75. — risolto (#78)
 
 ---
 

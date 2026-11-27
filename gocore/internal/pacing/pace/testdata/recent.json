@@ -13,5 +13,11 @@
    "points": [["2026-10-16", 26, 24], ["2026-10-17", 27, 26]], "want": 1.5, "ok": true},
   {"id": "D-3.7", "description": "days without use count as zero consumption", "schedule": "weekdays", "now": "2026-10-20T10:00:00Z",
    "points": [["2026-10-15", 20, 20], ["2026-10-16", 20, 20], ["2026-10-19", 26, 20]], "want": 2, "ok": true},
-  {"id": "D-3.7", "description": "no history", "schedule": "weekdays", "now": "2026-10-20T10:00:00Z", "points": [], "want": 0, "ok": false}
+  {"id": "D-3.7", "description": "no history", "schedule": "weekdays", "now": "2026-10-20T10:00:00Z", "points": [], "want": 0, "ok": false},
+  {"id": "RP-1", "description": "HYP78 the day the rolling window started weighs only its hours inside", "schedule": "disabled", "now": "2026-10-17T18:38:00Z",
+   "rollingStart": "2026-10-14T23:00:00Z", "points": [["2026-10-14", 30, 30], ["2026-10-15", 42, 30], ["2026-10-16", 51, 42]], "want": 10.285714285714286, "ok": true},
+  {"id": "RP-2", "description": "HYP78 a day before the rolling window's start is skipped", "schedule": "disabled", "now": "2026-10-17T18:38:00Z",
+   "rollingStart": "2026-10-14T23:00:00Z", "points": [["2026-10-13", 35, 30], ["2026-10-14", 30, 30], ["2026-10-16", 39, 30]], "want": 8.64, "ok": true},
+  {"id": "D-3.7", "description": "HYP78 a rolling window aligned to midnight keeps whole days", "schedule": "disabled", "now": "2026-10-17T18:38:00Z",
+   "rollingStart": "2026-10-14T00:00:00Z", "points": [["2026-10-14", 30, 30], ["2026-10-15", 42, 30], ["2026-10-16", 51, 42]], "want": 7, "ok": true}
 ]

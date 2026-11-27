@@ -29,6 +29,26 @@ func WorkingUnitsBetween(start, end time.Time, loc *time.Location, schedule Sche
 	return units
 }
 
+// DayUnitInside is the working unit a local day counts for in this period (D-3.7):
+// on a rolling-days window with a known start, only its part inside the window,
+// Wᵣ(max(start, day), day + 1) (D-2.2), so the day the window started weighs the
+// hours after the start and a day before the start weighs 0 (HYP#78). Otherwise
+// the whole day's unit.
+func (p Period) DayUnitInside(day time.Time, loc *time.Location, schedule Schedule) float64 {
+	start := localDay(day, loc)
+	if p.Kind != RollingDays || p.Start.IsZero() {
+		return schedule.DayUnit(start, loc)
+	}
+	end := start.AddDate(0, 0, 1)
+	if !p.Start.Before(end) {
+		return 0
+	}
+	if p.Start.After(start) {
+		start = p.Start
+	}
+	return rollingUnitsBetween(start, end, loc, schedule)
+}
+
 // WorkingUnits contains N, E, R, U, e and H from PACING.md D-2.2..D-2.7.
 // Values retain full precision, including the last partial local day.
 type WorkingUnits struct {
