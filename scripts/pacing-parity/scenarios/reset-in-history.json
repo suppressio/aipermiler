@@ -50,10 +50,8 @@
     {
       "paths": [
         "windows[0].efficiencyIndex",
-        "windows[0].projectedUsage",
         "windows[0].daysUntilReset",
         "windows[0].workingDaysUntilReset",
-        "windows[0].autonomyWorkingDays",
         "windows[0].todayBudget.budget",
         "windows[0].redistribution.perUnit",
         "windows[0].redistribution.idealPerUnit",
@@ -66,6 +64,13 @@
         "windows[0].chart[8].budget"
       ],
       "ref": "§9.8"
+    },
+    {
+      "paths": [
+        "windows[0].projectedUsage",
+        "windows[0].autonomyWorkingDays"
+      ],
+      "ref": "§9.8, §9.14"
     },
     {
       "paths": [
