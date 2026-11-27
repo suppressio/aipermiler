@@ -18,6 +18,7 @@ import type { UsageSourceReason } from '../types/index';
 import {
   accountFromSnapshot,
   accountWithoutPacing,
+  ServiceDownError,
   type AccountIdentity,
   type AccountProblem,
   type RefreshRequestMode,
@@ -73,8 +74,8 @@ function staleProblem(deps: UsageReaderDeps, cfg: AccountConfig, result: CoreUsa
   }
 }
 
-// Reasons that concern the whole service (connectService): no service for any account.
-// The others (`unknown_account`, `rejected`, `failed`, `malformed`) concern one
+// Reasons that concern the whole service (connectService, also ServiceDownError: a
+// failing /health or the service's own 503): no service for any account. The others (`unknown_account`, `rejected`, `failed`, `malformed`) concern one
 // account's answer: only that account goes through the CLI (#182 (d)).
 const SERVICE_WIDE: readonly UsageSourceReason[] = ['not_running', 'unreachable', 'unauthorized', 'incompatible'];
 
@@ -134,7 +135,7 @@ export function createUsageReader(deps: UsageReaderDeps): UsageReader {
       } catch (err) {
         if (err instanceof ServiceUnusableError) {
           deps.recordSource(cfg.id, { source: 'cli', reason: err.reason });
-          const serviceDown = SERVICE_WIDE.includes(err.reason);
+          const serviceDown = err instanceof ServiceDownError || SERVICE_WIDE.includes(err.reason);
           // An answer about this account only (not served yet, refused, unreadable):
           // only this one goes through the CLI, without the "service not running" note.
           return { account: await withoutService(cfg, identity, mode, serviceDown), downReason: serviceDown ? err.reason : null };

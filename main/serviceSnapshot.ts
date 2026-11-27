@@ -457,6 +457,39 @@ export interface SnapshotTimeouts {
 
 const DEFAULT_TIMEOUTS: SnapshotTimeouts = { healthMs: 2000, snapshotMs: 10000, refreshMs: 5 * 60 * 1000 };
 
+/**
+ * No usable service for any account: finding it failed (api.json, /health, contract
+ * version), or the service answered with its own 503 (stopping, no refresh loop). The
+ * reader then shows every account without a service, not only this one.
+ */
+export class ServiceDownError extends ServiceUnusableError {
+  constructor(cause: ServiceUnusableError) {
+    super(cause.reason, cause.message, { cause });
+    this.name = 'ServiceDownError';
+  }
+}
+
+// connectService's failures are about the whole service.
+async function connect(fetchImpl: FetchLike, configDir: () => string, healthMs: number): Promise<Awaited<ReturnType<typeof connectService>>> {
+  try {
+    return await connectService(fetchImpl, configDir, healthMs);
+  } catch (err) {
+    throw err instanceof ServiceUnusableError ? new ServiceDownError(err) : err;
+  }
+}
+
+// The service's own 503 carries no provider: an error document of the account's
+// provider is the account's answer instead (parseServiceUsage).
+function ownUnavailable(status: number, body: string, provider: string): boolean {
+  if (status !== 503) return false;
+  try {
+    const doc = JSON.parse(body) as unknown;
+    return !(isRecord(doc) && doc.provider === provider);
+  } catch {
+    return true;
+  }
+}
+
 export interface SnapshotClient {
   /** The account's pacing snapshot; ServiceUnusableError when there is no usable service. */
   snapshot(accountId: string, provider: string, chartDays: 7 | 30): Promise<ServiceSnapshotRead>;
@@ -478,18 +511,19 @@ export function createSnapshotClient(options: SnapshotClientOptions): SnapshotCl
   const account = (id: string): string => `/api/v1/accounts/${encodeURIComponent(id)}`;
   return {
     async snapshot(accountId, provider, chartDays) {
-      const endpoint = await connectService(fetchImpl, options.configDir, timeouts.healthMs);
+      const endpoint = await connect(fetchImpl, options.configDir, timeouts.healthMs);
       const { status, body } = await serviceRequest(fetchImpl, endpoint, 'GET', `${account(accountId)}/snapshot?chartDays=${String(chartDays)}`, timeouts.snapshotMs);
+      if (ownUnavailable(status, body, provider)) throw new ServiceDownError(new ServiceUnusableError('failed', `Service answered ${String(status)}`));
       return parseServiceSnapshot(status, body, provider);
     },
     async refresh(mode) {
-      const endpoint = await connectService(fetchImpl, options.configDir, timeouts.healthMs);
+      const endpoint = await connect(fetchImpl, options.configDir, timeouts.healthMs);
       const { status } = await serviceRequest(fetchImpl, endpoint, 'POST', '/api/v1/refresh', timeouts.refreshMs, { mode });
       if (status === 401) throw new ServiceUnusableError('unauthorized', 'Service refused the token');
       if (status !== 200) throw new ServiceUnusableError('failed', `Service refresh answered ${String(status)}`);
     },
     async history(accountId, provider, days) {
-      const endpoint = await connectService(fetchImpl, options.configDir, timeouts.healthMs);
+      const endpoint = await connect(fetchImpl, options.configDir, timeouts.healthMs);
       const { status, body } = await serviceRequest(fetchImpl, endpoint, 'GET', `${account(accountId)}/history?days=${String(days)}`, timeouts.snapshotMs);
       return parseServiceHistory(status, body, provider);
     },

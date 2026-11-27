@@ -15,6 +15,7 @@ import { ServiceUnusableError } from './serviceClient';
 import {
   accountFromSnapshot,
   accountWithoutService,
+  ServiceDownError,
   createSnapshotClient,
   lastGoodView,
   parseServiceHistory,
@@ -269,6 +270,19 @@ test('client: snapshot with the chart span, refresh with its mode, history with 
     assert.deepEqual(JSON.parse(refresh?.body ?? ''), { mode: 'manual' });
     const history = await client.history('a 1', 'fake', 7);
     assert.equal(history.windows.length > 0, true);
+  });
+});
+
+test('client: a failing /health or the service\'s own 503 is about the whole service; a provider 503 is the account\'s', async () => {
+  await withService({ 'GET /api/v1/health': { status: 500, body: '' } }, async (c) => {
+    await assert.rejects(c.snapshot('a1', 'fake', 7), (err) => err instanceof ServiceDownError && err.reason === 'failed');
+  });
+  const stopping = JSON.stringify({ schemaVersion: 1, error: { code: 'unavailable', message: 'stopping' } });
+  await withService({ 'GET /api/v1/health': HEALTH, 'GET /api/v1/accounts/a1/snapshot?chartDays=7': { status: 503, body: stopping } }, async (c) => {
+    await assert.rejects(c.snapshot('a1', 'fake', 7), (err) => err instanceof ServiceDownError);
+  });
+  await withService({ 'GET /api/v1/health': HEALTH, 'GET /api/v1/accounts/a1/snapshot?chartDays=7': { status: 503, body: fixture('service/error-not-read') } }, async (c) => {
+    await assert.rejects(c.snapshot('a1', 'fake', 7), CoreProviderError);
   });
 });
 
