@@ -109,8 +109,12 @@ type WindowSnapshot struct {
 	// DaysToReset are calendar days for billing cycles, 24 h days otherwise.
 	DaysToReset    float64
 	HasDaysToReset bool
-	Efficiency     float64
-	HasEfficiency  bool
+	// UnitsToReset is R, defined with a known reset even without a period
+	// start (the summary needs the start, R does not).
+	UnitsToReset    float64
+	HasUnitsToReset bool
+	Efficiency      float64
+	HasEfficiency   bool
 	// Baseline is today's x0 (§7).
 	Baseline    float64
 	HasBaseline bool
@@ -232,6 +236,11 @@ func buildWindow(in Input, w Window) (WindowSnapshot, history.State, bool) {
 	if hasUnits {
 		snap.Units, totalUnits = &units, units.Total
 		snap.Efficiency, snap.HasEfficiency = pace.Efficiency(x, units.Total, units.Elapsed)
+	}
+	if hasUnits && resetAhead {
+		snap.UnitsToReset, snap.HasUnitsToReset = units.Remaining, true
+	} else if r, ok := period.UnitsToReset(now, loc, set.Schedule, worked); ok && resetAhead {
+		snap.UnitsToReset, snap.HasUnitsToReset = r, true
 	}
 	if hasUnits && resetAhead {
 		dayBased(&snap, state, units, period, set, now)

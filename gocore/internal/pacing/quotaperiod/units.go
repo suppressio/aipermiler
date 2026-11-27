@@ -84,6 +84,26 @@ func (p Period) Units(now time.Time, loc *time.Location, schedule Schedule, work
 	return result, true
 }
 
+// UnitsToReset returns R, the working units left until the reset, which needs
+// only the reset and the schedule, not the period start (D-2.5). It is false
+// for rolling hours or a missing reset; a reset already passed leaves zero.
+func (p Period) UnitsToReset(now time.Time, loc *time.Location, schedule Schedule, workedHours *float64) (float64, bool) {
+	if (p.Kind != BillingCycle && p.Kind != RollingDays) || p.End.IsZero() {
+		return 0, false
+	}
+	if p.Kind == RollingDays {
+		if !now.Before(p.End) {
+			return 0, true
+		}
+		return rollingUnitsBetween(now, p.End, loc, schedule), true
+	}
+	today := localDay(now, loc)
+	if !today.Before(p.End) {
+		return 0, true
+	}
+	return WorkingUnitsBetween(today, p.End, loc, schedule) - todayElapsed(now, loc, schedule, workedHours), true
+}
+
 func todayElapsed(now time.Time, loc *time.Location, schedule Schedule, workedHours *float64) float64 {
 	if !schedule.Enabled {
 		// The fraction of the local day, whose length is 23 or 25 hours when

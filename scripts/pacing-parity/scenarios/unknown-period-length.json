@@ -33,12 +33,6 @@
   "expectedDifferences": [
     {
       "paths": [
-        "windows[0].workingDaysUntilReset"
-      ],
-      "ref": "porting-error: working days to reset are undefined without a period start although the reset is known (HYP#348)"
-    },
-    {
-      "paths": [
         "windows[0].sustainableRate"
       ],
       "ref": "§9.2"

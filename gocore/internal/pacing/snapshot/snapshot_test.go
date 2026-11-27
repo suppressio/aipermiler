@@ -629,3 +629,19 @@ func TestRegressionCases(t *testing.T) {
 		shown(t, "R", w.Units.Remaining, true, 4.18, 2)
 	})
 }
+
+// E9: a billing cycle of unknown length has no start, so no summary, but its
+// working units to the reset need only the reset and the schedule (HYP#348).
+func TestUnitsToResetWithoutPeriodStart(t *testing.T) {
+	t.Parallel()
+	in := scenario(t, at(t, time.October, 21, 11, 0), 12)
+	in.Response.Windows[0].Length = 0
+	w := build(t, in)
+	if w.Summary != nil || w.Units != nil {
+		t.Fatalf("summary %+v / units %+v, want none without a period start", w.Summary, w.Units)
+	}
+	exact(t, "R", w.UnitsToReset, 8)
+	if !w.HasUnitsToReset {
+		t.Error("R undefined, want 8")
+	}
+}
