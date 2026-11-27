@@ -706,7 +706,7 @@ func TestUnitsToResetWithoutUtilizationCountsHoursWorked(t *testing.T) {
 	if !idle.HasUnitsToReset || !worked.HasUnitsToReset {
 		t.Fatalf("R undefined: idle %v, worked %v", idle.HasUnitsToReset, worked.HasUnitsToReset)
 	}
-	if worked.UnitsToReset >= idle.UnitsToReset {
-		t.Errorf("R with 5 h worked today = %v, want below %v (no activity seen)", worked.UnitsToReset, idle.UnitsToReset)
-	}
+	exact(t, "R without activity seen", idle.UnitsToReset, 8)
+	// 9:00-14:00 is 5 h of an 8 h day: 3/8 of today left plus 7 working days.
+	exact(t, "R with 5 h worked today", worked.UnitsToReset, 7.375)
 }

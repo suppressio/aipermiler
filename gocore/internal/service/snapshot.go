@@ -322,10 +322,12 @@ func newPacingDoc(a snapshot.Account, loc *time.Location) pacingDoc {
 
 func newWindowDoc(w snapshot.WindowSnapshot, loc *time.Location) windowDoc {
 	d := windowDoc{
-		ID:                  w.ID,
-		Used:                opt(w.Used, w.HasUsed),
-		Remaining:           opt(w.Remaining, w.HasUsed),
-		DaysToReset:         opt(w.DaysToReset, w.HasDaysToReset),
+		ID:          w.ID,
+		Used:        opt(w.Used, w.HasUsed),
+		Remaining:   opt(w.Remaining, w.HasUsed),
+		DaysToReset: opt(w.DaysToReset, w.HasDaysToReset),
+		// The snapshot never computes R on rolling hours; the Hourly check only
+		// guards the documented null there.
 		WorkingUnitsToReset: opt(w.UnitsToReset, w.HasUnitsToReset && w.Hourly == nil),
 		Efficiency:          opt(w.Efficiency, w.HasEfficiency),
 		Baseline:            opt(w.Baseline, w.HasBaseline),
