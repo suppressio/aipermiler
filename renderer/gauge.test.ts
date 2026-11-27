@@ -26,6 +26,9 @@ test('gauge label (#72): the limit is shown apart only when above the target', (
   // Behind: T = C, stated once.
   assert.equal(gaugeLabelParts(0.29, 0.29), 'withTarget');
   assert.equal(gaugeLabelParts(1.7, null), 'withTarget');
+  // A ceiling a hair above the target prints the same number: stated once.
+  assert.equal(gaugeLabelParts(1.7851, 1.7859), 'withTarget');
+  assert.equal(gaugeLabelParts(1.78, 1.79), 'withTargetAndLimit');
   // No target (D-3.13 undefined): the pace alone.
   assert.equal(gaugeLabelParts(null, 2), 'rate');
 });

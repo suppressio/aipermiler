@@ -390,7 +390,8 @@ function reportInterpretation(accountId: AccountId, accounts: Pick<ReportAccount
       // The instant gauge (#72): the pace, the target it shows, and the ceiling when different.
       instantRate: w.instantRate,
       gaugeTarget: w.sustainableRate,
-      ceiling: w.ceiling !== null && w.ceiling !== w.sustainableRate ? w.ceiling : null,
+      // Different as the gauge shows them (2 decimals, renderer/gauge.ts gaugeLabelParts).
+      ceiling: w.ceiling !== null && (w.sustainableRate === null || Math.round(w.ceiling * 100) > Math.round(w.sustainableRate * 100)) ? w.ceiling : null,
       preliminary: w.preliminary,
       efficiencyIndex: w.efficiencyIndex,
       projectedUsage: w.projectedUsage,
