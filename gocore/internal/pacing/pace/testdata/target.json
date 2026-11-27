@@ -22,7 +22,7 @@
     {"id": "G-11", "description": "exhausted: T = 0", "ceiling": 0, "hasCeiling": true, "ideal": 0.5681818181818182, "hasIdeal": true, "ok": true, "want": 0},
     {"id": "G-12", "description": "#72: near the reset T is the even share, not 331", "ceiling": 331, "hasCeiling": true, "ideal": 0.5681818181818182, "hasIdeal": true, "ok": true, "want": 0.5681818181818182},
     {"id": "D-3.13", "description": "#72 start of the window: C equals s_h, T = s_h", "ceiling": 1.7857142857142858, "hasCeiling": true, "ideal": 1.7857142857142858, "hasIdeal": true, "ok": true, "want": 1.7857142857142858},
-    {"id": "D-3.13", "description": "#72 middle of the window, on pace: C 1.79 > s_h 1.70, T = s_h", "ceiling": 1.7857142857142858, "hasCeiling": true, "ideal": 1.7, "hasIdeal": true, "ok": true, "want": 1.7},
+    {"id": "D-3.13", "description": "#72 middle of the window, under the even share: C 2.14 > s_h 1.79, T = s_h", "ceiling": 2.142857142857143, "hasCeiling": true, "ideal": 1.7857142857142858, "hasIdeal": true, "ok": true, "want": 1.7857142857142858},
     {"id": "D-3.13", "description": "#72 quota nearly exhausted: T = C, far below s_h", "ceiling": 0.0125, "hasCeiling": true, "ideal": 1.7857142857142858, "hasIdeal": true, "ok": true, "want": 0.0125},
     {"id": "D-3.13", "description": "period start unknown", "ceiling": 0.5, "hasCeiling": true, "ideal": 0, "hasIdeal": false, "ok": false},
     {"id": "D-3.13", "description": "reset missing or past", "ceiling": 0, "hasCeiling": false, "ideal": 0.5, "hasIdeal": true, "ok": false}

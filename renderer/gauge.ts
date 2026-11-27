@@ -22,9 +22,11 @@ export function gaugePosition(instant: number, target: number): number {
  * What the gauge label states (#72): the pace, the target, and the ceiling apart, as a
  * limit, when it is above the target. Near the reset the ceiling explodes (331 %/h)
  * while the target stays at the even share: showing it as "target" read as "go 20×
- * faster". When the user is behind, target and ceiling are the same number: once.
+ * faster". When the user is behind, target and ceiling are the same number: once. They
+ * are compared as shown (2 decimals, renderer/app.ts formatRate), so a ceiling a hair
+ * above the target never prints the same number twice.
  */
 export function gaugeLabelParts(target: number | null, ceiling: number | null): 'rate' | 'withTarget' | 'withTargetAndLimit' {
   if (target === null) return 'rate';
-  return ceiling !== null && ceiling > target * (1 + 1e-9) ? 'withTargetAndLimit' : 'withTarget';
+  return ceiling !== null && Math.round(ceiling * 100) > Math.round(target * 100) ? 'withTargetAndLimit' : 'withTarget';
 }
