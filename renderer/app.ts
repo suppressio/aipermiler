@@ -535,8 +535,7 @@ function renderInstantGauge(winSnap: QuotaWindowSnapshot | undefined): void {
     pattern.setAttribute('patternUnits', 'userSpaceOnUse');
     const arrows = document.createElementNS(svgNs, 'path');
     arrows.setAttribute('d', flow.direction === 'right'
-      // Chevrons at the start of each 48 px period: with the gap's 24 px minimum width
-      // (style.css) three whole arrows show even when static.
+      // Chevrons at the start of each 48 px period.
       ? 'M2 6l4 4-4 4m8-8 4 4-4 4m8-8 4 4-4 4'
       : 'M6 6l-4 4 4 4m8-8-4 4 4 4m8-8-4 4 4 4');
     arrows.setAttribute('fill', 'none');
