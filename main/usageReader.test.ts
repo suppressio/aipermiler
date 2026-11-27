@@ -8,7 +8,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { CoreProviderError, parseUsageRun } from './coreClient';
 import { ServiceUnusableError, type UsageSourceRecord } from './serviceClient';
-import { parseServiceSnapshot, type AccountProblem, type RefreshRequestMode } from './serviceSnapshot';
+import { ServiceDownError, parseServiceSnapshot, type AccountProblem, type RefreshRequestMode } from './serviceSnapshot';
 import { createUsageReader, type UsageReaderDeps } from './usageReader';
 import type { AccountConfig, ClaudeLocalInsights } from '../types/index';
 import { defaultAccountFor } from '../store/migrate';
@@ -204,4 +204,14 @@ test('without a service a failed CLI read keeps the last good values, stale with
   assert.equal(second.lastUpdatedAt, first.lastUpdatedAt);
   assert.deepEqual(second.quotaWindows, first.quotaWindows);
   assert.equal(second.serviceDown, true);
+});
+
+test('a service-wide failure found on one account (failing /health) turns the service off for all', async () => {
+  const { reader: r, calls } = reader({
+    snapshot: (cfg) => { calls.snapshot.push(cfg.id); return Promise.reject(new ServiceDownError(new ServiceUnusableError('failed', 'health 500'))); },
+  }, [account('a1'), account('a2')]);
+  const snapshot = await r.read(null);
+  assert.equal(r.serviceDown(), true);
+  assert.deepEqual(calls.snapshot, ['a1']);
+  assert.ok(snapshot.accounts.every((a) => a.serviceDown === true));
 });
