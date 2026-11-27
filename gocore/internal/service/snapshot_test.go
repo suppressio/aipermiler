@@ -35,7 +35,8 @@ func at(d, h, m int) time.Time { return time.Date(2026, 11, d, h, m, 0, 0, time.
 // pacedAccount is the account of contract/v1/service/snapshot.json: a
 // rolling-hours, a rolling-days and a billing-cycle count window with their
 // history as the loop recorded it, and a count window without a total (no
-// pacing, E14).
+// pacing, E14) whose known reset still gives the readings that need no
+// utilization.
 func pacedAccount() store.Account {
 	lg := store.NewLastGood(usage.Usage{
 		PlanTier: ptr("plus"),
@@ -43,7 +44,7 @@ func pacedAccount() store.Account {
 			{ID: "five-hour", Label: "5 hours", PeriodType: usage.PeriodType("rolling-hours"), PeriodLength: ptr(5.0), Unit: usage.UnitPercentage, Used: 30, Total: ptr(100.0), ResetsAt: ptr(at(4, 17, 0))},
 			{ID: "weekly", Label: "7 days", PeriodType: usage.PeriodType("rolling-days"), PeriodLength: ptr(7.0), Unit: usage.UnitPercentage, Used: 40, Total: ptr(100.0), ResetsAt: ptr(at(8, 9, 0))},
 			{ID: "premium", Label: "Premium requests", PeriodType: usage.PeriodType("billing-cycle"), Unit: usage.UnitCount, Used: 100, Total: ptr(300.0), ResetsAt: ptr(day(30))},
-			{ID: "extra", Label: "Extra requests", PeriodType: usage.PeriodType("billing-cycle"), Unit: usage.UnitCount, Used: 7},
+			{ID: "extra", Label: "Extra requests", PeriodType: usage.PeriodType("billing-cycle"), Unit: usage.UnitCount, Used: 7, ResetsAt: ptr(day(30))},
 		},
 	}, at(4, 14, 55))
 	return store.Account{
