@@ -80,9 +80,11 @@ func TestRecentPace(t *testing.T) {
 	}
 	var cases []struct {
 		ID, Description, Schedule, Now string
-		Points                         [][3]any
-		Want                           float64
-		OK                             bool
+		// Rolling-days window start (RFC 3339); empty: a billing cycle.
+		RollingStart string
+		Points       [][3]any
+		Want         float64
+		OK           bool
 	}
 	readFixture(t, "recent.json", &cases)
 	for _, tc := range cases {
@@ -101,7 +103,15 @@ func TestRecentPace(t *testing.T) {
 				}
 				points = append(points, history.DailyPoint{Day: day, Used: p[1].(float64), DayStartUsed: p[2].(float64)}) //nolint:forcetypeassert // fixture shape
 			}
-			got, ok := pace.RecentPace(points, schedules[tc.Schedule], now, time.UTC)
+			period := quotaperiod.Period{Kind: quotaperiod.BillingCycle}
+			if tc.RollingStart != "" {
+				start, err := time.Parse(time.RFC3339, tc.RollingStart)
+				if err != nil {
+					t.Fatal(err)
+				}
+				period = quotaperiod.Period{Kind: quotaperiod.RollingDays, Start: start, End: start.AddDate(0, 0, 7)}
+			}
+			got, ok := pace.RecentPace(points, schedules[tc.Schedule], period, now, time.UTC)
 			if ok != tc.OK || !near(got, tc.Want) {
 				t.Fatalf("RecentPace = %v, %v; want %v, %v", got, ok, tc.Want, tc.OK)
 			}

@@ -17,11 +17,13 @@ const (
 // completed working days of the history, the sum of their deltas over the sum
 // of their units. Today and later days are excluded (still running), as are
 // days off (unit 0) and reset days (a negative delta is not attributable). It
-// is false with fewer than 2 usable days.
+// is false with fewer than 2 usable days. A day's unit is its part inside the
+// period (Period.DayUnitInside): on a rolling-days window the day it started
+// weighs only the hours after the start, and earlier days are skipped (HYP#78).
 //
 // The delta of a day is Used - DayStartUsed (D-3.21). Points may come in any
 // order.
-func RecentPace(points []history.DailyPoint, schedule quotaperiod.Schedule, now time.Time, loc *time.Location) (float64, bool) {
+func RecentPace(points []history.DailyPoint, schedule quotaperiod.Schedule, period quotaperiod.Period, now time.Time, loc *time.Location) (float64, bool) {
 	nowLocal := now.In(loc)
 	today := time.Date(nowLocal.Year(), nowLocal.Month(), nowLocal.Day(), 0, 0, 0, 0, loc)
 
@@ -29,7 +31,7 @@ func RecentPace(points []history.DailyPoint, schedule quotaperiod.Schedule, now 
 	var deltas, units []float64
 	for _, point := range sorted {
 		delta := point.Used - point.DayStartUsed
-		unit := schedule.DayUnit(point.Day, loc)
+		unit := period.DayUnitInside(point.Day, loc, schedule)
 		if !point.Day.Before(today) || delta < 0 || unit <= 0 {
 			continue
 		}

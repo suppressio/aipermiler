@@ -109,7 +109,13 @@ For billing cycles, D-2.4 to D-2.6 hold for `today` inside the period, `start �
 
 ### 3.4 Recent pace and blended pace
 
-**D-3.7 Recent pace** `p_r` (pp/unit): over the last 3 **completed** working days of the history (today excluded, days off and reset days skipped): `Σ delta / Σ u`. Null with fewer than 2 usable days.
+**D-3.7 Recent pace** `p_r` (pp/unit): over the last 3 **completed** working days of the history (today excluded, days off and reset days skipped): `Σ delta / Σ u`. Null with fewer than 2 usable days. On a rolling-days window `u` of a day is only its part inside the window, `Wᵣ(max(start, d), d + 1)` (D-2.2): the day the window started weighs the hours left after the start, a day before the start weighs 0 and is skipped (HYP#78). Billing cycles keep whole days, as without a known start.
+
+| # | Input | Expected |
+|---|---|---|
+| RP-1 | T-15 window [Wed 10-14 23:00, Wed 10-21 23:00), now Sat 10-17 18:38, schedule disabled; daily deltas 10-14 0, 10-15 12, 10-16 9 | u(10-14) = 1/24: `p_r` = 21 / (1/24 + 2) = 504/49 ≈ 10.29 (whole days gave 21 / 3 = 7) |
+| RP-2 | same window; deltas 10-13 5, 10-14 0, 10-16 9 (no point on 10-15) | 10-13 is before the start, skipped: `p_r` = 9 / (1/24 + 1) = 216/25 = 8.64 (whole days gave 14 / 3 ≈ 4.67) |
+
 **D-3.8 Blended pace** `p = (x / E + p_r) / 2` (just `x / E` when `p_r` is null; just `p_r` when `E = 0`; null when neither exists). It is the one pace used by projection, autonomy and the verdict.
 
 ### 3.5 Projection at reset and autonomy
@@ -446,6 +452,8 @@ Found while writing the model; each becomes a failing case and an item of the re
 11. **Schedule disabled on a daylight saving day**: `todayElapsedUnits` divides the time since midnight by 24 hours, so on a 25-hour day `e` passes 1 in the last hour and `E + R` no longer equals `N` (I-8); on a 23-hour day the day never reaches 1. Found by the snapshot's invariant sweep (#322). — fixed (#322): the Go `quotaperiod` divides by that day's real length, for today's calendar fraction (D-2.3) and for the overlap of rolling days (D-2.2); TypeScript integration remains part of HYP#75.
 12. **Peak and average with one completed day**: `deltaStats` shows them from a single day, C-8 hides them (one day says nothing more than its own value). Found by the parity comparison (#325). — fixed (#165): the Go `advice.Summarize` follows C-8; TypeScript integration remains part of HYP#75.
 13. **Rating from rounded values**: `efficiencyRating` takes the daily deltas and shares rounded to 0.01 (`dailyDeltas`), then averages their ratios (I-4): `avgRatio` differs in the second decimal and a star can flip at an edge. Found by the parity comparison (#325). — fixed (#165): the Go `advice.Rate` works on exact values; TypeScript integration remains part of HYP#75.
+
+14. **Recent pace over whole local days on rolling windows**: `recentPacePerUnit` gives the day a rolling window started a whole unit and also counts days before its start, so one hour of the first day with no use pulls the recent pace down (HYP#78: RP-1 gives 7 instead of 10.29, RP-2 4.67 instead of 8.64). Implemented in the Go `pace` package (D-3.7); `budget.ts` stays as it is until #75. — fixed (#78)
 
 ---
 
