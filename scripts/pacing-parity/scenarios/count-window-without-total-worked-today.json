@@ -1,0 +1,51 @@
+{
+  "timeZone": "Europe/Rome",
+  "fresh": true,
+  "chartDays": 7,
+  "renewalDay": 1,
+  "name": "count-window-without-total-worked-today",
+  "now": "2026-10-21T15:00:00+02:00",
+  "schedule": {
+    "enabled": true,
+    "days": {
+      "mon": 1,
+      "tue": 1,
+      "wed": 1,
+      "thu": 1,
+      "fri": 1,
+      "sat": 0,
+      "sun": 0
+    },
+    "hoursPerDay": 8
+  },
+  "windows": [
+    {
+      "id": "credits",
+      "periodType": "billing-cycle",
+      "periodLength": 1,
+      "unit": "count",
+      "used": 180,
+      "total": 0,
+      "resetsAt": "2026-11-01T00:00:00+01:00"
+    }
+  ],
+  "history": {
+    "credits": {
+      "daily": [],
+      "samples": [
+        {
+          "at": "2026-10-21T09:00:00+02:00",
+          "used": 10
+        },
+        {
+          "at": "2026-10-21T10:00:00+02:00",
+          "used": 20
+        },
+        {
+          "at": "2026-10-21T14:00:00+02:00",
+          "used": 30
+        }
+      ]
+    }
+  }
+}

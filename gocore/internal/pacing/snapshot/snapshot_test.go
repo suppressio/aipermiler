@@ -683,3 +683,30 @@ func TestUnitsToResetWithoutStartOrUtilization(t *testing.T) {
 		t.Errorf("working units to reset = %v (%v), want a positive value", w.UnitsToReset, w.HasUnitsToReset)
 	}
 }
+
+// E14 with D-2.4: without a utilization today's samples already stored still
+// mark the working day, as in TypeScript, so R counts the hours worked.
+func TestUnitsToResetWithoutUtilizationCountsHoursWorked(t *testing.T) {
+	t.Parallel()
+	build := func(samples []history.Reading) snapshot.WindowSnapshot {
+		in := scenario(t, at(t, time.October, 21, 15, 0), 30)
+		in.Response.Windows = []snapshot.Window{{ID: "credits", Kind: quotaperiod.BillingCycle, Length: 1, Unit: pace.Count, Used: 12,
+			ResetsAt: at(t, time.November, 1, 0, 0)}}
+		if samples != nil {
+			in.History["credits"] = history.State{RecentSamples: samples}
+		}
+		return snapshot.Build(in).Account.Windows[0]
+	}
+	idle := build(nil)
+	worked := build([]history.Reading{
+		{At: at(t, time.October, 21, 9, 0), Used: 10},
+		{At: at(t, time.October, 21, 10, 0), Used: 20},
+		{At: at(t, time.October, 21, 14, 0), Used: 30},
+	})
+	if !idle.HasUnitsToReset || !worked.HasUnitsToReset {
+		t.Fatalf("R undefined: idle %v, worked %v", idle.HasUnitsToReset, worked.HasUnitsToReset)
+	}
+	if worked.UnitsToReset >= idle.UnitsToReset {
+		t.Errorf("R with 5 h worked today = %v, want below %v (no activity seen)", worked.UnitsToReset, idle.UnitsToReset)
+	}
+}
