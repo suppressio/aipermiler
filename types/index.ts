@@ -222,6 +222,9 @@ export interface QuotaWindowSnapshot {
   // budget.sustainableHourlyRate.
   instantRate: number | null;
   sustainableRate: number | null;
+  // The instant trend (D-3.28, the core's snapshot): the gauge arrows (#304). null when
+  // it cannot be measured, also while the last read failed.
+  trend: 'accelerating' | 'slowing-down' | 'steady' | null;
   // Star efficiency rating over the last days (see budget.efficiencyRating).
   efficiencyRating: EfficiencyRating | null;
   // "Tip of the day": derived from real facts about this window's data, never a

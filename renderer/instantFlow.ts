@@ -1,33 +1,18 @@
-import type { WorkSchedule } from '../types/index';
+// renderer/instantFlow.ts — the arrows on the instant gauge (#304, part of #132): they
+// show the instant trend computed by the core (D-3.28, `trend` of the pacing snapshot):
+// the pace an hour's samples give now against the one 30 minutes earlier. They span the
+// whole bar and point the way the pace is going: right while it is accelerating, left
+// while it is slowing down; none when it is steady or cannot be measured. No gap to the
+// target and no day-off rule any more (approach of #302). The renderer shows them only
+// with the window animations on and no reduced motion (style.css, `.motion-effects`).
 
-export function isWorkingDay(schedule: WorkSchedule, now: Date): boolean {
-  if (!schedule.enabled) return true;
-  // Schedules have day statuses and a duration, but no clock-time boundaries.
-  const day = (['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const)[now.getDay()];
-  return day !== undefined && schedule.days[day] !== 'off';
-}
+import type { QuotaWindowSnapshot } from '../types/index';
 
-/**
- * Where the arrows live (#125): only between the end of the bar and the target marker,
- * as fractions of the gauge width, so they point to where the bar should go instead of
- * reading as a flow across the whole bar.
- */
-export function flowSpan(barEnd: number, target: number): { left: number; width: number } {
-  return { left: Math.min(barEnd, target), width: Math.abs(target - barEnd) };
-}
+// A 48 px repeat at 18 px/s: one steady, low-key speed (the trend has no size to show).
+export const FLOW_DURATION_SECONDS = 48 / 18;
 
-export function instantFlow(
-  hourlyAverage: number | null,
-  sustainable: number | null,
-  working: boolean,
-): { direction: 'left' | 'right'; durationSeconds: number } | null {
-  if (hourlyAverage === null || sustainable === null
-    || !Number.isFinite(hourlyAverage) || !Number.isFinite(sustainable)
-    || hourlyAverage < 0 || sustainable < 0) return null;
-  if (hourlyAverage >= sustainable * 0.85 && hourlyAverage <= sustainable * 1.15) return null;
-  const direction = hourlyAverage > sustainable ? 'left' : 'right';
-  if (direction === 'right' && !working) return null;
-  const distance = sustainable === 0 ? 2 : Math.min(2, Math.abs(hourlyAverage / sustainable - 1));
-  // A 48 px repeat moves at 18 px/s per unit of relative distance, capped at 36 px/s.
-  return { direction, durationSeconds: 48 / (18 * distance) };
+export function trendFlow(trend: QuotaWindowSnapshot['trend']): { direction: 'left' | 'right'; durationSeconds: number } | null {
+  if (trend === 'accelerating') return { direction: 'right', durationSeconds: FLOW_DURATION_SECONDS };
+  if (trend === 'slowing-down') return { direction: 'left', durationSeconds: FLOW_DURATION_SECONDS };
+  return null;
 }
