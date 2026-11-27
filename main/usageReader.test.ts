@@ -29,6 +29,7 @@ interface Calls {
 
 function reader(overrides: Partial<UsageReaderDeps>, accounts: AccountConfig[] = [account('a1')]) {
   const calls: Calls = { refresh: [], snapshot: [], cli: [], sources: [], fetchErrors: [] };
+  const clock = { now: new Date('2026-11-04T14:55:00Z') };
   const deps: UsageReaderDeps = {
     accounts: () => accounts,
     isConnected: () => true,
@@ -39,17 +40,18 @@ function reader(overrides: Partial<UsageReaderDeps>, accounts: AccountConfig[] =
     },
     refresh: (mode) => { calls.refresh.push(mode); return Promise.resolve(); },
     cliUsage: (cfg) => { calls.cli.push(cfg.id); return Promise.resolve(parseUsageRun({ exitCode: 0, stdout: fixture('usage-ok') }, 'fake')); },
+    cliIntervalMs: () => 30 * 60 * 1000,
     recordSource: (id, source) => { calls.sources.push([id, source]); },
     localInsights: () => Promise.resolve(null),
     describeProblem: (err): AccountProblem => (err instanceof CoreProviderError && err.reason === 'not_read_yet'
       ? { refreshing: true }
       : { lastError: err instanceof Error ? err.message : 'error' }),
     onFetchError: (_provider, err) => { calls.fetchErrors.push(err); },
-    now: () => new Date('2026-11-04T14:55:00Z'),
+    now: () => clock.now,
     logError: () => undefined,
     ...overrides,
   };
-  return { reader: createUsageReader(deps), calls };
+  return { reader: createUsageReader(deps), calls, clock };
 }
 
 const down = (reason: 'not_running' | 'unknown_account' | 'unauthorized' = 'not_running') => () => Promise.reject(new ServiceUnusableError(reason, 'no service'));
@@ -149,3 +151,57 @@ test('a refresh that fails for another reason than no service propagates', async
   await assert.rejects(r.read('manual'), /boom/);
 });
 
+
+test('an answer about one account (refused, unreadable) does not turn the service off for the others', async () => {
+  for (const reason of ['rejected', 'failed', 'malformed'] as const) {
+    const { reader: r, calls } = reader({
+      snapshot: (cfg) => {
+        calls.snapshot.push(cfg.id);
+        return cfg.id === 'bad' ? Promise.reject(new ServiceUnusableError(reason, 'one account')) : Promise.resolve(parseServiceSnapshot(200, fixture('service/snapshot'), 'fake'));
+      },
+    }, [account('bad'), account('a1')]);
+    const snapshot = await r.read(null);
+    assert.equal(r.serviceDown(), false, reason);
+    assert.deepEqual(calls.snapshot, ['bad', 'a1']);
+    assert.deepEqual(calls.cli, ['bad']);
+    assert.equal(at(snapshot.accounts, 0).serviceDown, undefined);
+    assert.equal(at(snapshot.accounts, 1).windows.length, 4);
+  }
+});
+
+test('without a service the CLI runs once per interval; manual reuses a read under a minute, forced always reads', async () => {
+  const { reader: r, calls, clock } = reader({ snapshot: down(), refresh: down() });
+  await r.read(null);
+  assert.deepEqual(calls.cli, ['a1']);
+  // A plain read (settings change, widget poll) shows the last answer.
+  clock.now = new Date(clock.now.getTime() + 5 * 60 * 1000);
+  await r.read(null);
+  assert.deepEqual(calls.cli, ['a1']);
+  await r.read('manual');
+  assert.deepEqual(calls.cli, ['a1', 'a1']);
+  clock.now = new Date(clock.now.getTime() + 30 * 1000);
+  await r.read('manual');
+  assert.deepEqual(calls.cli, ['a1', 'a1']);
+  await r.read('forced');
+  assert.deepEqual(calls.cli, ['a1', 'a1', 'a1']);
+  // The interval passed: a plain read runs the CLI again.
+  clock.now = new Date(clock.now.getTime() + 30 * 60 * 1000);
+  await r.read(null);
+  assert.equal(calls.cli.length, 4);
+});
+
+test('without a service a failed CLI read keeps the last good values, stale with the error', async () => {
+  let fail = false;
+  const { reader: r } = reader({
+    snapshot: down(),
+    cliUsage: () => (fail ? Promise.reject(new Error('claude timed out')) : Promise.resolve(parseUsageRun({ exitCode: 0, stdout: fixture('usage-ok') }, 'fake'))),
+  });
+  const first = at((await r.read(null)).accounts, 0);
+  fail = true;
+  const second = at((await r.read('forced')).accounts, 0);
+  assert.equal(second.stale, true);
+  assert.equal(second.lastError, 'claude timed out');
+  assert.equal(second.lastUpdatedAt, first.lastUpdatedAt);
+  assert.deepEqual(second.quotaWindows, first.quotaWindows);
+  assert.equal(second.serviceDown, true);
+});

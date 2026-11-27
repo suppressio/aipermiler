@@ -198,7 +198,7 @@ Every provider is read by the Go core CLI since #179 (no TypeScript usage servic
 A failure is an explicit error (contract error codes → `CoreProviderError`, `FormatDriftError`, `CoreBinaryError`…) — never `null`/`undefined` silently. No `dailyHistory` from providers: the core's service records the history on its refresh loop and computes the pace; Electron reads its pacing snapshot (`main/usageReader.ts`, #341) and keeps no history. Adding a provider = an adapter in `gocore/internal/` (registered in `provider.Default()`, fixtures, docs/CORE-CLI.md) + a branch in every function of `main/providers.ts` (exhaustive switches make tsc fail if one is forgotten) and in `main/coreRequests.ts` + a detail template in `settings.html` + dictionary keys.
 
 ### Error handling
-- Every network call has an explicit timeout (max 10 seconds) — use `services/_http.ts`.
+- Every network call has an explicit timeout (max 10 seconds) — use `services/_http.ts`. One exception: `POST /api/v1/refresh` to the core's own loopback service waits for the whole run it asked for (5 min, `main/serviceSnapshot.ts`); every other service call keeps the 10 s limit.
 - If the APIs do not answer, the UI shows the last known data with the timestamp of the last successful update.
 - Never a blank screen or a silent crash: no floating promises (`runDetached` in main, `runGuarded`/`guarded` in the renderer); startup failure shows an error dialog and quits.
 
@@ -259,7 +259,7 @@ Implemented in `budget.ts` (do not duplicate it here: update this section only i
 - `hasPacing`, `repairFirstDayBaseline` — a billing cycle of unknown length has no pacing (also the tie-break of `pickCriticalWindow`); first history point on the period start day gets baseline 0
 - `tokenYield`, `consumptionCause` — value per token (Claude local insights; a cause is stated only with a clear signal)
 - `generateDailyTip` — `{ key, params }` from explicit conditions on the metrics above, never a generic tip; only tips adding an action or a cause (autonomy shortfall, rating, near reset, consumption cause), none restating a number already on the widget
-- `resolveRenewalDate(renewalRule, referenceDate)` — only `{ type: 'dayOfMonth', day }`; `rrule` throws "not supported". Only a fallback: the period end is the window's `resetsAt`, then the provider's `subscriptionRenewsAt`, then the manual day (`main.ts resolvePeriodBounds`); Settings locks the manual field when the provider reports every paced window's reset (`renderer/renewal.ts`)
+- `resolveRenewalDate(renewalRule, referenceDate)` — only `{ type: 'dayOfMonth', day }`; `rrule` throws "not supported". Only a fallback: the period end is the window's `resetsAt`, then the provider's `subscriptionRenewsAt`, then the manual day (`resolvePeriodBounds`, in the Go core's `quotaperiod` and in `core/usage.ts` for the parity); Settings locks the manual field when the provider reports every paced window's reset (`renderer/renewal.ts`)
 
 ### Threshold and pace notifications
 - System notification when usage passes the configured threshold (default **80%**) of the most used window, at most once per day per account (flag in `store.meta.notifiedToday`).
@@ -268,7 +268,7 @@ Implemented in `budget.ts` (do not duplicate it here: update this section only i
 ### Auto-refresh
 - The core's service reads the providers on its own refresh loop (#283: the configured interval, 5 minutes while consumption rises, per-account backoff, 1-minute manual cache; `gocore/internal/refresh/policy`) and keeps the history. Electron has no refresh policy and no history (#341): it reads the service's pacing snapshot once a minute (a loopback read, never a provider read) with one `setTimeout` re-armed after every read, also with the window closed, and sends it to the renderer (`usage:update`).
 - The refresh button, the tray and a sign-in or disconnection send `POST /api/v1/refresh` with their mode (`manual`, `forced`), then read the snapshots. Reads do not overlap: one queued at most, with the stronger mode.
-- Without a service the widget shows the raw values read through the CLI and says the service is not running (owner decision D1 on #181), at the configured interval (default **30 minutes**, at least 5).
+- Without a service the widget shows the raw values read through the CLI and says the service is not running (owner decision D1 on #181), at the configured interval (default **30 minutes**, at least 5); a manual refresh reuses a CLI read under a minute old, a forced one always reads, a failed read keeps the last values as stale. An account whose own answer the service cannot give (not served yet, refused, unreadable) is read the same way, alone, without the note.
 
 ### Update check
 - At startup (packaged app only) and every 24h: GitHub Releases list (not `/releases/latest`, which skips pre-releases; pre-releases are offered only to whoever runs one), one notification per version, download opens in the browser. No electron-updater (unsigned packages).

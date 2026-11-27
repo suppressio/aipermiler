@@ -22,10 +22,12 @@ import type {
   AccountSnapshot,
   ChartDay,
   DailyTip,
+  HistorySettings,
   ProviderId,
   QuotaWindow,
   QuotaWindowSnapshot,
   TokenYield,
+  UsageSnapshot,
   WindowVerdict,
 } from '../types/index';
 
@@ -102,9 +104,11 @@ function str(value: unknown, what: string): string {
   return value;
 }
 
-function oneOf<T extends string>(value: unknown, allowed: readonly T[], what: string): T {
-  if (typeof value !== 'string' || !(allowed as readonly string[]).includes(value)) throw new Shape(`${what} is not one of ${allowed.join(', ')}`);
-  return value as T;
+// An enum value this client does not know (a newer service): read as the neutral value
+// instead of refusing the whole snapshot.
+function oneOfOr<T extends string, F>(value: unknown, allowed: readonly T[], fallback: F, what: string): T | F {
+  if (typeof value !== 'string') throw new Shape(`${what} is not a string`);
+  return (allowed as readonly string[]).includes(value) ? value as T : fallback;
 }
 
 function nullable<T>(value: unknown, parse: (v: Record<string, unknown>) => T, what: string): T | null {
@@ -137,10 +141,13 @@ function parseChartDay(value: unknown, at: string): ChartDay {
 function parseTip(value: unknown, at: string): DailyTip | null {
   if (value === null) return null;
   const tip = record(value, at);
+  const key = oneOfOr(tip.key, TIP_KEYS, null, `${at}.key`);
+  // A tip this client cannot write: no tip.
+  if (key === null) return null;
   const params = record(tip.params, `${at}.params`);
   const numbers: Record<string, number> = {};
-  for (const [key, v] of Object.entries(params)) numbers[key] = num(v, `${at}.params.${key}`);
-  return { key: oneOf(tip.key, TIP_KEYS, `${at}.key`), params: numbers };
+  for (const [name, v] of Object.entries(params)) numbers[name] = num(v, `${at}.params.${name}`);
+  return { key, params: numbers };
 }
 
 function parseWindow(value: unknown, at: string): SnapshotWindow {
@@ -173,12 +180,12 @@ function parseWindow(value: unknown, at: string): SnapshotWindow {
       autonomyHours: numOrNull(h.autonomyHours, `${at}.hourly.autonomyHours`),
     }), `${at}.hourly`),
     instantPace: numOrNull(w.instantPace, `${at}.instantPace`),
-    trend: w.trend === null ? null : oneOf(w.trend, TRENDS, `${at}.trend`),
+    trend: w.trend === null ? null : oneOfOr(w.trend, TRENDS, null, `${at}.trend`),
     ceiling: numOrNull(w.ceiling, `${at}.ceiling`),
     target: numOrNull(w.target, `${at}.target`),
     judgement: {
-      verdict: oneOf(judgement.verdict, VERDICTS, `${at}.judgement.verdict`),
-      reason: judgement.reason === null ? null : oneOf(judgement.reason, REASONS, `${at}.judgement.reason`),
+      verdict: oneOfOr(judgement.verdict, VERDICTS, 'no-pacing' as const, `${at}.judgement.verdict`),
+      reason: judgement.reason === null ? null : oneOfOr(judgement.reason, REASONS, null, `${at}.judgement.reason`),
       autonomyHours: numOrNull(judgement.autonomyHours, `${at}.judgement.autonomyHours`),
     },
     chart: list(w.chart, `${at}.chart`).map((d, i) => parseChartDay(d, `${at}.chart[${String(i)}]`)),
@@ -371,6 +378,23 @@ export function accountWithoutPacing(identity: AccountIdentity, result: CoreUsag
     ...(result ? { lastUpdatedAt: result.fetchedAt } : {}),
     ...(problem ? { stale: true, ...problem } : { stale: false }),
   }, critical);
+}
+
+/**
+ * What Settings reads as each account's last good usage (the renewal day lock,
+ * renderer/renewal.ts), from the last snapshot the app read: Electron no longer keeps a
+ * `lastGood` of its own (#341). Accounts without values are left out.
+ */
+export function lastGoodView(snapshot: UsageSnapshot | null): NonNullable<HistorySettings['lastGood']> {
+  const view: NonNullable<HistorySettings['lastGood']> = {};
+  for (const a of snapshot?.accounts ?? []) {
+    if (!a.lastUpdatedAt || a.quotaWindows.length === 0) continue;
+    view[a.accountId] = {
+      accountId: a.accountId, lastUpdatedAt: a.lastUpdatedAt,
+      planTier: a.planTier, subscriptionRenewsAt: a.subscriptionRenewsAt, quotaWindows: a.quotaWindows,
+    };
+  }
+  return view;
 }
 
 // ---------------------------------------------------------------------------
