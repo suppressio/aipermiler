@@ -375,7 +375,7 @@ Ogni riga dice quanto valgono le quantità. «—» = indefinito, l'indicatore �
 | E11 | **Primo giorno di storico** | nessun punto storico | base: 0 se il periodo è iniziato oggi, altrimenti il valore attuale (il consumo prima della prima lettura è ignoto) |
 | E12 | **Reset durante il giorno** | x₀ = 60, ora 3,5 | used_today = 3,5; il delta del giorno è nullo (non attribuibile) |
 | E13 | **Giorno senza letture** | app chiusa tutto il martedì, ultimo valore salvato lun 60, prima lettura di mer 64 | la base di mer = ultimo valore di lun (60), quindi il delta di mer è 4 e include l'uso di mar; mar non ha punto né barra |
-| E14 | **Finestra count senza totale** | usato 12, totale nullo | utilizzo —, nessun pacing, mai scelta come critica rispetto a una con un valore |
+| E14 | **Finestra count senza totale** | usato 12, totale nullo | utilizzo —, nessun pacing (restano giorni e giorni lavorativi al reset e il grafico), mai scelta come critica rispetto a una con un valore |
 
 ---
 

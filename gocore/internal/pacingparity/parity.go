@@ -295,9 +295,6 @@ func input(s Scenario, loc *time.Location) (snapshot.Input, error) {
 
 func windowOut(w snapshot.WindowSnapshot, h history.State, loc *time.Location) WindowOut {
 	out := WindowOut{ID: w.ID, Verdict: string(w.Judgement.Verdict), Chart: []SlotOut{}, History: historyOut(h, loc)}
-	if !w.HasUsed {
-		return out
-	}
 	if w.HasEfficiency {
 		out.EfficiencyIndex = ptr(w.Efficiency)
 	}
@@ -322,6 +319,8 @@ func windowOut(w snapshot.WindowSnapshot, h history.State, loc *time.Location) W
 			out.AutonomyWorkingDays = ptr(s.Autonomy)
 		}
 		out.Preliminary = s.Preliminary
+	} else if w.HasWorkingUnitsToReset {
+		out.WorkingDaysUntilReset = ptr(w.WorkingUnitsToReset)
 	}
 	if w.HasTodayBudget {
 		out.TodayBudget = &TodayBudgetOut{Budget: w.TodayBudget, UsedToday: w.UsedToday}
