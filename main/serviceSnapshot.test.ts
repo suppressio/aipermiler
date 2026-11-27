@@ -16,6 +16,7 @@ import {
   accountFromSnapshot,
   accountWithoutService,
   createSnapshotClient,
+  lastGoodView,
   parseServiceHistory,
   parseServiceSnapshot,
   type SnapshotClient,
@@ -138,13 +139,38 @@ test('a snapshot error document is the account\'s answer; a malformed pacing mea
   assert.equal(unusableReason(() => parseServiceSnapshot(404, fixture('error-usage'), 'fake')), 'unknown_account');
   const broken = [
     withWeekly((w) => { w.target = '1'; }),
-    withWeekly((w) => { w.judgement = { verdict: 'fine', reason: null, autonomyHours: null }; }),
+    withWeekly((w) => { w.judgement = { verdict: 7, reason: null, autonomyHours: null }; }),
     withWeekly((w) => { w.id = 'monthly'; }),
     withWeekly((w) => { w.chart = null; }),
     JSON.stringify({ ...snapshotDoc(), pacing: { critical: 4, windows: (snapshotDoc().pacing as { windows: unknown[] }).windows } }),
     JSON.stringify({ ...snapshotDoc(), pacing: undefined }),
   ];
   for (const body of broken) assert.equal(unusableReason(() => parseServiceSnapshot(200, body, 'fake')), 'malformed', body.slice(0, 80));
+});
+
+test('enum values this client does not know read as the neutral value, not a broken snapshot', () => {
+  const body = withWeekly((w) => {
+    w.judgement = { verdict: 'cruising', reason: 'vibes', autonomyHours: null };
+    w.trend = 'wobbling';
+    w.tip = { key: 'newTip', params: { x: 1 } };
+  });
+  const read = parseServiceSnapshot(200, body, 'fake');
+  const w = at(read.pacing.windows, 1);
+  assert.deepEqual(w.judgement, { verdict: 'no-pacing', reason: null, autonomyHours: null });
+  assert.equal(w.trend, null);
+  assert.equal(w.tip, null);
+});
+
+test('Settings reads each account\'s last values from the last snapshot (renewal lock)', () => {
+  const account = accountFromSnapshot(IDENTITY, parseServiceSnapshot(200, fixture('service/snapshot'), 'fake'));
+  const empty = accountWithoutService({ ...IDENTITY, accountId: 'a2' }, null, { lastError: 'boom' });
+  const view = lastGoodView({ generatedAt: '2026-11-04T14:55:00Z', accounts: [account, empty] });
+  assert.deepEqual(Object.keys(view), ['a1']);
+  const a1 = view.a1;
+  assert.ok(a1);
+  assert.equal(a1.lastUpdatedAt, '2026-11-04T14:55:00Z');
+  assert.equal(a1.quotaWindows.length, 4);
+  assert.deepEqual(lastGoodView(null), {});
 });
 
 test('unknown fields of the snapshot are ignored (additive v1)', () => {

@@ -26,7 +26,7 @@ import { NOT_READ_YET, ServiceUnusableError } from './main/serviceClient';
 import { AuthorizeUrlRejectedError, loginThroughService } from './main/serviceCopilot';
 import { usableInsightsCache } from './main/localInsights';
 import { createUsageReader } from './main/usageReader';
-import type { RefreshRequestMode } from './main/serviceSnapshot';
+import { lastGoodView, type RefreshRequestMode } from './main/serviceSnapshot';
 import { copilotAccountFlags } from './main/coreRequests';
 import { buildFormatDriftIssueUrl, buildReportIssueUrl, shortError } from './diagnostics/githubIssue';
 import { buildDiagnosticReport, neutralize } from './diagnostics/report';
@@ -471,6 +471,7 @@ const usageReader = createUsageReader({
   snapshot: (cfg, chartDays) => snapshotService.snapshot(cfg.id, cfg.provider, chartDays),
   refresh: (mode) => snapshotService.refresh(mode),
   cliUsage: providers.cliUsage,
+  cliIntervalMs: configuredRefreshIntervalMs,
   recordSource: providers.recordUsageSource,
   localInsights: computeLocalInsightsIfNeeded,
   // States the user acts on, not failures: signed out, Claude Code missing… (main/accountNotice.ts).
@@ -543,7 +544,7 @@ async function refreshOnce(mode: ReadMode): Promise<void> {
     return;
   }
   schedulePoll();
-  timings.lastRefresh = { at: new Date().toISOString(), ms: Date.now() - startedAt };
+  if (visible) timings.lastRefresh = { at: new Date().toISOString(), ms: Date.now() - startedAt };
   updateTrayView(snapshot);
   maybeNotifyThreshold(snapshot);
   maybeNotifyPace(snapshot);
@@ -602,9 +603,11 @@ function setTrayView(choice: TrayBadgeChoice): TrayViewState {
 // renderer they are replaced with a placeholder: it keeps the "is connected?" boolean
 // (used by renderer/settings.ts for "Connected"/"Not connected") without ever exposing
 // the real value.
+// The history Settings reads (the renewal day lock) comes from the last snapshot read
+// from the service (#341): Electron's own `history.lastGood` is no longer written.
 function redactSecretsForRenderer(settings: AppSettings): AppSettings {
   const accounts = Array.isArray(settings.accounts) ? settings.accounts : [];
-  return { ...settings, accounts: accounts.map(providers.redactSecrets) };
+  return { ...settings, accounts: accounts.map(providers.redactSecrets), history: { ...settings.history, lastGood: lastGoodView(lastSnapshot) } };
 }
 
 // The renderer always receives the placeholder version (never the real value): when
