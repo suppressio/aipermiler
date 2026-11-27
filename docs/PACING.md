@@ -375,7 +375,7 @@ Each row says what the quantities are. "—" = undefined, the indicator is hidde
 | E11 | **First day of history** | no history point | baseline: 0 if the period started today, else the current value (consumption before the first refresh is unknown) |
 | E12 | **Reset during the day** | x₀ = 60, now 3.5 | used_today = 3.5; the day's delta is null (not attributable) |
 | E13 | **Day without a refresh** | app closed all of Tue, last stored value Mon 60, Wed first refresh 64 | Wed's baseline = Mon's last value (60), so Wed's delta is 4 and includes Tue's use; Tue has no point and no bar |
-| E14 | **Count window without total** | used 12, total null | utilization —, no pacing, never picked as critical over one with a value |
+| E14 | **Count window without total** | used 12, total null | utilization —, no pacing (days and working days to the reset and the chart stay), never picked as critical over one with a value |
 
 ---
 

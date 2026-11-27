@@ -98,7 +98,8 @@ type Account struct {
 type WindowSnapshot struct {
 	ID string
 	// Used is x (D-3.1), not clamped; HasUsed is false without a utilization
-	// (a count window without total, E14): nothing else is then defined.
+	// (a count window without total, E14): only the readings that do not
+	// depend on it stay defined (days and working units to the reset, chart).
 	Used      float64
 	HasUsed   bool
 	Remaining float64
@@ -106,6 +107,10 @@ type WindowSnapshot struct {
 	Period quotaperiod.Period
 	// Units are the working units of a day-based window with known bounds.
 	Units *quotaperiod.WorkingUnits
+	// WorkingUnitsToReset is set only without a utilization, where there is no
+	// Summary to carry it.
+	WorkingUnitsToReset    float64
+	HasWorkingUnitsToReset bool
 	// DaysToReset are calendar days for billing cycles, 24 h days otherwise.
 	DaysToReset    float64
 	HasDaysToReset bool
@@ -181,6 +186,7 @@ func buildWindow(in Input, w Window) (WindowSnapshot, history.State, bool) {
 	x, ok := pace.Used(w.Used, w.Total, w.Unit)
 	if !ok {
 		snap.Judgement = outlook.Judgement{Verdict: outlook.NoPacing}
+		withoutUtilization(&snap, in, w)
 		return snap, history.State{}, false
 	}
 	snap.Used, snap.HasUsed, snap.Remaining = x, true, pace.Remaining(x)
@@ -268,6 +274,44 @@ func buildWindow(in Input, w Window) (WindowSnapshot, history.State, bool) {
 	}
 	snap.Tip = tip(snap, set.TipDraw)
 	return snap, state, true
+}
+
+// withoutUtilization fills what does not depend on the used quota: the days
+// and working units to the reset and the chart over the history already kept
+// (E14). The percentage metrics stay undefined and nothing is recorded.
+func withoutUtilization(snap *WindowSnapshot, in Input, w Window) {
+	set, loc, now := in.Settings, in.Settings.Location, in.Now
+	period, err := quotaperiod.ResolvePeriod(
+		quotaperiod.Window{Kind: w.Kind, Length: w.Length, ResetsAt: w.ResetsAt},
+		in.Response.SubscriptionRenewsAt, set.Renewal, now, loc)
+	if err != nil {
+		period = quotaperiod.Period{Kind: w.Kind}
+	}
+	snap.Period = period
+	if w.Kind == quotaperiod.RollingHours {
+		return // read in hours, which needs the used quota
+	}
+	state := in.History[w.ID]
+	if !period.End.IsZero() && period.End.After(now) {
+		snap.DaysToReset, snap.HasDaysToReset = period.DaysUntilReset(now, loc)
+	}
+	units, hasUnits := period.Units(now, loc, set.Schedule, nil)
+	var totalUnits float64
+	if hasUnits {
+		snap.Units, totalUnits = &units, units.Total
+		if !period.End.IsZero() && period.End.After(now) {
+			snap.WorkingUnitsToReset, snap.HasWorkingUnitsToReset = units.Remaining, true
+		}
+	}
+	upcoming := 2
+	if set.ChartDays == 30 {
+		upcoming = 5
+	}
+	snap.Chart = advice.Chart(advice.ChartInput{
+		Points: state.DailyUsage, Schedule: set.Schedule, Start: period.Start, End: period.End,
+		TotalUnits: totalUnits, Now: now, Location: loc, PastDays: set.ChartDays, UpcomingDays: upcoming,
+	})
+	snap.Stats = advice.Summarize(snap.Chart, now, loc)
 }
 
 // localInsights crosses the window's daily deltas with the local tokens

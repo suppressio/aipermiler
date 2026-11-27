@@ -395,6 +395,27 @@ func TestEdgeCases(t *testing.T) {
 			t.Errorf("critical = %d, want the window with a value", res.Account.Critical)
 		}
 	})
+	t.Run("E14 days to reset and chart without a utilization", func(t *testing.T) {
+		t.Parallel()
+		now := at(t, time.October, 20, 10, 0)
+		in := scenario(t, now, 30)
+		in.Response.Windows = []snapshot.Window{{ID: "credits", Kind: quotaperiod.BillingCycle, Length: 1, Unit: pace.Count, Used: 12,
+			ResetsAt: at(t, time.November, 1, 0, 0)}}
+		w := snapshot.Build(in).Account.Windows[0]
+		absent(t, "utilization", w.HasUsed)
+		if !w.HasDaysToReset || w.DaysToReset <= 0 {
+			t.Errorf("days to reset = %v (%v), want a positive value", w.DaysToReset, w.HasDaysToReset)
+		}
+		if !w.HasWorkingUnitsToReset || w.WorkingUnitsToReset <= 0 {
+			t.Errorf("working units to reset = %v (%v), want a positive value", w.WorkingUnitsToReset, w.HasWorkingUnitsToReset)
+		}
+		if len(w.Chart) == 0 {
+			t.Error("no chart without a utilization")
+		}
+		if w.Summary != nil || w.HasEfficiency || w.HasTarget {
+			t.Errorf("percentage metrics without a utilization: %+v", w)
+		}
+	})
 }
 
 // Quantities composed end to end, by id.
