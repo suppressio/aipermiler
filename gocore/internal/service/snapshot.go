@@ -196,30 +196,33 @@ type pacingDoc struct {
 }
 
 type windowDoc struct {
-	ID             string             `json:"id"`
-	Used           *float64           `json:"used"`
-	Remaining      *float64           `json:"remaining"`
-	Period         *periodDoc         `json:"period"`
-	Units          *unitsDoc          `json:"units"`
-	DaysToReset    *float64           `json:"daysToReset"`
-	Efficiency     *float64           `json:"efficiency"`
-	Baseline       *float64           `json:"baseline"`
-	UsedToday      *float64           `json:"usedToday"`
-	TodayBudget    *float64           `json:"todayBudget"`
-	PaceAlert      bool               `json:"paceAlert"`
-	Redistribution *redistributionDoc `json:"redistribution"`
-	Summary        *summaryDoc        `json:"summary"`
-	Hourly         *hourlyDoc         `json:"hourly"`
-	InstantPace    *float64           `json:"instantPace"`
-	Trend          *pace.Trend        `json:"trend"`
-	Ceiling        *float64           `json:"ceiling"`
-	Target         *float64           `json:"target"`
-	Gauge          *float64           `json:"gauge"`
-	Judgement      judgementDoc       `json:"judgement"`
-	Chart          []slotDoc          `json:"chart"`
-	Stats          statsDoc           `json:"stats"`
-	Rating         *ratingDoc         `json:"rating"`
-	Tip            *tipDoc            `json:"tip"`
+	ID          string     `json:"id"`
+	Used        *float64   `json:"used"`
+	Remaining   *float64   `json:"remaining"`
+	Period      *periodDoc `json:"period"`
+	Units       *unitsDoc  `json:"units"`
+	DaysToReset *float64   `json:"daysToReset"`
+	// WorkingUnitsToReset is R at window level: unlike summary's copy it is
+	// defined without a period start (E9) or a utilization (E14).
+	WorkingUnitsToReset *float64           `json:"workingUnitsToReset"`
+	Efficiency          *float64           `json:"efficiency"`
+	Baseline            *float64           `json:"baseline"`
+	UsedToday           *float64           `json:"usedToday"`
+	TodayBudget         *float64           `json:"todayBudget"`
+	PaceAlert           bool               `json:"paceAlert"`
+	Redistribution      *redistributionDoc `json:"redistribution"`
+	Summary             *summaryDoc        `json:"summary"`
+	Hourly              *hourlyDoc         `json:"hourly"`
+	InstantPace         *float64           `json:"instantPace"`
+	Trend               *pace.Trend        `json:"trend"`
+	Ceiling             *float64           `json:"ceiling"`
+	Target              *float64           `json:"target"`
+	Gauge               *float64           `json:"gauge"`
+	Judgement           judgementDoc       `json:"judgement"`
+	Chart               []slotDoc          `json:"chart"`
+	Stats               statsDoc           `json:"stats"`
+	Rating              *ratingDoc         `json:"rating"`
+	Tip                 *tipDoc            `json:"tip"`
 	// TokenYield and ConsumptionCause are the local insights (§3.15, #340),
 	// named as Electron's snapshot names them.
 	TokenYield       *tokenYieldDoc       `json:"tokenYield"`
@@ -319,20 +322,21 @@ func newPacingDoc(a snapshot.Account, loc *time.Location) pacingDoc {
 
 func newWindowDoc(w snapshot.WindowSnapshot, loc *time.Location) windowDoc {
 	d := windowDoc{
-		ID:          w.ID,
-		Used:        opt(w.Used, w.HasUsed),
-		Remaining:   opt(w.Remaining, w.HasUsed),
-		DaysToReset: opt(w.DaysToReset, w.HasDaysToReset),
-		Efficiency:  opt(w.Efficiency, w.HasEfficiency),
-		Baseline:    opt(w.Baseline, w.HasBaseline),
-		UsedToday:   opt(w.UsedToday, w.HasUsedToday),
-		TodayBudget: opt(w.TodayBudget, w.HasTodayBudget),
-		PaceAlert:   w.PaceAlert,
-		InstantPace: opt(w.InstantPace, w.HasInstantPace),
-		Trend:       opt(w.Trend, w.HasTrend),
-		Ceiling:     opt(w.Ceiling, w.HasCeiling),
-		Target:      opt(w.Target, w.HasTarget),
-		Gauge:       opt(w.Gauge, w.HasGauge),
+		ID:                  w.ID,
+		Used:                opt(w.Used, w.HasUsed),
+		Remaining:           opt(w.Remaining, w.HasUsed),
+		DaysToReset:         opt(w.DaysToReset, w.HasDaysToReset),
+		WorkingUnitsToReset: opt(w.UnitsToReset, w.HasUnitsToReset && w.Hourly == nil),
+		Efficiency:          opt(w.Efficiency, w.HasEfficiency),
+		Baseline:            opt(w.Baseline, w.HasBaseline),
+		UsedToday:           opt(w.UsedToday, w.HasUsedToday),
+		TodayBudget:         opt(w.TodayBudget, w.HasTodayBudget),
+		PaceAlert:           w.PaceAlert,
+		InstantPace:         opt(w.InstantPace, w.HasInstantPace),
+		Trend:               opt(w.Trend, w.HasTrend),
+		Ceiling:             opt(w.Ceiling, w.HasCeiling),
+		Target:              opt(w.Target, w.HasTarget),
+		Gauge:               opt(w.Gauge, w.HasGauge),
 		Judgement: judgementDoc{
 			Verdict:       w.Judgement.Verdict,
 			Reason:        opt(w.Judgement.Reason, w.Judgement.Reason != outlook.ReasonNone),
