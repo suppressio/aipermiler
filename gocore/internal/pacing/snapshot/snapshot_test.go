@@ -666,3 +666,20 @@ func TestUnitsToResetWithoutPeriodStart(t *testing.T) {
 		t.Error("R undefined, want 8")
 	}
 }
+
+// E9 with E14: a count window without total and without a period start still
+// gets its working units to the reset from the reset and the schedule.
+func TestUnitsToResetWithoutStartOrUtilization(t *testing.T) {
+	t.Parallel()
+	in := scenario(t, at(t, time.October, 21, 11, 0), 30)
+	in.Response.Windows = []snapshot.Window{{ID: "credits", Kind: quotaperiod.BillingCycle, Length: 0, Unit: pace.Count, Used: 12,
+		ResetsAt: at(t, time.November, 1, 0, 0)}}
+	w := snapshot.Build(in).Account.Windows[0]
+	absent(t, "utilization", w.HasUsed)
+	if w.Units != nil {
+		t.Fatalf("units %+v, want none without a period start", w.Units)
+	}
+	if !w.HasUnitsToReset || w.UnitsToReset <= 0 {
+		t.Errorf("working units to reset = %v (%v), want a positive value", w.UnitsToReset, w.HasUnitsToReset)
+	}
+}
