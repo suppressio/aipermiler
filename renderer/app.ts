@@ -19,7 +19,7 @@ import { windowLabel } from './windowLabel.js';
 import { accountStatusLabel } from './accountStatus.js';
 import { byId } from './dom.js';
 import { applySeverity, severityLevel, todaySeverity } from './severity.js';
-import { GAUGE_TARGET_POSITION, GAUGE_TICK_RATIOS, gaugePosition } from './gauge.js';
+import { GAUGE_TARGET_POSITION, GAUGE_TICK_RATIOS, gaugeLabelParts, gaugePosition } from './gauge.js';
 import { localDateKey, parseDateKey } from './dates.js';
 import { showAutonomy, showPeakAvg, showStreak } from './visibility.js';
 import { createAlarmPulse, motionState } from './motion.js';
@@ -459,9 +459,14 @@ function renderInstantGauge(winSnap: QuotaWindowSnapshot | undefined): void {
     label.textContent = t('widget.gauge.waiting');
     return;
   }
-  label.textContent = sustainable !== null
-    ? t('widget.gauge.withTarget', { rate: formatRate(instant), target: formatRate(sustainable) })
-    : formatRate(instant);
+  const ceiling = winSnap?.ceiling ?? null;
+  switch (gaugeLabelParts(sustainable, ceiling)) {
+    case 'rate': label.textContent = formatRate(instant); break;
+    case 'withTarget': label.textContent = t('widget.gauge.withTarget', { rate: formatRate(instant), target: formatRate(sustainable) }); break;
+    case 'withTargetAndLimit':
+      label.textContent = t('widget.gauge.withTargetAndLimit', { rate: formatRate(instant), target: formatRate(sustainable), limit: formatRate(ceiling) });
+      break;
+  }
 
   const width = container.clientWidth || 300;
   const height = 20;

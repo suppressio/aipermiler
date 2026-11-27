@@ -221,7 +221,12 @@ export interface QuotaWindowSnapshot {
   // reach exactly 100% at the reset — see budget.instantaneousRate /
   // budget.sustainableHourlyRate.
   instantRate: number | null;
+  // The gauge's reference: the target T of D-3.13 from the core (never above the
+  // ceiling, never rising because the reset is near, #72).
   sustainableRate: number | null;
+  // The ceiling C of D-3.12: the fastest pace that does not exhaust the quota before the
+  // reset. A limit, not a target: the gauge label shows it apart when it is above T (#72).
+  ceiling: number | null;
   // The instant trend (D-3.28, the core's snapshot): the gauge arrows (#304). null when
   // it cannot be measured, also while the last read failed.
   trend: 'accelerating' | 'slowing-down' | 'steady' | null;

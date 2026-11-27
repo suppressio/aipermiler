@@ -86,6 +86,7 @@ How fast you are using the quota right now, in % of the quota per hour.
 
 - **How it is computed**: the rise in usage over about the last hour of readings. While usage is rising the AIpermiler service reads the provider every 5 minutes, otherwise at the interval set in Settings (30 minutes by default).
 - **Target** (the white marker): the even hourly share of the quota over the working hours of the period; when you are behind, the lower pace that brings you exactly to 100% at the reset. It never rises because the reset is near.
+- **Limit** (shown after the target when higher, e.g. `0.6%/h · target 0.6%/h · limit 331%/h`): the fastest pace that still does not run out before the reset. It is a ceiling, not a pace to aim for: near the reset it grows very large while the target stays the same.
 - **How to read it**: the marker is always in the middle. The faint ticks mark half the target (left) and twice the target (right), and the far right end is four times the target or more. The bar turns red above the target. A short burst is fine; a bar that stays red for hours is what to watch.
 - **Background arrows**: they show where your pace is heading. `>>>` means it is speeding up, `<<<` that it is slowing down: the pace of the last hour compared with the same measure 30 minutes earlier, beyond the noise of the readings. They span the whole bar and disappear when the pace is steady, while waiting for enough readings, or when the last reading failed. They show only with window animations on and the system's reduced motion off.
 

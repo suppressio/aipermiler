@@ -35,7 +35,8 @@ export const en = {
   'widget.gauge.title': 'Instant consumption',
   'widget.gauge.waiting': 'Waiting for more samples…',
   'widget.gauge.withTarget': '{rate} · target {target}',
-  'widget.gauge.sustainable': 'Sustainable pace: {rate}',
+  'widget.gauge.withTargetAndLimit': '{rate} · target {target} · limit {limit}',
+  'widget.gauge.sustainable': 'Target pace: {rate}',
 
   // --- Widget: daily chart ---------------------------------------------------
   'widget.chart.title': 'Daily consumption vs budget ({days}d)',

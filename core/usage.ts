@@ -260,6 +260,7 @@ export function computeWindowSnapshot(
     // budget.ts has no trend (D-3.28 exists only in the Go core).
     trend: null,
     sustainableRate,
+    ceiling: null,
     efficiencyRating,
     tokenYield: localDaily ? budget.tokenYield(localDaily, dailyDeltasForWindow) : null,
     dailyTip: budget.generateDailyTip({

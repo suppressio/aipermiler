@@ -7,6 +7,8 @@
     {"id": "G-10", "description": "5-hour window, 2 h left (calendar)", "remaining": 33, "working": 0, "calendar": 2, "ok": true, "want": 16.5},
     {"id": "G-11", "description": "quota exhausted", "remaining": 0, "working": 69, "calendar": 200, "ok": true, "want": 0},
     {"id": "G-12", "description": "near the reset the ceiling explodes", "remaining": 33.1, "working": 0.1, "calendar": 7, "ok": true, "want": 331},
+    {"id": "D-3.12", "description": "#72 start of a 7-day window: rem 100 over 56 working h", "remaining": 100, "working": 56, "calendar": 168, "ok": true, "want": 1.7857142857142858},
+    {"id": "D-3.12", "description": "#72 quota nearly exhausted: rem 0.5 over 40 working h", "remaining": 0.5, "working": 40, "calendar": 120, "ok": true, "want": 0.0125},
     {"id": "D-3.12", "description": "no working time left falls back to calendar hours", "remaining": 10, "working": 0, "calendar": 20, "ok": true, "want": 0.5},
     {"id": "D-3.12", "description": "reset already past", "remaining": 10, "working": 5, "calendar": 0, "ok": false},
     {"id": "D-3.12", "description": "reset in the past, negative hours", "remaining": 0, "working": 0, "calendar": -3, "ok": false}
@@ -19,6 +21,9 @@
     {"id": "G-10", "description": "5-hour window behind", "ceiling": 16.5, "hasCeiling": true, "ideal": 20, "hasIdeal": true, "ok": true, "want": 16.5},
     {"id": "G-11", "description": "exhausted: T = 0", "ceiling": 0, "hasCeiling": true, "ideal": 0.5681818181818182, "hasIdeal": true, "ok": true, "want": 0},
     {"id": "G-12", "description": "#72: near the reset T is the even share, not 331", "ceiling": 331, "hasCeiling": true, "ideal": 0.5681818181818182, "hasIdeal": true, "ok": true, "want": 0.5681818181818182},
+    {"id": "D-3.13", "description": "#72 start of the window: C equals s_h, T = s_h", "ceiling": 1.7857142857142858, "hasCeiling": true, "ideal": 1.7857142857142858, "hasIdeal": true, "ok": true, "want": 1.7857142857142858},
+    {"id": "D-3.13", "description": "#72 middle of the window, on pace: C 1.79 > s_h 1.70, T = s_h", "ceiling": 1.7857142857142858, "hasCeiling": true, "ideal": 1.7, "hasIdeal": true, "ok": true, "want": 1.7},
+    {"id": "D-3.13", "description": "#72 quota nearly exhausted: T = C, far below s_h", "ceiling": 0.0125, "hasCeiling": true, "ideal": 1.7857142857142858, "hasIdeal": true, "ok": true, "want": 0.0125},
     {"id": "D-3.13", "description": "period start unknown", "ceiling": 0.5, "hasCeiling": true, "ideal": 0, "hasIdeal": false, "ok": false},
     {"id": "D-3.13", "description": "reset missing or past", "ceiling": 0, "hasCeiling": false, "ideal": 0.5, "hasIdeal": true, "ok": false}
   ],
