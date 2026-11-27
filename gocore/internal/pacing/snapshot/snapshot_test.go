@@ -406,8 +406,8 @@ func TestEdgeCases(t *testing.T) {
 		if !w.HasDaysToReset || w.DaysToReset <= 0 {
 			t.Errorf("days to reset = %v (%v), want a positive value", w.DaysToReset, w.HasDaysToReset)
 		}
-		if !w.HasWorkingUnitsToReset || w.WorkingUnitsToReset <= 0 {
-			t.Errorf("working units to reset = %v (%v), want a positive value", w.WorkingUnitsToReset, w.HasWorkingUnitsToReset)
+		if !w.HasUnitsToReset || w.UnitsToReset <= 0 {
+			t.Errorf("working units to reset = %v (%v), want a positive value", w.UnitsToReset, w.HasUnitsToReset)
 		}
 		if len(w.Chart) == 0 {
 			t.Error("no chart without a utilization")
