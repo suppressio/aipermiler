@@ -387,6 +387,10 @@ function reportInterpretation(accountId: AccountId, accounts: Pick<ReportAccount
       redistribution: w.redistribution,
       todayBudget: w.todayBudget,
       paceAlert: w.paceAlert,
+      // The instant gauge (#72): the pace, the target it shows, and the ceiling when different.
+      instantRate: w.instantRate,
+      gaugeTarget: w.sustainableRate,
+      ceiling: w.ceiling !== null && w.ceiling !== w.sustainableRate ? w.ceiling : null,
       preliminary: w.preliminary,
       efficiencyIndex: w.efficiencyIndex,
       projectedUsage: w.projectedUsage,

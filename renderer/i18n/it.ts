@@ -32,7 +32,8 @@ export const it: Record<MessageKey, string> = {
   'widget.gauge.title': 'Consumo istantaneo',
   'widget.gauge.waiting': 'In attesa di più campioni…',
   'widget.gauge.withTarget': '{rate} · target {target}',
-  'widget.gauge.sustainable': 'Ritmo sostenibile: {rate}',
+  'widget.gauge.withTargetAndLimit': '{rate} · target {target} · limite {limit}',
+  'widget.gauge.sustainable': 'Ritmo obiettivo: {rate}',
 
   'widget.chart.title': 'Consumo giornaliero vs budget ({days}gg)',
   'widget.chart.titleEmpty': 'Consumo giornaliero vs budget',

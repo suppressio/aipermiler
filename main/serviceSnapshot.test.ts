@@ -69,6 +69,8 @@ test('snapshot fixture: mapped to the widget types, exact values (I-4), null sta
   assert.equal(fiveHour.instantRate, 11);
   // The gauge's reference is the target (D-3.13), not the ceiling.
   assert.equal(fiveHour.sustainableRate, 20);
+  // The ceiling stays apart as a limit (#72).
+  assert.equal(fiveHour.ceiling, 35);
   assert.deepEqual(fiveHour.verdict, { kind: 'on-track' });
   // The instant trend (D-3.28) drives the gauge arrows (#304).
   assert.equal(fiveHour.trend, 'accelerating');

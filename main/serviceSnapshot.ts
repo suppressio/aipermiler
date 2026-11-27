@@ -281,6 +281,7 @@ export function windowSnapshotOf(window: QuotaWindow, w: SnapshotWindow): QuotaW
     trend: w.trend,
     // The gauge's reference is the target T of D-3.13 (never above the ceiling).
     sustainableRate: w.target,
+    ceiling: w.ceiling,
     efficiencyRating: w.rating ? { stars: w.rating.stars, avgRatio: w.rating.average } : null,
     dailyTip: w.tip ?? { key: 'none', params: {} },
     tokenYield: w.tokenYield,
@@ -362,6 +363,7 @@ export function accountWithoutPacing(identity: AccountIdentity, result: CoreUsag
     instantRate: null,
     trend: null,
     sustainableRate: null,
+    ceiling: null,
     efficiencyRating: null,
     dailyTip: { key: 'none', params: {} },
     tokenYield: null,

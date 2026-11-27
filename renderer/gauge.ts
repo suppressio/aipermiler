@@ -17,3 +17,14 @@ export function gaugePosition(instant: number, target: number): number {
   const position = GAUGE_TARGET_POSITION + Math.log2(instant / target) / 4;
   return Math.min(1, Math.max(MIN_VISIBLE_POSITION, position));
 }
+
+/**
+ * What the gauge label states (#72): the pace, the target, and the ceiling apart, as a
+ * limit, when it is above the target. Near the reset the ceiling explodes (331 %/h)
+ * while the target stays at the even share: showing it as "target" read as "go 20×
+ * faster". When the user is behind, target and ceiling are the same number: once.
+ */
+export function gaugeLabelParts(target: number | null, ceiling: number | null): 'rate' | 'withTarget' | 'withTargetAndLimit' {
+  if (target === null) return 'rate';
+  return ceiling !== null && ceiling > target * (1 + 1e-9) ? 'withTargetAndLimit' : 'withTarget';
+}
