@@ -26,6 +26,7 @@ export const it: Record<MessageKey, string> = {
   'widget.withError': '{label} ({error})',
   'widget.serviceRefreshing': '{label} — aggiornamento in corso (ultimo aggiornamento: {time})',
   'widget.serviceRefreshingFirst': 'Aggiornamento in corso…',
+  'widget.serviceDown': '{label} — il servizio AIpermiler non è attivo: solo consumi, niente ritmo',
   'widget.error': 'Errore: {message}',
 
   'widget.gauge.title': 'Consumo istantaneo',

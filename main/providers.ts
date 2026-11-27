@@ -13,10 +13,9 @@
 // `switch` on `provider` makes tsc fail when one is forgotten).
 
 import { copilotService, core, coreService } from './core';
-import { requireFresh, type CoreUsageResult } from './coreClient';
+import type { CoreUsageResult } from './coreClient';
 import { oneAtATime } from './oneAtATime';
 import { readUsageWithFallback, type UsageSourceRecord } from './serviceClient';
-import type { AccountRead } from '../core/usage';
 import { claudeUsageRequest, codexUsageRequest, copilotAccountFlags, copilotUsageRequest } from './coreRequests';
 import { clearClaudePartition } from './claude-auth';
 import { PROVIDER_DISPLAY_NAMES } from '../store/migrate';
@@ -55,8 +54,8 @@ const oneClaudeReadAtATime = oneAtATime();
 export const CLAUDE_CORE_ENDPOINT_LABEL = 'core: claude /usage status line rate_limits';
 
 
-/** The CLI read of the account's usage (the fallback when no service serves it). */
-function cliUsage(cfg: AccountConfig): Promise<CoreUsageResult> {
+/** The CLI read of the account's usage (only when no service serves it, #341). */
+export function cliUsage(cfg: AccountConfig): Promise<CoreUsageResult> {
   switch (cfg.provider) {
     case 'codex':
       return core.usage(codexUsageRequest(cfg));
@@ -75,6 +74,10 @@ export function lastUsageSource(accountId: AccountId): UsageSourceRecord | null 
   return usageSources.get(accountId) ?? null;
 }
 
+export function recordUsageSource(accountId: AccountId, source: UsageSourceRecord): void {
+  usageSources.set(accountId, source);
+}
+
 /**
  * The account's usage document from the core's service when one serves it, else from
  * the CLI. While the service serves an account the app never probes it itself (#182 (d)):
@@ -82,15 +85,6 @@ export function lastUsageSource(accountId: AccountId): UsageSourceRecord | null 
  */
 function readUsage(cfg: AccountConfig): Promise<{ result: CoreUsageResult; source: UsageSourceRecord['source'] }> {
   return readUsageWithFallback(coreService, cfg.id, cfg.provider, () => cliUsage(cfg), (source) => { usageSources.set(cfg.id, source); });
-}
-
-/**
- * The account's fresh usage. A service document carries the time its loop read it
- * (core/usage.ts records a sample only when that is newer, #182 (a)); a CLI read is now.
- */
-export async function fetchUsage(cfg: AccountConfig): Promise<AccountRead> {
-  const { result, source } = await readUsage(cfg);
-  return { usage: requireFresh(result, cfg.provider), fetchedAt: source === 'service' ? result.fetchedAt : null };
 }
 
 /**

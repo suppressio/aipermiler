@@ -1,135 +1,31 @@
-// core/usage.ts — fetch orchestration and snapshot computation, with no Electron.
-// Extracted from main.ts (docs/EVOLUTION.md 2a): everything that turns the accounts
-// and the provider answers into a UsageSnapshot, with the store, the provider fetch,
-// the local insights, the clock and the error reporting injected (UsageCoreDeps).
-// main.ts keeps the Electron wiring (windows, tray, IPC, timers, notifications); tests
-// and the headless CLI (2b) build the same core over an in-memory store.
+// core/usage.ts — budget.ts's snapshot of an account, kept only as the reference side
+// of the pacing parity (scripts/pacing-parity.js, #325; real histories #323) until the
+// port to Go closes (#75, #166). The app no longer uses it (#341): the core's service
+// keeps the history and computes the pace, Electron reads its snapshot
+// (main/usageReader.ts). No fetch, no store, no refresh policy here: pure functions over
+// an in-memory history draft.
 
 import * as budget from '../budget';
-import * as refreshPolicy from '../main/refreshPolicy';
-import type { AccountFetchState, RefreshMode } from '../main/refreshPolicy';
 import type {
   AccountConfig,
   AccountId,
   AccountSnapshot,
   ClaudeLocalInsights,
   DailyUsagePoint,
-  HistorySettings,
-  ProviderId,
   QuotaWindow,
   QuotaWindowSnapshot,
   RawAccountUsage,
   RecentUsageSample,
   RenewalRule,
-  UiSettings,
-  UsageSnapshot,
   WorkSchedule,
 } from '../types/index';
 
-const DEFAULT_REFRESH_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes, as per AGENTS.md
-
-/** The configured refresh interval (at least 5 minutes). */
-export function refreshIntervalMs(ui: Pick<UiSettings, 'refreshIntervalMinutes'>): number {
-  const intervalMinutes = ui.refreshIntervalMinutes || DEFAULT_REFRESH_INTERVAL_MS / (60 * 1000);
-  return Math.max(5, intervalMinutes) * 60 * 1000;
-}
-
-/** The part of the settings store the core reads and writes (main.ts: the electron-store). */
-export interface UsageStore {
-  accounts(): AccountConfig[];
-  ui(): Pick<UiSettings, 'chartRange' | 'refreshIntervalMinutes'>;
-  history(): HistorySettings;
-  setHistory(history: HistorySettings): void;
-  setLastGood(accountId: AccountId, usage: StampedUsage): void;
-}
-
-/**
- * One read of an account: the usage, and when it was read when that is not now. A read
- * through the core's service (#182) returns the document the service holds, read by its
- * own loop at `fetchedAt`; a CLI read is fresh (null).
- */
-export interface AccountRead {
-  usage: RawAccountUsage;
-  fetchedAt: string | null;
-}
-
-export interface UsageCoreDeps {
-  store: UsageStore;
-  /** Reads the account through the core's service or CLI (main/providers.ts). */
-  fetchUsage(cfg: AccountConfig): Promise<AccountRead>;
-  isConnected(cfg: AccountConfig): boolean;
-  /** Local Claude Code insights, cached by the caller; only asked for opted-in Claude accounts. */
-  localInsights(): Promise<ClaudeLocalInsights | null>;
-  /** Readable message of a fetch error, shown with the stale data. */
-  describeError(err: unknown): string;
-  /**
-   * A failed fetch that is a state the user has to act on rather than a failure (Codex
-   * signed out, #178): its message, shown as AccountSnapshot.notice instead of
-   * lastError. null = an error.
-   */
-  accountNotice(err: unknown): string | null;
-  /**
-   * A failed fetch that only means "not read yet": the core's service restarted and has
-   * not read the account since (#182). Shown as a neutral refreshing state, not logged as
-   * a failure.
-   */
-  refreshing(err: unknown): boolean;
-  /** Called on every failed fetch, before falling back to the last good data (format drift report). */
-  onFetchError(provider: ProviderId, err: unknown): void;
-  now(): Date;
-  logError(message: string, ...details: unknown[]): void;
-}
-
-export type StampedUsage = RawAccountUsage & { accountId: AccountId; lastUpdatedAt: string; stale: boolean; lastError?: string; notice?: string; refreshing?: boolean };
-
-// Why an account has no fresh data: an error, a state the user has to act on, or the
-// service not having read it yet.
-type AccountProblem = { lastError: string } | { notice: string } | { refreshing: true };
-
-// ---------------------------------------------------------------------------
-// Local history: neither Claude nor Copilot provides a daily history via API (see
-// docs/RESEARCH.md), so we build it ourselves, one point per day, on every successful
-// refresh.
-// ---------------------------------------------------------------------------
-// The store is encrypted and electron-store re-reads and decrypts the whole file on
-// every get (and re-encrypts and writes it on every set), synchronously on the main
-// thread: one get/set pair per window per refresh could block the app for seconds on a
-// slower machine (the Settings window stayed blank). A refresh therefore works on an
-// in-memory draft of the history, read once and written once (commitHistoryDraft).
+// The history the snapshot reads and updates, in memory: daily points and recent
+// samples, as Electron kept them until #341 (the parity script builds it per scenario).
 export interface HistoryDraft {
   dailyUsage: DailyUsagePoint[];
   recentSamples: RecentUsageSample[];
   chartDays: number;
-}
-
-function openHistoryDraft(store: UsageStore): HistoryDraft {
-  const history = store.history();
-  return {
-    dailyUsage: history.dailyUsage,
-    recentSamples: history.recentSamples,
-    chartDays: store.ui().chartRange === 'month' ? 30 : 7,
-  };
-}
-
-// Samples are kept for the whole current day (the working span comes from the day's
-// samples, budget.todayActivitySpan) and at least this long (margin above the 1h
-// lookback of budget.instantaneousRate and its anchor, also right after midnight).
-// Still small: one append per fetch, every 5 min at most while consumption rises.
-const RECENT_SAMPLES_MIN_AGE_MS = 4 * 60 * 60 * 1000;
-
-// Prunes and writes the draft in a single store write. The rest of `history` is read
-// again here, so what was written meanwhile (lastGood, during the fetches) is kept.
-function commitHistoryDraft(store: UsageStore, draft: HistoryDraft, now: Date): void {
-  const history = store.history();
-  const dailyCutoff = new Date(now);
-  dailyCutoff.setDate(dailyCutoff.getDate() - history.retentionDays);
-  const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
-  const sampleCutoff = Math.min(startOfToday, now.getTime() - RECENT_SAMPLES_MIN_AGE_MS);
-  store.setHistory({
-    ...history,
-    dailyUsage: draft.dailyUsage.filter((h) => new Date(h.date) >= dailyCutoff),
-    recentSamples: draft.recentSamples.filter((s) => new Date(s.timestamp).getTime() >= sampleCutoff),
-  });
 }
 
 // Returns today's point (with its baseline and first activity, see
@@ -356,6 +252,7 @@ export function computeWindowSnapshot(
     workingDaysUntilReset,
     estimatedAutonomyWorkingDays,
     todayBudget,
+    paceAlert: todayBudget !== null && todayBudget.budget > 0 && todayBudget.usedToday > todayBudget.budget * budget.PACE_ALERT_RATIO,
     redistribution,
     hourly,
     preliminary,
@@ -429,134 +326,3 @@ export function computeAccountSnapshot(
 // cannot tell "not connected" from "connected but the sync just failed", and shows the
 // wrong message ("No account connected") even when the account IS connected — see
 // AGENTS.md, "never a blank screen or silent failure".
-function emptyAccountSnapshot(cfg: AccountConfig, problem: AccountProblem): AccountSnapshot {
-  return {
-    accountId: cfg.id,
-    provider: cfg.provider,
-    label: cfg.label,
-    planTier: null,
-    subscriptionRenewsAt: null,
-    quotaWindows: [],
-    windows: [],
-    criticalWindow: null,
-    dailyHistory: [],
-    efficiencyIndex: null,
-    projectedUsage: null,
-    daysUntilReset: null,
-    workingDaysUntilReset: null,
-    estimatedAutonomyWorkingDays: null,
-    stale: true,
-    ...problem,
-  };
-}
-
-// The last result of an account not fetched in this refresh: stale with the reason
-// while it is in backoff after a failure.
-function cachedUsage(lastGood: Omit<StampedUsage, 'stale'>, problem: AccountProblem | undefined): StampedUsage {
-  return problem === undefined ? { ...lastGood, stale: false } : { ...lastGood, stale: true, ...problem };
-}
-
-// Whether any window of a freshly fetched account rose since its last sample: the
-// next refresh then comes at the fast pace (main/refreshPolicy.ts).
-function windowsRose(draft: HistoryDraft, accountId: AccountId, windows: QuotaWindow[]): boolean {
-  return windows.some((window) => {
-    const utilization = budget.normalizedUtilization(window);
-    const last = getRecentSamples(draft, accountId, window.id).at(-1);
-    return utilization !== null && last !== undefined && utilization - last.used > budget.ACTIVITY_EPSILON;
-  });
-}
-
-// Per-account fetch attempts, in memory (main/refreshPolicy.ts): the backoff of a
-// failing provider and the short cache of manual refreshes. Lost on restart, which
-// simply means the first refresh fetches everything.
-// Last fetch error of each account, until a fetch succeeds: a refresh that skips a
-// failing account (backoff) still shows its data as stale, with the reason.
-export function createUsageCore(deps: UsageCoreDeps): { buildUsageSnapshot(mode: RefreshMode): Promise<{ snapshot: UsageSnapshot; consumptionRose: boolean | null }> } {
-  const { store } = deps;
-  const accountFetchStates = new Map<AccountId, AccountFetchState>();
-  const accountFetchErrors = new Map<AccountId, AccountProblem>();
-
-  function describeProblem(err: unknown): AccountProblem {
-    if (deps.refreshing(err)) return { refreshing: true };
-    const notice = deps.accountNotice(err);
-    return notice === null ? { lastError: deps.describeError(err) } : { notice };
-  }
-
-  // `isNew`: values read after the last ones recorded, which become samples. A service
-  // document read no later than the last good one (the same document again, or one older
-  // than a CLI read in between) adds nothing: the last good result is shown, no
-  // duplicate sample (#182 (a)).
-  async function fetchAccountOrFallback(cfg: AccountConfig): Promise<{ usage: StampedUsage; isNew: boolean }> {
-    const accountId = cfg.id;
-    try {
-      const read = await deps.fetchUsage(cfg);
-      accountFetchStates.set(accountId, refreshPolicy.recordFetchAttempt(accountFetchStates.get(accountId), deps.now().getTime(), true));
-      accountFetchErrors.delete(accountId);
-      const lastGood = store.history().lastGood?.[accountId];
-      if (read.fetchedAt !== null && lastGood && !(Date.parse(read.fetchedAt) > Date.parse(lastGood.lastUpdatedAt))) {
-        return { usage: { ...lastGood, stale: false }, isNew: false };
-      }
-      const stamped: StampedUsage = { ...read.usage, accountId, lastUpdatedAt: read.fetchedAt ?? deps.now().toISOString(), stale: false };
-      store.setLastGood(accountId, stamped);
-      return { usage: stamped, isNew: true };
-    } catch (err) {
-      accountFetchStates.set(accountId, refreshPolicy.recordFetchAttempt(accountFetchStates.get(accountId), deps.now().getTime(), false));
-      const error = err as Error;
-      if (!deps.refreshing(err)) deps.logError(`[main] refresh ${accountId} failed:`, error.message);
-      // Reported here (not only in the caller) because a fallback to valid previous data
-      // "absorbs" the error below — without this call a format drift appearing AFTER the
-      // first successful fetch would never be detected.
-      deps.onFetchError(cfg.provider, err);
-      const lastGood = store.history().lastGood?.[accountId];
-      const problem = describeProblem(err);
-      accountFetchErrors.set(accountId, problem);
-      if (!lastGood) throw err; // no previous data: propagate, the caller decides how to show it
-      return { usage: { ...lastGood, stale: true, ...problem }, isNew: false };
-    }
-  }
-
-  // `consumptionRose` is null when no account was fetched (all reused from the last
-  // refresh): nothing new is known, the pace stays as it was.
-  async function buildUsageSnapshot(mode: RefreshMode): Promise<{ snapshot: UsageSnapshot; consumptionRose: boolean | null }> {
-    const now = deps.now();
-    const snapshot: UsageSnapshot = { generatedAt: now.toISOString(), accounts: [] };
-    const intervalMs = refreshIntervalMs(store.ui());
-    let consumptionRose: boolean | null = null;
-
-    // Read once here, written once at the end (see HistoryDraft).
-    const draft = openHistoryDraft(store);
-    for (const cfg of store.accounts()) {
-      if (!cfg.enabled || !deps.isConnected(cfg)) continue;
-      // Local source independent of the account fetch: computed first (the per-window
-      // yield needs it) and shown even if the provider did not answer.
-      const localInsights = cfg.provider === 'claude' && cfg.localInsights ? await deps.localInsights() : null;
-      let account: AccountSnapshot;
-      try {
-        // An account in backoff, or fetched moments ago, keeps its last result: nothing
-        // new is learned, so no sample is recorded (a repeated old value at a new time
-        // would read as a pause in the instant pace).
-        const lastGood = store.history().lastGood?.[cfg.id];
-        const fetchNow = !lastGood || refreshPolicy.shouldFetchAccount(accountFetchStates.get(cfg.id), mode, now.getTime(), intervalMs);
-        const read = fetchNow
-          ? await fetchAccountOrFallback(cfg)
-          : { usage: cachedUsage(lastGood, accountFetchErrors.get(cfg.id)), isNew: false };
-        const raw = read.usage;
-        const fresh = read.isNew;
-        if (fetchNow) consumptionRose = consumptionRose === true || (fresh && windowsRose(draft, cfg.id, raw.quotaWindows));
-        account = computeAccountSnapshot(draft, raw, cfg, now, localInsights, fresh);
-      } catch (err) {
-        const problem = describeProblem(err);
-        if ('lastError' in problem) deps.logError(`[main] ${cfg.label} unavailable and no previous data:`, problem.lastError);
-        else if ('notice' in problem) deps.logError(`[main] ${cfg.label} unavailable and no previous data:`, problem.notice);
-        account = emptyAccountSnapshot(cfg, problem);
-      }
-      if (localInsights) account.localInsights = localInsights;
-      snapshot.accounts.push(account);
-    }
-    commitHistoryDraft(store, draft, now);
-
-    return { snapshot, consumptionRose };
-  }
-
-  return { buildUsageSnapshot };
-}

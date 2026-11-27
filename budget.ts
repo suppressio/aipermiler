@@ -435,7 +435,7 @@ export function redistributedQuota(ctx: Omit<PeriodContext, 'todayElapsedUnits' 
  * sample. Without a recent enough anchor (an older one would average the night or a
  * weekend in), from the oldest sample inside the lookback. Not truly instantaneous —
  * samples arrive with the refreshes, every 5 minutes while consumption rises (see
- * main/refreshPolicy.ts) — but a pause shows within the hour, a burst no longer
+ * gocore/internal/refresh/policy) — but a pause shows within the hour, a burst no longer
  * lingers for three. Returns null when samples are insufficient or the interval is
  * too short (< 5 min) to be meaningful. A negative delta (quota window reset in
  * between) is clamped to 0 instead of showing a negative pace that means nothing to

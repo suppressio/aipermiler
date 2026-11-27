@@ -78,14 +78,14 @@ From the quota left **now**, spread over the working days until the reset, compa
 
 Percentage of the quota used, and below it the absolute value when the provider gives one (e.g. Copilot AI credits, Claude extra credit in USD) and the renewal date.
 
-When the last reading of an account failed, its value is greyed out, its tab shows ⚠, and the line below says "data not up to date" with the time of the last successful update and the reason. The app keeps the last values and tries again at the next refresh. Right after the AIpermiler service restarts, the line says "refreshing" instead: nothing failed, the service has not read the account again yet.
+When the last reading of an account failed, its value is greyed out, its tab shows ⚠, and the line below says "data not up to date" with the time of the last successful update and the reason. The app keeps the last values and tries again at the next refresh. Right after the AIpermiler service restarts, the line says "refreshing" instead: nothing failed, the service has not read the account again yet. When the AIpermiler service is not running, the widget shows only the quota values, read directly, and the line says the service is not running: pace, budget, chart and tips come from the service.
 
 ### Instant consumption
 
 How fast you are using the quota right now, in % of the quota per hour.
 
 - **How it is computed**: the rise in usage over about the last hour of readings. While usage is rising the app reads the provider every 5 minutes, otherwise at the interval set in Settings (30 minutes by default).
-- **Target** (the white marker): the pace that would bring you exactly to 100% at the reset, spread over the working hours left.
+- **Target** (the white marker): the even hourly share of the quota over the working hours of the period; when you are behind, the lower pace that brings you exactly to 100% at the reset. It never rises because the reset is near.
 - **How to read it**: the marker is always in the middle. The faint ticks mark half the target (left) and twice the target (right), and the far right end is four times the target or more. The bar turns red above the target. A short burst is fine; a bar that stays red for hours is what to watch.
 - **Background arrows**: `>>>` means you can consume more, `<<<` means slow down. They compare the last-hour average with the target and disappear within ±15% or while waiting for samples. A larger gap makes them flow faster, up to a limit. Right arrows appear only on the account’s full/half working days (the schedule has no start/end times); a disabled schedule has no day restriction. Left arrows also appear on days off.
 

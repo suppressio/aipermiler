@@ -45,7 +45,7 @@ test('every shared fixture is read by this client (none left untested)', () => {
   ]);
   // The service's own documents (#248), read by main/serviceClient.ts (#182, serviceClient.test.ts);
   // the settings ones (#284) wait for the Settings window's client (#181), which must read them;
-  // history (#339) waits for the diagnostic report's client (#341).
+  // snapshot and history are read by main/serviceSnapshot.ts (#341, serviceSnapshot.test.ts).
   const service = fs.readdirSync(path.join(FIXTURES, 'service')).filter((f) => f.endsWith('.json')).sort();
   assert.deepEqual(service, [
     'error-invalid-settings.json', 'error-not-read.json', 'health.json', 'history.json', 'settings.json', 'snapshot.json',

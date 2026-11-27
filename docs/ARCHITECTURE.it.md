@@ -126,6 +126,8 @@ Estende `store/index.ts` (default in `store/defaults.ts`, normalizzazione del fi
   },
 
   history: {
+    // Scritto da Electron fino a #341; da allora lo storico lo tiene il servizio del core
+    // (store.json); solo la pulizia una tantum di #140 tocca ancora questi campi.
     // append-only, un record per giorno per finestra di quota; retention configurabile (default 90gg) per non far crescere il file all'infinito
     dailyUsage: Array<{ date: string, accountId: string, windowId: string, used: number }>,
     lastGood: Record<accountId, RawAccountUsage>, // ultimo dato riuscito per account (fallback)

@@ -25,6 +25,17 @@ test('a notice without data replaces the label', () => {
   assert.equal(accountStatusLabel({ stale: true, notice: 'Sign in with Codex' }, 'Weekly'), 'Sign in with Codex');
 });
 
+test('service not running (#341): the label says so, also with a failed read, in both languages', () => {
+  setLocale('en');
+  assert.equal(accountStatusLabel({ stale: false, serviceDown: true }, 'Weekly'),
+    'Weekly — the AIpermiler service is not running: usage only, no pacing');
+  assert.equal(accountStatusLabel({ stale: true, serviceDown: true, lastError: 'boom' }, 'Weekly'),
+    'Weekly — the AIpermiler service is not running: usage only, no pacing (boom)');
+  setLocale('it');
+  assert.equal(accountStatusLabel({ stale: false, serviceDown: true }, 'Settimanale'),
+    'Settimanale — il servizio AIpermiler non è attivo: solo consumi, niente ritmo');
+});
+
 test('refreshing (#182): neutral, never an error or a failed sync, in both languages', () => {
   setLocale('en');
   const withData = accountStatusLabel({ stale: true, refreshing: true, lastUpdatedAt: AT }, 'Weekly');

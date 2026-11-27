@@ -103,7 +103,7 @@ aipermiler/
 │       ├── refresh/             ← the service's refresh loop (#283): reads accounts through the CLI child, records history and lastGood; `policy/` = port of main/refreshPolicy.ts
 │       └── usage/               ← usage model, JSON contract (write and parse), errors and text rendering
 ├── core/
-│   └── usage.ts                 ← fetch orchestration + snapshot computation (createUsageCore, computeAccountSnapshot…): store, provider fetch, local insights, clock and error reporting injected, no Electron (+ usage.test.ts)
+│   └── usage.ts                 ← budget.ts's account snapshot (computeAccountSnapshot over an in-memory history), kept only as the reference side of the pacing parity (scripts/pacing-parity.js, #325, #323); not used by the app since #341 (+ usage.test.ts)
 ├── main/
 │   ├── ipc.ts                   ← typed handle/listen/sendToRenderer wrappers keyed on types/ipc.ts
 │   ├── appDir.ts                ← folder of the main entry (dist/): base of the renderer and preload paths in the bundle and in the tsc output
@@ -111,6 +111,8 @@ aipermiler/
 │   ├── coreRequests.ts          ← provider flags of the core commands from an account config (pure, + test)
 │   ├── localInsights.ts         ← which cached Claude local insights may still be shown: only those counted by the core (#299) (+ test)
 │   ├── serviceCopilot.ts        ← Copilot token set/delete and OAuth login (start, status polling, cancel) through the service only, secrets in the request body only (#338) (+ test)
+│   ├── serviceSnapshot.ts       ← the service's pacing snapshot mapped to the widget types, refresh request, history for the report (#341) (+ test)
+│   ├── usageReader.ts           ← what the widget, tray and notifications show: the snapshot per account, or the raw CLI values with serviceDown without a service (#341) (+ test)
 │   ├── serviceClient.ts         ← reads usage from the core's always-on service when it runs (api.json, /health, contract version), CLI fallback with the reason (#182) (+ test)
 │   ├── serviceSettings.ts       ← Settings' accounts and core settings through the service (GET/PUT /api/v1/settings, #337): mapping, validation errors by JSON path, Electron's copy of the accounts (+ test)
 │   ├── coreClient.ts            ← runs the bundled core CLI (execFile, no shell, timeout, --json, secrets on stdin) and parses contract v1 against gocore/contract/v1 (+ test)
@@ -121,7 +123,6 @@ aipermiler/
 │   ├── trayBadge.ts             ← tray usage badge: account choice, tone, icon bitmap (+ test)
 │   ├── claude-auth.ts           ← cleanup of claude.ai sessions stored by earlier versions (no Claude sign-in since #140)
 │   ├── providers.ts             ← provider-specific part of the account registry (connection, fetch, disconnect, secret redaction)
-│   ├── refreshPolicy.ts         ← adaptive refresh pace, per-account backoff, manual-refresh cache (+ test)
 │   ├── *.test.ts                ← unit tests next to the module (coreClient, tray, refreshLifecycle, …)
 │   └── i18n/                    ← main-process strings (tray, notifications, dialogs, OAuth page): en.ts, it.ts, index.ts (+ test)
 ├── renderer/
@@ -129,7 +130,7 @@ aipermiler/
 │   ├── settings.html, settings.css, settings.ts ← Settings window (accounts table, language, updates, …)
 │   ├── dom.ts                   ← byId(id, ElementType): typed, checked element access
 │   ├── schedule.ts              ← one-line summary of an account work schedule (+ test)
-│   ├── accountStatus.ts         ← the widget's status line: stale, error, notice, service "refreshing" (+ test)
+│   ├── accountStatus.ts         ← the widget's status line: stale, error, notice, service "refreshing", service not running (+ test)
 │   ├── usageSource.ts           ← Settings → Diagnostics: service or CLI per account (+ test)
 │   ├── copilotLogin.ts          ← Settings: a Copilot sign-in refused because another one runs, found by error name (+ test)
 │   ├── fieldError.ts            ← Settings: the input a service validation error names (#337) (+ test)
@@ -194,7 +195,7 @@ Every provider is read by the Go core CLI since #179 (no TypeScript usage servic
 // QuotaWindow    = { id, label, periodType, periodLength, unit: 'percentage'|'count', used, total, resetsAt }
 ```
 
-A failure is an explicit error (contract error codes → `CoreProviderError`, `FormatDriftError`, `CoreBinaryError`…) — never `null`/`undefined` silently. No `dailyHistory` from providers: the daily history is built locally by `core/usage.ts` in `store.history.dailyUsage` on every successful refresh. Adding a provider = an adapter in `gocore/internal/` (registered in `provider.Default()`, fixtures, docs/CORE-CLI.md) + a branch in every function of `main/providers.ts` (exhaustive switches make tsc fail if one is forgotten) and in `main/coreRequests.ts` + a detail template in `settings.html` + dictionary keys.
+A failure is an explicit error (contract error codes → `CoreProviderError`, `FormatDriftError`, `CoreBinaryError`…) — never `null`/`undefined` silently. No `dailyHistory` from providers: the core's service records the history on its refresh loop and computes the pace; Electron reads its pacing snapshot (`main/usageReader.ts`, #341) and keeps no history. Adding a provider = an adapter in `gocore/internal/` (registered in `provider.Default()`, fixtures, docs/CORE-CLI.md) + a branch in every function of `main/providers.ts` (exhaustive switches make tsc fail if one is forgotten) and in `main/coreRequests.ts` + a detail template in `settings.html` + dictionary keys.
 
 ### Error handling
 - Every network call has an explicit timeout (max 10 seconds) — use `services/_http.ts`.
@@ -202,7 +203,7 @@ A failure is an explicit error (contract error codes → `CoreProviderError`, `F
 - Never a blank screen or a silent crash: no floating promises (`runDetached` in main, `runGuarded`/`guarded` in the renderer); startup failure shows an error dialog and quits.
 
 ### Diagnostics: automatic "format drift" report
-When a service receives a response whose format no longer matches the expected one (no recognized quota window, key field missing, …) it throws a `FormatDriftError` (`services/_shape.ts`) instead of a generic `Error`. `main.ts` catches it in `fetchAccountOrFallback()` (shared by every account) and calls `maybeReportFormatDrift()`:
+When a service receives a response whose format no longer matches the expected one (no recognized quota window, key field missing, …) it throws a `FormatDriftError` (`services/_shape.ts`) instead of a generic `Error`. `main/usageReader.ts` passes every failed or stale read (shared by every account) to `maybeReportFormatDrift()` in `main.ts`:
 
 - **Never automatic publishing**: only a pre-filled GitHub issue draft opens in the system browser (`shell.openExternal`, via `diagnostics/githubIssue.ts`); the user must always review and submit it by hand. The app has and uses no GitHub token.
 - **Never real values in the report**: the issue body contains only the response "shape" (field names + `typeof`, from `extractShape()`), never usage percentages, amounts or real dates. The body is in English (public repository).
@@ -261,12 +262,13 @@ Implemented in `budget.ts` (do not duplicate it here: update this section only i
 - `resolveRenewalDate(renewalRule, referenceDate)` — only `{ type: 'dayOfMonth', day }`; `rrule` throws "not supported". Only a fallback: the period end is the window's `resetsAt`, then the provider's `subscriptionRenewsAt`, then the manual day (`main.ts resolvePeriodBounds`); Settings locks the manual field when the provider reports every paced window's reset (`renderer/renewal.ts`)
 
 ### Threshold and pace notifications
-- System notification when usage passes the configured threshold (default **80%**) of the critical window, at most once per day per account (flag in `store.meta.notifiedToday`).
-- Pace notification when today's consumption of any window exceeds `PACE_ALERT_RATIO` (1.5×) today's budget, at most once per day per account (`<account>:pace:<day>` flag). Only today's flags are kept.
+- System notification when usage passes the configured threshold (default **80%**) of the most used window, at most once per day per account (flag in `store.meta.notifiedToday`).
+- Pace notification when a window of the service's snapshot has `paceAlert` (today's consumption above `PACE_ALERT_RATIO`, 1.5×, today's budget), at most once per day per account (`<account>:pace:<day>` flag). Only today's flags are kept.
 
 ### Auto-refresh
-- The main process refreshes at the configured interval (default **30 minutes**), also with the window closed (tray only), with one `setTimeout` re-armed after every refresh. After each successful fetch the data is stored and sent to the renderer (`usage:update`).
-- Adaptive pace (`main/refreshPolicy.ts`): after a refresh where a freshly fetched window rose, the next one comes after **5 minutes**; the first one without a rise goes back to the interval. Per-account backoff: every consecutive failed fetch doubles that account's minimum gap (5 → 10 → 20 min, capped at the interval), a scheduled tick skips it meanwhile and shows its last data as stale with the error. Refresh modes: `scheduled` (timer, backoff applies), `manual` (button, tray, widget opening: reuses a fetch less than 1 minute old), `forced` (login, disconnect, account changes: always fetches). Only freshly fetched values are recorded as samples.
+- The core's service reads the providers on its own refresh loop (#283: the configured interval, 5 minutes while consumption rises, per-account backoff, 1-minute manual cache; `gocore/internal/refresh/policy`) and keeps the history. Electron has no refresh policy and no history (#341): it reads the service's pacing snapshot once a minute (a loopback read, never a provider read) with one `setTimeout` re-armed after every read, also with the window closed, and sends it to the renderer (`usage:update`).
+- The refresh button, the tray and a sign-in or disconnection send `POST /api/v1/refresh` with their mode (`manual`, `forced`), then read the snapshots. Reads do not overlap: one queued at most, with the stronger mode.
+- Without a service the widget shows the raw values read through the CLI and says the service is not running (owner decision D1 on #181), at the configured interval (default **30 minutes**, at least 5).
 
 ### Update check
 - At startup (packaged app only) and every 24h: GitHub Releases list (not `/releases/latest`, which skips pre-releases; pre-releases are offered only to whoever runs one), one notification per version, download opens in the browser. No electron-updater (unsigned packages).
@@ -406,7 +408,7 @@ Condensed history; the full session-by-session log is in the git history (CLAUDE
 
 ### Open items
 - Claude quotas are read through the Go core's `claude /usage` adapter (#147) since #180, with the user's own Claude Code sign-in; between #140 and #180 they were not read. The standalone core in Go (#139) is milestone v0.7.0.
-- Provider reads live in the Go core (`gocore/`, CLI and JSON contract in docs/CORE-CLI.md); `core/usage.ts` (#23) still owns orchestration and snapshots until pacing moves to Go (#75, #160). New orchestration/snapshot logic goes test-first in `core/` or the Go core, not in `main.ts`.
+- Provider reads, the history and the pace live in the Go core (`gocore/`, CLI and JSON contract in docs/CORE-CLI.md); the app reads the service's snapshot since #341. `core/usage.ts` is only the `budget.ts` side of the pacing parity until #75/#166 close. New pacing logic goes test-first in the Go core, not in `main.ts`.
 - **Milestone v0.7.0** (GitHub): standalone core in Go with the Electron UI as optional client (#139), budget logic in Go (#75), pace-based indicators (#63), and the checks that need an Apple Silicon Mac (#174, #193, #212). **Milestone v1.0.0** (out of beta): signed Windows/macOS installers (#11).
 - `agents/advisor.ts` is a stub.
 - Copilot tab occasionally not clickable right after login (not reproduced; if it happens, open the widget DevTools and check the console).
