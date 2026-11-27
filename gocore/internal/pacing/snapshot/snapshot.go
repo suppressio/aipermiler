@@ -287,14 +287,21 @@ func withoutUtilization(snap *WindowSnapshot, in Input, w Window) {
 	}
 	state := in.History[w.ID]
 	resetAhead := !period.End.IsZero() && period.End.After(now)
-	units, hasUnits := period.Units(now, loc, set.Schedule, nil)
+	// No baseline without a utilization, as in TypeScript: only samples stored
+	// before the window lost its total can still mark today's work (D-2.4).
+	var worked *float64
+	if span, ok := pace.TodayActivity(state.RecentSamples, nil, set.FirstSession, now, loc); ok {
+		hours := span.Hours()
+		worked = &hours
+	}
+	units, hasUnits := period.Units(now, loc, set.Schedule, worked)
 	var totalUnits float64
 	if hasUnits {
 		snap.Units, totalUnits = &units, units.Total
 	}
 	if resetAhead {
 		snap.DaysToReset, snap.HasDaysToReset = period.DaysUntilReset(now, loc)
-		snap.UnitsToReset, snap.HasUnitsToReset = unitsToReset(period, units, hasUnits, now, loc, set.Schedule, nil)
+		snap.UnitsToReset, snap.HasUnitsToReset = unitsToReset(period, units, hasUnits, now, loc, set.Schedule, worked)
 	}
 	upcoming := 2
 	if set.ChartDays == 30 {
