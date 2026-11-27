@@ -4,7 +4,6 @@
 
 import type {
   AccountSnapshot,
-  AccountId,
   AppSettings,
   DailyTip,
   ProviderId,
@@ -26,7 +25,7 @@ import { showAutonomy, showPeakAvg, showStreak } from './visibility.js';
 import { createAlarmPulse, motionState } from './motion.js';
 import { finishOdometer, renderOdometer } from './odometer.js';
 import { createCompactTransition, createLayoutAnimation, fadeSlide, initDetailsMotion } from './layoutMotion.js';
-import { flowSpan, instantFlow, isWorkingDay } from './instantFlow.js';
+import { trendFlow } from './instantFlow.js';
 import {
   applyTranslations,
   formatDate,
@@ -448,7 +447,7 @@ function renderChart(winSnap: QuotaWindowSnapshot | undefined): void {
 // (winSnap.sustainableRate, the "target"), on a logarithmic scale of their ratio
 // (renderer/gauge.ts): the target marker stays in the middle, faint ticks mark ½× and
 // 2×. Without a target there is no scale to read the pace on: only the number.
-function renderInstantGauge(winSnap: QuotaWindowSnapshot | undefined, accountId?: AccountId): void {
+function renderInstantGauge(winSnap: QuotaWindowSnapshot | undefined): void {
   const container = byId('instant-gauge', HTMLDivElement);
   const label = byId('gauge-label', HTMLSpanElement);
   container.innerHTML = '';
@@ -518,16 +517,12 @@ function renderInstantGauge(winSnap: QuotaWindowSnapshot | undefined, accountId?
 
   container.appendChild(svg);
 
-  const schedule = state.settings?.accounts.find((account) => account.id === accountId)?.workSchedule;
-  // instantRate is already the last-hour average computed by budget.instantaneousRate.
-  const flow = instantFlow(instant, sustainable, schedule !== undefined && isWorkingDay(schedule, new Date()));
-  if (flow && sustainable !== null) {
-    // The arrows fill only the gap between the bar end and the target marker.
-    const span = flowSpan(gaugePosition(instant, sustainable), GAUGE_TARGET_POSITION);
+  // The arrows show the core's instant trend across the whole bar (#304); style.css shows
+  // them only with the animations on and no reduced motion.
+  const flow = trendFlow(winSnap?.trend ?? null);
+  if (flow) {
     const gap = document.createElement('div');
     gap.className = 'gauge-flow-gap';
-    gap.style.left = `${span.left * 100}%`;
-    gap.style.width = `${span.width * 100}%`;
     const strip = document.createElementNS(svgNs, 'svg');
     strip.setAttribute('class', 'gauge-flow');
     strip.dataset.direction = flow.direction;
@@ -949,7 +944,7 @@ function renderSnapshot(snapshot: UsageSnapshot): void {
   // The compact view hides the account tabs: the label carries the account name there (style.css).
   byId('current-label').dataset.account = account.label;
 
-  renderInstantGauge(winSnap, account.accountId);
+  renderInstantGauge(winSnap);
   renderEfficiencyRating(winSnap, chartDays);
   renderLocalInsights(account);
   renderTokenYield(winSnap);
@@ -1048,7 +1043,7 @@ async function init(): Promise<void> {
     state.settings = updated;
     syncMotion();
     const account = state.latestSnapshot ? selectAccount(state.latestSnapshot) : undefined;
-    renderInstantGauge(account ? selectWindowSnapshot(account) : undefined, account?.accountId);
+    renderInstantGauge(account ? selectWindowSnapshot(account) : undefined);
     applyAccentColor(updated.ui.accentColor);
     updatePinButton(updated.ui.alwaysOnTop);
     if (languageChanged) {

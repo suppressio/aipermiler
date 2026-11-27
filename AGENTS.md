@@ -140,7 +140,7 @@ aipermiler/
 │   ├── renewal.ts               ← whether the manual renewal day is needed or the provider reports the reset (+ test)
 │   ├── severity.ts              ← warning colour of a percent-of-quota value from the notification threshold (+ test)
 │   ├── dates.ts                 ← local day keys (copy of the budget.ts helpers, the renderer project is isolated) (+ test)
-│   ├── instantFlow.ts           ← animated push/slow-down arrows of the instant bar (+ test)
+│   ├── instantFlow.ts           ← the instant bar's arrows from the core's trend (accelerating / slowing down, #304) (+ test)
 │   ├── motion.ts, layoutMotion.ts, odometer.ts ← optional animations: effect state, FLIP layout motion, odometer digits (+ tests)
 │   ├── viewSelection.test.ts    ← test of the widget view selection
 │   ├── settings.test.ts         ← Settings window tests

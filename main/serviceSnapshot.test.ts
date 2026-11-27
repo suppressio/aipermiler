@@ -70,6 +70,8 @@ test('snapshot fixture: mapped to the widget types, exact values (I-4), null sta
   // The gauge's reference is the target (D-3.13), not the ceiling.
   assert.equal(fiveHour.sustainableRate, 20);
   assert.deepEqual(fiveHour.verdict, { kind: 'on-track' });
+  // The instant trend (D-3.28) drives the gauge arrows (#304).
+  assert.equal(fiveHour.trend, 'accelerating');
   assert.deepEqual(fiveHour.chart, []);
 
   assert.deepEqual(weekly.verdict, { kind: 'on-track', perUnit: 13.714285714285714, idealPerUnit: 14.285714285714286 });
@@ -85,6 +87,7 @@ test('snapshot fixture: mapped to the widget types, exact values (I-4), null sta
   assert.equal(weekly.chart.length, 9);
   assert.deepEqual(at(weekly.chart, 4), { date: '2026-11-02', delta: 10, fullShare: 14.285714285714286, dayUnit: 1, budget: 15.833333333333334, upcoming: false, overBudget: false });
   assert.equal(weekly.tokenYield, null);
+  assert.equal(weekly.trend, null);
 
   // No pacing: no tip is "none", the verdict says no pacing.
   assert.deepEqual(premium.verdict, { kind: 'no-pacing' });

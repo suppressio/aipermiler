@@ -278,6 +278,7 @@ export function windowSnapshotOf(window: QuotaWindow, w: SnapshotWindow): QuotaW
     hourly: w.hourly ? { hoursLeft: w.hourly.hoursLeft, projectedAtReset: w.hourly.projectedAtReset, autonomyHours: w.hourly.autonomyHours } : null,
     preliminary: w.summary?.preliminary ?? false,
     instantRate: w.instantPace,
+    trend: w.trend,
     // The gauge's reference is the target T of D-3.13 (never above the ceiling).
     sustainableRate: w.target,
     efficiencyRating: w.rating ? { stars: w.rating.stars, avgRatio: w.rating.average } : null,
@@ -359,6 +360,7 @@ export function accountWithoutPacing(identity: AccountIdentity, result: CoreUsag
     hourly: null,
     preliminary: false,
     instantRate: null,
+    trend: null,
     sustainableRate: null,
     efficiencyRating: null,
     dailyTip: { key: 'none', params: {} },

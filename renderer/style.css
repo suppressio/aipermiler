@@ -301,7 +301,9 @@ body.style-transparent-digital .account-tabs button.active {
   margin-bottom: 4px;
 }
 .instant-gauge { position: relative; width: 100%; height: 20px; overflow: hidden; border-radius: 4px; }
-.gauge-flow-gap { position: absolute; top: 0; height: 20px; min-width: 24px; overflow: hidden; pointer-events: none; }
+/* The trend arrows (#304) span the whole bar, only while the animations run. */
+.gauge-flow-gap { position: absolute; top: 0; left: 0; width: 100%; height: 20px; overflow: hidden; pointer-events: none; display: none; }
+.motion-effects .gauge-flow-gap { display: block; }
 .gauge-flow {
   position: absolute;
   top: 0;
