@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { Script } from 'node:vm';
-import type { RefreshMode } from './refreshPolicy';
+
+type ReadMode = 'scheduled' | 'manual' | 'forced' | null;
 
 // Execute the built wiring with injected collaborators, without loading Electron.
 const main = readFileSync(path.join(__dirname, '..', 'main.js'), 'utf8');
@@ -13,7 +14,7 @@ const script = new Script(`(${source})`);
 
 function harness(windowState: 'alive' | 'destroyed' | 'absent' = 'alive') {
   const events: { channel: string; payload: unknown }[] = [];
-  const modes: RefreshMode[] = [];
+  const modes: ReadMode[] = [];
   let resolveBuild: (value: unknown) => void = () => { assert.fail('build has not started'); };
   let rejectBuild: (error: Error) => void = () => { assert.fail('build has not started'); };
   let retries = 0;
@@ -22,28 +23,24 @@ function harness(windowState: 'alive' | 'destroyed' | 'absent' = 'alive') {
   const refreshOnce = script.runInNewContext({
     mainWindow: windowState === 'absent' ? null : { isDestroyed: () => destroyed },
     ipc_1: { sendToRenderer: (_window: unknown, channel: string, payload: unknown) => { events.push({ channel, payload }); } },
-    usageCore: {
-      buildUsageSnapshot: (mode: RefreshMode) => {
+    usageReader: {
+      read: (mode: ReadMode) => {
         modes.push(mode);
         return new Promise<unknown>((resolve, reject) => { resolveBuild = resolve; rejectBuild = reject; });
       },
     },
-    scheduleRefreshLoop: () => { retries++; },
+    schedulePoll: () => { retries++; },
     console: { error: () => undefined },
-    lastConsumptionRose: false,
-    refreshPolicy: { nextRefreshDelayMs: () => 300000 },
-    configuredRefreshIntervalMs: () => 1800000,
-    scheduleNextRefresh: () => undefined,
     timings: {},
     lastSnapshot: null,
     updateTrayView: () => { viewUpdates++; },
     trayHandle: null,
     maybeNotifyThreshold: () => undefined,
     maybeNotifyPace: () => undefined,
-  }) as (mode: RefreshMode) => Promise<void>;
+  }) as (mode: ReadMode) => Promise<void>;
   return {
     events, modes, refreshOnce,
-    succeed: (snapshot: unknown) => { resolveBuild({ snapshot, consumptionRose: false }); },
+    succeed: (snapshot: unknown) => { resolveBuild(snapshot); },
     fail: () => { rejectBuild(new Error('Snapshot failed')); },
     destroy: () => { destroyed = true; },
     retries: () => retries,
@@ -68,7 +65,7 @@ test('every refresh mode emits start before completion and usage:update on succe
   }
 });
 
-test('failed refresh clears the indicator without usage:update and schedules a retry', async () => {
+test('failed refresh clears the indicator without usage:update and schedules the next read', async () => {
   const h = harness();
   const running = h.refreshOnce('scheduled');
   h.fail();
@@ -79,6 +76,23 @@ test('failed refresh clears the indicator without usage:update and schedules a r
   ]);
   assert.equal(h.retries(), 1);
   assert.equal(h.viewUpdates(), 0);
+});
+
+test('the poll (no mode) only reads: no refreshing state, usage:update on success, next poll scheduled', async () => {
+  const h = harness();
+  const running = h.refreshOnce(null);
+  assert.deepEqual(h.events, []);
+  assert.deepEqual(h.modes, [null]);
+  const snapshot = { accounts: [] };
+  h.succeed(snapshot);
+  await running;
+  assert.deepEqual(h.events, [{ channel: 'usage:update', payload: snapshot }]);
+  assert.equal(h.retries(), 1);
+  const failing = harness();
+  const failed = failing.refreshOnce(null);
+  failing.fail();
+  await failed;
+  assert.deepEqual(failing.events, []);
 });
 
 test('refresh IPC skips absent or destroyed windows, including destruction during a run', async () => {

@@ -28,6 +28,7 @@ export const en = {
   'widget.withError': '{label} ({error})',
   'widget.serviceRefreshing': '{label} — refreshing (last update: {time})',
   'widget.serviceRefreshingFirst': 'Refreshing…',
+  'widget.serviceDown': '{label} — the AIpermiler service is not running: usage only, no pacing',
   'widget.error': 'Error: {message}',
 
   // --- Widget: instant consumption gauge ------------------------------------

@@ -205,6 +205,9 @@ export interface QuotaWindowSnapshot {
   estimatedAutonomyWorkingDays: number | null;
   // Today's budget and consumption (budget.todayBudget), null without pacing.
   todayBudget: TodayBudget | null;
+  // Today's consumption well above today's budget (PACE_ALERT_RATIO, from the core's
+  // snapshot): the pace notification.
+  paceAlert: boolean;
   // The remaining quota per working day vs the even share (budget.redistributedQuota),
   // null without pacing or on rolling-hours windows. Drives the verdict.
   redistribution: Redistribution | null;
@@ -309,6 +312,9 @@ export interface AccountSnapshot extends RawAccountUsage {
   // The core's service restarted and has not read the account yet (#182): a neutral
   // "refreshing" state, neither an error nor a notice; the last data stays shown.
   refreshing?: boolean;
+  // No core service runs (#341, owner decision D1 on #181): the raw values the CLI read,
+  // no pacing, and the widget says the service is not running.
+  serviceDown?: boolean;
 }
 
 /**

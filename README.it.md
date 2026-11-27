@@ -78,14 +78,14 @@ Si basa sulla quota che resta **adesso**, ripartita sui giorni lavorativi fino a
 
 La percentuale di quota usata e, sotto, il valore assoluto quando il provider lo fornisce (per esempio i crediti AI di Copilot, il credito extra di Claude in USD) e la data di rinnovo.
 
-Quando l'ultima lettura di un account non è riuscita, il suo valore è in grigio, la sua tab mostra ⚠ e la riga sotto dice "dato non aggiornato", con l'ora dell'ultimo aggiornamento riuscito e il motivo. L'app tiene gli ultimi valori e riprova al prossimo aggiornamento. Subito dopo un riavvio del servizio di AIpermiler la riga dice invece "aggiornamento in corso": nulla è andato storto, il servizio non ha ancora riletto l'account.
+Quando l'ultima lettura di un account non è riuscita, il suo valore è in grigio, la sua tab mostra ⚠ e la riga sotto dice "dato non aggiornato", con l'ora dell'ultimo aggiornamento riuscito e il motivo. L'app tiene gli ultimi valori e riprova al prossimo aggiornamento. Subito dopo un riavvio del servizio di AIpermiler la riga dice invece "aggiornamento in corso": nulla è andato storto, il servizio non ha ancora riletto l'account. Quando il servizio di AIpermiler non è attivo, il widget mostra solo i valori delle quote, letti direttamente, e la riga dice che il servizio non è attivo: ritmo, budget, grafico e consigli vengono dal servizio.
 
 ### Consumo istantaneo
 
 A che velocità stai usando la quota in questo momento, in % della quota all'ora.
 
 - **Come si calcola**: quanto è salito il consumo nell'ultima ora circa di letture. Mentre il consumo sale l'app interroga il provider ogni 5 minuti, altrimenti all'intervallo scelto nelle Impostazioni (30 minuti di default).
-- **Target** (la tacca bianca): il ritmo che ti porterebbe esattamente al 100% al reset, ripartito sulle ore lavorative rimaste.
+- **Target** (la tacca bianca): la quota oraria uniforme sulle ore lavorative del periodo; quando sei indietro, il ritmo più basso che ti porta esattamente al 100% al reset. Non sale mai perché il reset è vicino.
 - **Come leggerlo**: la tacca è sempre a metà. Le tacche leggere segnano metà del target (a sinistra) e il doppio (a destra), e l'estremità destra vale quattro volte il target o più. La barra diventa rossa sopra il target. Un picco breve va bene; una barra rossa per ore è il segnale da tenere d'occhio.
 - **Frecce sullo sfondo**: `>>>` indica che puoi consumare di più, `<<<` che conviene rallentare. Confrontano la media dell’ultima ora con il target e spariscono entro ±15% o in attesa di campioni. Più lo scarto cresce, più scorrono veloci, fino a un limite. Le frecce a destra compaiono solo nei giorni lavorativi full/half dell’account (lo schedule non ha orari di inizio/fine); con schedule disabilitato non ci sono vincoli di giorno. Le frecce a sinistra compaiono anche nei giorni liberi.
 

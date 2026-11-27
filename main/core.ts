@@ -12,6 +12,7 @@ import { createCoreClient, resolveCoreBinary } from './coreClient';
 import { coreConfigDir, createServiceClient } from './serviceClient';
 import { createCopilotServiceActions } from './serviceCopilot';
 import { createServiceSettingsClient } from './serviceSettings';
+import { createSnapshotClient } from './serviceSnapshot';
 
 export const core = createCoreClient({
   binary: () => resolveCoreBinary({
@@ -31,3 +32,7 @@ export const copilotService = createCopilotServiceActions({ configDir });
 
 // Settings through the service (#337): the only writer of the core's store.json.
 export const settingsService = createServiceSettingsClient({ configDir });
+
+// The pacing snapshot, the refresh request and the history (#341): what the widget, the
+// tray and the diagnostic report read now that the service keeps the history and the pace.
+export const snapshotService = createSnapshotClient({ configDir });

@@ -13,22 +13,21 @@ import { accountNoticeKey } from './main/accountNotice';
 import { badgeEntries, pickBadge, resolveLegacyView, sameChoice, trackAutoAccount } from './main/trayBadge';
 import { clearClaudePartition, clearDefaultSessionClaudeCookies } from './main/claude-auth';
 import * as providers from './main/providers';
-import * as refreshPolicy from './main/refreshPolicy';
-import type { RefreshMode } from './main/refreshPolicy';
 import { defaultAccountFor, enforceSingleLocalInsights, enforceSingleSignInAccounts, nextAccountLabel, normalizeAccounts, purgeClaudeSessions } from './store/migrate';
 import * as budget from './budget';
-import { createUsageCore, refreshIntervalMs } from './core/usage';
 import path from 'path';
 import { fetchLatestUpdate, guideUrl, TRUSTED_DOWNLOAD_PREFIX, upgradeGuideUrl } from './services/updates';
 import { DEFAULT_GITHUB_HOST, githubOAuthBase, normalizeGithubHost } from './services/githubHost';
 import type { TrayHandle } from './main/tray';
 import { FormatDriftError, liveSignatures, shapeSignature } from './services/_shape';
 import { CoreBinaryError, CoreOutputError, CoreProviderError, CoreTimeoutError } from './main/coreClient';
-import { copilotService, core, settingsService } from './main/core';
+import { copilotService, core, settingsService, snapshotService } from './main/core';
 import { NOT_READ_YET, ServiceUnusableError } from './main/serviceClient';
 import { AuthorizeUrlRejectedError, loginThroughService } from './main/serviceCopilot';
 import { usableInsightsCache } from './main/localInsights';
-import { binaryPathChanged, copilotAccountFlags } from './main/coreRequests';
+import { createUsageReader } from './main/usageReader';
+import type { RefreshRequestMode } from './main/serviceSnapshot';
+import { copilotAccountFlags } from './main/coreRequests';
 import { buildFormatDriftIssueUrl, buildReportIssueUrl, shortError } from './diagnostics/githubIssue';
 import { buildDiagnosticReport, neutralize } from './diagnostics/report';
 import type { ReportAccount } from './diagnostics/report';
@@ -106,9 +105,7 @@ const timings: { lastRefresh: { at: string; ms: number } | null; lastLocalInsigh
   lastRefresh: null,
   lastLocalInsights: null,
 };
-let refreshTimer: NodeJS.Timeout | null = null;
-// Whether the last refresh that fetched something saw consumption rise (fast pace).
-let lastConsumptionRose = false;
+let pollTimer: NodeJS.Timeout | null = null;
 let hoverPollTimer: NodeJS.Timeout | null = null;
 let updateTimer: NodeJS.Timeout | null = null;
 let trayHandle: TrayHandle | null = null;
@@ -141,21 +138,20 @@ function startWindowHoverPolling(): void {
   }, 120);
 }
 
+// The core's service reads the providers on its own loop (#283) and keeps the history:
+// Electron only looks at what it holds, every minute (a loopback read of the store, no
+// provider read). Without a service each look reads the accounts through the CLI, so it
+// waits for the configured interval instead (at least 5 minutes).
+const SERVICE_POLL_MS = 60 * 1000;
+
 function configuredRefreshIntervalMs(): number {
-  return refreshIntervalMs(store.get('ui'));
+  return Math.max(5, store.get('ui').refreshIntervalMinutes || 30) * 60 * 1000;
 }
 
-// One timer, re-armed after every refresh (main/refreshPolicy.ts): the configured
-// interval, or the fast pace while consumption rises.
-function scheduleNextRefresh(delayMs: number): void {
-  if (refreshTimer) clearTimeout(refreshTimer);
-  refreshTimer = setTimeout(() => { runDetached('refresh usage', refreshAndBroadcast('scheduled')); }, delayMs);
-}
-
-// Startup, a settings change (new interval) or a failed refresh: the pace stays fast
-// if the last refresh saw consumption rise.
-function scheduleRefreshLoop(): void {
-  scheduleNextRefresh(refreshPolicy.nextRefreshDelayMs(lastConsumptionRose, configuredRefreshIntervalMs()));
+function schedulePoll(): void {
+  if (pollTimer) clearTimeout(pollTimer);
+  const delayMs = usageReader.serviceDown() ? configuredRefreshIntervalMs() : SERVICE_POLL_MS;
+  pollTimer = setTimeout(() => { runDetached('read usage', refreshAndBroadcast(null)); }, delayMs);
 }
 
 // ---------------------------------------------------------------------------
@@ -189,7 +185,7 @@ function startLocalInsights(windowDays: number, cached: ClaudeLocalInsights | nu
       timings.lastLocalInsights = { at: new Date().toISOString(), ms: Date.now() - startedAt };
       store.set('localInsightsCache', { claudeCode: result, countedByCore: true });
       // The refresh that started this used the stale cache: show the new insights.
-      if (cached) runDetached('refresh usage', refreshAndBroadcast('manual'));
+      if (cached) runDetached('read usage', refreshAndBroadcast(null));
       return result;
     })
     .catch((err: unknown) => {
@@ -355,22 +351,14 @@ function reportSystem(now: Date): Record<string, unknown> {
   };
 }
 
-// Last 7 days of daily points and today's samples, per window.
-function reportHistory(accountId: AccountId, now: Date): unknown {
-  const cutoff = new Date(now);
-  cutoff.setDate(cutoff.getDate() - 7);
-  const cutoffKey = budget.localDateKey(cutoff);
-  const todayKey = budget.localDateKey(now);
-  const history = store.get('history');
-  return {
-    daily: history.dailyUsage
-      .filter((h) => h.accountId === accountId && h.date >= cutoffKey)
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map(({ date, windowId, used, dayStartUsed }) => ({ date, windowId, used, dayStartUsed })),
-    samplesToday: history.recentSamples
-      .filter((s) => s.accountId === accountId && budget.localDateKey(new Date(s.timestamp)) === todayKey)
-      .map(({ timestamp, windowId, used }) => ({ timestamp, windowId, used })),
-  };
+// Last 7 days of daily points and today's samples, per window, as the core's service
+// keeps them (#339): the history lives there since #341. Without a service, the reason.
+async function reportHistory(cfg: AccountConfig): Promise<unknown> {
+  try {
+    return await snapshotService.history(cfg.id, cfg.provider, 7);
+  } catch (err) {
+    return { unavailable: err instanceof ServiceUnusableError ? err.reason : shortError(err instanceof Error ? err.message : String(err)) };
+  }
 }
 
 // How the app read the account in the last refresh: windows and their metrics.
@@ -383,6 +371,7 @@ function reportInterpretation(accountId: AccountId, accounts: Pick<ReportAccount
     lastError: account.lastError ? neutralize(account.lastError, accounts) : null,
     notice: account.notice ?? null,
     refreshing: account.refreshing ?? false,
+    serviceDown: account.serviceDown ?? false,
     // Where the last read came from: the core's service, or the CLI and why (#182).
     source: providers.lastUsageSource(accountId),
     criticalWindow: account.criticalWindow?.id ?? null,
@@ -397,6 +386,7 @@ function reportInterpretation(accountId: AccountId, accounts: Pick<ReportAccount
       verdict: w.verdict,
       redistribution: w.redistribution,
       todayBudget: w.todayBudget,
+      paceAlert: w.paceAlert,
       preliminary: w.preliminary,
       efficiencyIndex: w.efficiencyIndex,
       projectedUsage: w.projectedUsage,
@@ -446,8 +436,8 @@ function maybeNotifyThreshold(snapshot: UsageSnapshot): void {
 }
 
 // ---------------------------------------------------------------------------
-// Pace notification — today's consumption well above today's budget
-// (budget.PACE_ALERT_RATIO), at most once a day per account. The absolute threshold
+// Pace notification — today's consumption well above today's budget (the
+// snapshot's paceAlert, PACE_ALERT_RATIO in the core), at most once a day per account. The absolute threshold
 // above fires only near the end of the quota; this one fires on the day the pace
 // goes wrong, while there is still time to adjust.
 // ---------------------------------------------------------------------------
@@ -458,9 +448,7 @@ function maybeNotifyPace(snapshot: UsageSnapshot): void {
   for (const account of snapshot.accounts) {
     const flagKey = `${account.accountId}:pace:${todayKey}`;
     if (notifiedToday[flagKey]) continue;
-    const over = account.windows
-      .map((w) => w.todayBudget)
-      .find((b) => b !== null && b.budget > 0 && b.usedToday > b.budget * budget.PACE_ALERT_RATIO);
+    const over = account.windows.find((w) => w.paceAlert)?.todayBudget;
     if (!over) continue;
 
     if (Notification.isSupported()) {
@@ -474,48 +462,55 @@ function maybeNotifyPace(snapshot: UsageSnapshot): void {
   store.set('meta.notifiedToday', notifiedToday);
 }
 
-// Fetch orchestration and snapshot computation (core/usage.ts) over the electron-store.
-const usageCore = createUsageCore({
-  store: {
-    accounts: getAccounts,
-    ui: () => store.get('ui'),
-    history: () => store.get('history'),
-    setHistory: (history) => { store.set('history', history); },
-    setLastGood: (accountId, usage) => { store.set(`history.lastGood.${accountId}`, usage); },
-  },
-  fetchUsage: providers.fetchUsage,
+// What the widget, the tray and the notifications show: the core service's pacing
+// snapshot per account, or the raw CLI values without a service (main/usageReader.ts).
+const usageReader = createUsageReader({
+  accounts: getAccounts,
   isConnected: providers.isConnected,
-  // States the user acts on, not failures: signed out, Claude Code missing… (main/accountNotice.ts).
-  accountNotice: (err) => {
-    const key = accountNoticeKey(err);
-    return key === null ? null : t(key);
-  },
-  // The core's service restarted and has not read the account yet (#182).
-  refreshing: (err) => err instanceof CoreProviderError && err.reason === NOT_READ_YET,
+  chartDays: () => (store.get('ui').chartRange === 'month' ? 30 : 7),
+  snapshot: (cfg, chartDays) => snapshotService.snapshot(cfg.id, cfg.provider, chartDays),
+  refresh: (mode) => snapshotService.refresh(mode),
+  cliUsage: providers.cliUsage,
+  recordSource: providers.recordUsageSource,
   localInsights: computeLocalInsightsIfNeeded,
-  describeError: friendlyErrorMessage,
+  // States the user acts on, not failures: signed out, Claude Code missing… (main/accountNotice.ts).
+  // The core's service restarted and has not read the account yet (#182): refreshing.
+  describeProblem: (err) => {
+    if (err instanceof CoreProviderError && err.reason === NOT_READ_YET) return { refreshing: true };
+    const key = accountNoticeKey(err);
+    return key === null ? { lastError: friendlyErrorMessage(err) } : { notice: t(key) };
+  },
   onFetchError: maybeReportFormatDrift,
   now: () => new Date(),
   logError: (message, ...details) => { console.error(message, ...details); },
 });
 
-// One refresh at a time: the startup refresh, the widget's own request and the timer
-// used to overlap, each repeating the same fetches and store writes. A request
-// arriving during a refresh queues exactly one more run (it may follow a settings
-// change the running one did not see), with the stronger of the queued modes.
-let refreshRunning: Promise<void> | null = null;
-let refreshQueued: RefreshMode | null = null;
+// One read at a time: the startup read, the widget's own request, the poll and a
+// refresh used to overlap. A request arriving during a read queues exactly one more
+// (it may follow a settings change the running one did not see), with the stronger of
+// the queued modes. A mode asks the service's loop for a run first; null only reads.
+type ReadMode = RefreshRequestMode | null;
+const MODE_RANK: Record<RefreshRequestMode, number> = { scheduled: 1, manual: 2, forced: 3 };
 
-function refreshAndBroadcast(mode: RefreshMode): Promise<void> {
+function strongerMode(a: ReadMode, b: ReadMode): ReadMode {
+  if (a === null) return b;
+  if (b === null) return a;
+  return MODE_RANK[b] > MODE_RANK[a] ? b : a;
+}
+
+let refreshRunning: Promise<void> | null = null;
+let refreshQueued: { mode: ReadMode } | null = null;
+
+function refreshAndBroadcast(mode: ReadMode): Promise<void> {
   if (refreshRunning) {
-    refreshQueued = refreshQueued ? refreshPolicy.strongerMode(refreshQueued, mode) : mode;
+    refreshQueued = { mode: refreshQueued ? strongerMode(refreshQueued.mode, mode) : mode };
     return refreshRunning;
   }
   refreshQueued = null;
   refreshRunning = (async () => {
-    let next: RefreshMode | null = mode;
+    let next: { mode: ReadMode } | null = { mode };
     while (next) {
-      await refreshOnce(next);
+      await refreshOnce(next.mode);
       next = takeQueuedRefresh();
     }
   })().finally(() => { refreshRunning = null; });
@@ -523,31 +518,31 @@ function refreshAndBroadcast(mode: RefreshMode): Promise<void> {
 }
 
 // Read-and-clear in a function: set by another IPC call while refreshOnce awaits.
-function takeQueuedRefresh(): RefreshMode | null {
+function takeQueuedRefresh(): { mode: ReadMode } | null {
   const queued = refreshQueued;
   refreshQueued = null;
   return queued;
 }
 
-async function refreshOnce(mode: RefreshMode): Promise<void> {
-  if (mainWindow && !mainWindow.isDestroyed()) {
+// A refresh (a mode) shows the refreshing state in the widget; the minute's poll does not.
+async function refreshOnce(mode: ReadMode): Promise<void> {
+  const visible = mode !== null;
+  if (visible && mainWindow && !mainWindow.isDestroyed()) {
     sendToRenderer(mainWindow, 'usage:refreshing', true);
   }
-  let built: { snapshot: UsageSnapshot; consumptionRose: boolean | null };
+  let snapshot: UsageSnapshot;
   const startedAt = Date.now();
   try {
-    built = await usageCore.buildUsageSnapshot(mode);
+    snapshot = await usageReader.read(mode);
   } catch (err) {
-    if (mainWindow && !mainWindow.isDestroyed()) {
+    if (visible && mainWindow && !mainWindow.isDestroyed()) {
       sendToRenderer(mainWindow, 'usage:refreshing', false);
     }
-    console.error('[main] usage refresh failed:', err);
-    scheduleRefreshLoop();
+    console.error('[main] usage read failed:', err);
+    schedulePoll();
     return;
   }
-  const { snapshot } = built;
-  lastConsumptionRose = built.consumptionRose ?? lastConsumptionRose;
-  scheduleNextRefresh(refreshPolicy.nextRefreshDelayMs(lastConsumptionRose, configuredRefreshIntervalMs()));
+  schedulePoll();
   timings.lastRefresh = { at: new Date().toISOString(), ms: Date.now() - startedAt };
   updateTrayView(snapshot);
   maybeNotifyThreshold(snapshot);
@@ -577,8 +572,8 @@ function badgeAccounts(): AccountSnapshot[] {
 function getTrayViewState(): TrayViewState {
   const selection = store.get('ui').trayBadge;
   const accounts = badgeAccounts();
-  const cached = store.get('history').lastGood;
-  const registry = getAccounts().map(a => ({ ...a, quotaWindows: cached?.[a.id]?.quotaWindows ?? [] }));
+  const read = new Map((lastSnapshot?.accounts ?? []).map(a => [a.accountId, a.quotaWindows]));
+  const registry = getAccounts().map(a => ({ ...a, quotaWindows: read.get(a.id) ?? [] }));
   return { selection, shown: pickBadge(accounts, selection, autoBadgeAccountId)?.view ?? null,
     entries: badgeEntries(registry, accounts, selection.view) };
 }
@@ -782,8 +777,8 @@ async function saveCoreSettings(rawPatch: unknown): Promise<CoreSettingsSaveResu
     store.set('history.retentionDays', saved.settings.retentionDays);
   }
   broadcastView();
-  scheduleRefreshLoop();
-  if (binaryPathChanged(current, getAccounts())) runDetached('refresh usage', refreshAndBroadcast('forced'));
+  // The service hands the changed accounts to its loop itself (#284): read what it holds.
+  runDetached('read usage', refreshAndBroadcast(null));
   if (mainWindow && !mainWindow.isDestroyed()) sendToRenderer(mainWindow, 'settings:update', redactSecretsForRenderer(store.store));
   return { ok: true, settings: settingsView(saved, view) };
 }
@@ -902,7 +897,8 @@ function registerIpcHandlers(): void {
     store.store = normalizeSettings(next, DEFAULTS);
     applyMainLocale();
     broadcastView();
-    scheduleRefreshLoop();
+    // A new chart range or interval: read again (the snapshot's span follows the chart).
+    runDetached('read usage', refreshAndBroadcast(null));
     const redacted = redactSecretsForRenderer(store.store);
     // Propagates the change to the widget if open: some fields (e.g. accent color) have
     // no dedicated IPC like ui.windowStyle/ui.alwaysOnTop and would otherwise apply only
@@ -1135,7 +1131,7 @@ function registerIpcHandlers(): void {
       const name = `${providers.providerDisplayName(cfg.provider)} #${String(n)}`;
       const base = {
         name, provider: cfg.provider, enabled: cfg.enabled, label: cfg.label, id: cfg.id,
-        config: reportConfig(cfg), interpretation: null as unknown, history: reportHistory(cfg.id, now),
+        config: reportConfig(cfg), interpretation: null as unknown, history: await reportHistory(cfg),
       };
       try {
         const raw = await providers.fetchRawResponse(cfg);
@@ -1333,7 +1329,7 @@ app.whenReady().then(async () => {
   // start and after a skin change that recreates the window) — a second trigger here
   // would duplicate the Claude/Copilot API call every time the widget opens.
 
-  scheduleRefreshLoop();
+  schedulePoll();
   startWindowHoverPolling();
   // A core that cannot run is reported in the log buffer (diagnostic report) at once,
   // not only when a provider first reads through it.
@@ -1363,7 +1359,7 @@ app.on('window-all-closed', () => {
 });
 
 app.on('before-quit', () => {
-  if (refreshTimer) clearTimeout(refreshTimer);
+  if (pollTimer) clearTimeout(pollTimer);
   if (hoverPollTimer) clearInterval(hoverPollTimer);
   if (updateTimer) clearInterval(updateTimer);
 });
