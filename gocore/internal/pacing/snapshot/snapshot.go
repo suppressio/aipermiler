@@ -107,10 +107,6 @@ type WindowSnapshot struct {
 	Period quotaperiod.Period
 	// Units are the working units of a day-based window with known bounds.
 	Units *quotaperiod.WorkingUnits
-	// WorkingUnitsToReset is set only without a utilization, where there is no
-	// Summary to carry it.
-	WorkingUnitsToReset    float64
-	HasWorkingUnitsToReset bool
 	// DaysToReset are calendar days for billing cycles, 24 h days otherwise.
 	DaysToReset    float64
 	HasDaysToReset bool
@@ -243,10 +239,8 @@ func buildWindow(in Input, w Window) (WindowSnapshot, history.State, bool) {
 		snap.Units, totalUnits = &units, units.Total
 		snap.Efficiency, snap.HasEfficiency = pace.Efficiency(x, units.Total, units.Elapsed)
 	}
-	if hasUnits && resetAhead {
-		snap.UnitsToReset, snap.HasUnitsToReset = units.Remaining, true
-	} else if r, ok := period.UnitsToReset(now, loc, set.Schedule, worked); ok && resetAhead {
-		snap.UnitsToReset, snap.HasUnitsToReset = r, true
+	if resetAhead {
+		snap.UnitsToReset, snap.HasUnitsToReset = unitsToReset(period, units, hasUnits, now, loc, set.Schedule, worked)
 	}
 	if hasUnits && resetAhead {
 		dayBased(&snap, state, units, period, set, now)
@@ -292,16 +286,15 @@ func withoutUtilization(snap *WindowSnapshot, in Input, w Window) {
 		return // read in hours, which needs the used quota
 	}
 	state := in.History[w.ID]
-	if !period.End.IsZero() && period.End.After(now) {
-		snap.DaysToReset, snap.HasDaysToReset = period.DaysUntilReset(now, loc)
-	}
+	resetAhead := !period.End.IsZero() && period.End.After(now)
 	units, hasUnits := period.Units(now, loc, set.Schedule, nil)
 	var totalUnits float64
 	if hasUnits {
 		snap.Units, totalUnits = &units, units.Total
-		if !period.End.IsZero() && period.End.After(now) {
-			snap.WorkingUnitsToReset, snap.HasWorkingUnitsToReset = units.Remaining, true
-		}
+	}
+	if resetAhead {
+		snap.DaysToReset, snap.HasDaysToReset = period.DaysUntilReset(now, loc)
+		snap.UnitsToReset, snap.HasUnitsToReset = unitsToReset(period, units, hasUnits, now, loc, set.Schedule, nil)
 	}
 	upcoming := 2
 	if set.ChartDays == 30 {
@@ -312,6 +305,18 @@ func withoutUtilization(snap *WindowSnapshot, in Input, w Window) {
 		TotalUnits: totalUnits, Now: now, Location: loc, PastDays: set.ChartDays, UpcomingDays: upcoming,
 	})
 	snap.Stats = advice.Summarize(snap.Chart, now, loc)
+}
+
+// unitsToReset is R: the units' own remaining part with a known period start,
+// else from the reset and the schedule alone (E9). The caller checks that the
+// reset is still ahead.
+func unitsToReset(period quotaperiod.Period, units quotaperiod.WorkingUnits, hasUnits bool,
+	now time.Time, loc *time.Location, schedule quotaperiod.Schedule, worked *float64,
+) (float64, bool) {
+	if hasUnits {
+		return units.Remaining, true
+	}
+	return period.UnitsToReset(now, loc, schedule, worked)
 }
 
 // localInsights crosses the window's daily deltas with the local tokens

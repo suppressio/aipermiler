@@ -319,8 +319,6 @@ func windowOut(w snapshot.WindowSnapshot, h history.State, loc *time.Location) W
 			out.AutonomyWorkingDays = ptr(s.Autonomy)
 		}
 		out.Preliminary = s.Preliminary
-	} else if w.HasWorkingUnitsToReset {
-		out.WorkingDaysUntilReset = ptr(w.WorkingUnitsToReset)
 	}
 	if w.HasTodayBudget {
 		out.TodayBudget = &TodayBudgetOut{Budget: w.TodayBudget, UsedToday: w.UsedToday}
