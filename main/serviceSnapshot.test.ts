@@ -132,6 +132,20 @@ test('local insights of the snapshot reach the window (yield) and the tip (cause
   assert.deepEqual(weekly.dailyTip, { key: 'cause', params: { highDaysHighContextPercent: 70, lowDaysHighContextPercent: 20 } });
 });
 
+test('#73 / E3: an exhausted window has no tip and the verdict says exhausted', () => {
+  // The core gives no tip on an exhausted quota (TP-2, TP-9, E3): the widget hides the
+  // tip section for `none` and the verdict carries the message.
+  const body = withWeekly((w) => {
+    w.used = 100;
+    w.remaining = 0;
+    w.tip = null;
+    w.judgement = { verdict: 'exhausted', reason: null, autonomyHours: null };
+  });
+  const weekly = at(accountFromSnapshot(IDENTITY, parseServiceSnapshot(200, body, 'fake')).windows, 1);
+  assert.deepEqual(weekly.dailyTip, { key: 'none', params: {} });
+  assert.deepEqual(weekly.verdict, { kind: 'exhausted' });
+});
+
 test('a stale snapshot keeps the last values with the problem of the last read', () => {
   const read = parseServiceSnapshot(200, fixture('service/snapshot'), 'fake');
   const account = accountFromSnapshot(IDENTITY, read, { refreshing: true });
