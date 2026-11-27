@@ -312,9 +312,12 @@ func windowOut(w snapshot.WindowSnapshot, h history.State, loc *time.Location) W
 	if w.HasCeiling {
 		out.SustainableRate = ptr(w.Ceiling)
 	}
+	// Known with the reset alone, so also without a period start.
+	if w.HasUnitsToReset && w.Hourly == nil {
+		out.WorkingDaysUntilReset = ptr(w.UnitsToReset)
+	}
 	if s := w.Summary; s != nil {
 		out.ProjectedUsage = ptr(s.Projection)
-		out.WorkingDaysUntilReset = ptr(s.WorkingUnitsToReset)
 		if s.HasAutonomy {
 			out.AutonomyWorkingDays = ptr(s.Autonomy)
 		}
