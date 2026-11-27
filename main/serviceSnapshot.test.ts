@@ -57,7 +57,7 @@ test('snapshot fixture: mapped to the widget types, exact values (I-4), null sta
   assert.equal(account.serviceDown, undefined);
   // critical = 1: the weekly window opens first, its fields are on the account.
   assert.equal(account.criticalWindow?.id, 'weekly');
-  assert.equal(account.projectedUsage, 81.82692307692307);
+  assert.equal(account.projectedUsage, 84.50549450549451);
   assert.equal(account.workingDaysUntilReset, 3.75);
 
   const [fiveHour, weekly, premium, extra] = account.windows;
@@ -80,7 +80,7 @@ test('snapshot fixture: mapped to the widget types, exact values (I-4), null sta
   assert.deepEqual(weekly.redistribution, { perUnit: 13.714285714285714, idealPerUnit: 14.285714285714286, unitsLeft: 4.375 });
   assert.deepEqual(weekly.todayBudget, { budget: 16, usedToday: 10 });
   assert.equal(weekly.efficiencyIndex, 1.1607142857142858);
-  assert.equal(weekly.estimatedAutonomyWorkingDays, 5.379310344827586);
+  assert.equal(weekly.estimatedAutonomyWorkingDays, 5.055555555555555);
   assert.equal(weekly.daysUntilReset, 3.75);
   assert.equal(weekly.preliminary, false);
   assert.deepEqual(weekly.deltaStats, { peak: 15, avg: 10, streakUnderBudget: 3 });
@@ -111,11 +111,11 @@ test('verdict numbers follow the rule that decided it (§3.10)', () => {
   const verdictOf = (body: string): unknown => at(accountFromSnapshot(IDENTITY, parseServiceSnapshot(200, body, 'fake')).windows, 1).verdict;
   // Pace: the redistribution plus the current pace.
   assert.deepEqual(verdictOf(withWeekly((w) => { w.judgement = { verdict: 'at-risk', reason: 'pace', autonomyHours: null }; })),
-    { kind: 'at-risk', perUnit: 13.714285714285714, idealPerUnit: 14.285714285714286, pacePerUnit: 11.153846153846153 });
+    { kind: 'at-risk', perUnit: 13.714285714285714, idealPerUnit: 14.285714285714286, pacePerUnit: 11.868131868131869 });
   assert.deepEqual(verdictOf(withWeekly((w) => { w.judgement = { verdict: 'at-risk', reason: 'autonomy', autonomyHours: null }; })),
-    { kind: 'at-risk', autonomyWorkingDays: 5.379310344827586 });
+    { kind: 'at-risk', autonomyWorkingDays: 5.055555555555555 });
   assert.deepEqual(verdictOf(withWeekly((w) => { w.judgement = { verdict: 'at-risk', reason: 'projection', autonomyHours: null }; })),
-    { kind: 'at-risk', projectedUsage: 81.82692307692307 });
+    { kind: 'at-risk', projectedUsage: 84.50549450549451 });
   assert.deepEqual(verdictOf(withWeekly((w) => { w.judgement = { verdict: 'at-risk', reason: 'hourly', autonomyHours: 1.5 }; })),
     { kind: 'at-risk', autonomyHours: 1.5 });
   assert.deepEqual(verdictOf(withWeekly((w) => { w.judgement = { verdict: 'exhausted', reason: null, autonomyHours: null }; })),

@@ -642,12 +642,26 @@ func TestRegressionCases(t *testing.T) {
 		in.Settings.Schedule.Enabled = false
 		in.Response.Windows[0] = snapshot.Window{ID: "weekly", Kind: quotaperiod.RollingDays, Length: 7, Unit: pace.Percentage, Used: 40,
 			ResetsAt: at(t, time.October, 21, 23, 0)}
+		today(t, &in, 30, time.Time{})
 		w := build(t, in)
 		exact(t, "N", w.Units.Total, 7)
 		exact(t, "E", w.Units.Elapsed, 4058.0/1440)
 		exact(t, "R", w.Units.Remaining, 6022.0/1440)
 		shown(t, "E", w.Units.Elapsed, true, 2.82, 2)
 		shown(t, "R", w.Units.Remaining, true, 4.18, 2)
+		// The §8 row end to end: "days to reset" 4.2, and the projection and today's
+		// budget on the same time base (R and U from the exact bounds).
+		shown(t, "days to reset", w.DaysToReset, w.HasDaysToReset, 4.2, 1)
+		exact(t, "R of the summary", w.Summary.WorkingUnitsToReset, 6022.0/1440)
+		if !w.Summary.HasPace {
+			t.Fatal("no pace")
+		}
+		exact(t, "projection", w.Summary.Projection, 40+w.Summary.Pace*6022.0/1440)
+		exact(t, "U", w.Units.FromToday, 119.0/24)
+		if !w.HasTodayBudget {
+			t.Fatal("no today budget")
+		}
+		exact(t, "B", w.TodayBudget, 70/(119.0/24))
 	})
 }
 
